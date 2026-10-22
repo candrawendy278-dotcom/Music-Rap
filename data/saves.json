@@ -1,0 +1,37 @@
+{
+  "usr_182966238a3ccb3bbee0494b": {
+    "userId": "usr_182966238a3ccb3bbee0494b",
+    "gameState": {
+      "career": "Global Pop Star",
+      "level": 5
+    },
+    "updatedAt": "2026-09-18T15:06:54.504Z"
+  },
+  "usr_dceba37e344cc4aa81c4cdda": {
+    "userId": "usr_dceba37e344cc4aa81c4cdda",
+    "userEmail": "test_cloud@example.com",
+    "gameState": {
+      "isStarted": true,
+      "artist": {
+        "name": "JISOO",
+        "country": "KR",
+        "tier": 1
+      },
+      "money": 500000,
+      "songs": []
+    },
+    "updatedAt": "2026-10-06T02:09:48.661Z"
+  },
+  "usr_aed2ece6c269a2a7330780c0": {
+    "userId": "usr_aed2ece6c269a2a7330780c0",
+    "userEmail": "autotest@example.com",
+    "gameState": {
+      "artist": {
+        "name": "JISOO",
+        "country": "KR"
+      },
+      "money": 500000
+    },
+    "updatedAt": "2026-10-06T02:15:40.351Z"
+  }
+}

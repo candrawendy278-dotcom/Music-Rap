@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --color-apple-blue: #007AFF;
+  --color-apple-bg: #F2F2F7;
+  --color-apple-card: #FFFFFF;
+  --color-apple-text: #1C1C1E;
+  --color-apple-subtext: #8E8E93;
+  --color-apple-border: #E5E5EA;
+  --color-apple-gray: #C7C7CC;
+  
+  --color-spotify-bg: #121212;
+  --color-spotify-card: #181818;
+  --color-spotify-green: #1DB954;
+  --color-spotify-text: #B3B3B3;
+  
+  --color-youtube-bg: #0F0F0F;
+  --color-youtube-card: #272727;
+  --color-youtube-red: #FF0000;
+  --color-youtube-text: #AAAAAA;
+  
+  --color-billboard-bg: #F6F6F6;
+  --color-billboard-dark: #000000;
+  --color-billboard-gold: #D4AF37;
+
+  --shadow-ios: 0 4px 24px rgba(0, 0, 0, 0.04);
+  --shadow-ios-heavy: 0 10px 40px rgba(0, 0, 0, 0.08);
+
+  --font-sans: 'Inter', sans-serif;
+  --font-serif: 'Playfair Display', serif;
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+body {
+  background-color: var(--color-apple-bg);
+  color: var(--color-apple-text);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}

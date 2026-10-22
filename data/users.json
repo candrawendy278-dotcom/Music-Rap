@@ -1,0 +1,32 @@
+{
+  "usr_182966238a3ccb3bbee0494b": {
+    "uid": "usr_182966238a3ccb3bbee0494b",
+    "email": "star@example.com",
+    "passwordHash": "1269ade469e8c427037472061aefd354:7b6c415a924bc4384f9f1a45ff9cf4d070d144601e4429a49bf61db9c39892a246995d974b2539f8411861d8b701fa0170b66ee294362c9c278989e3a9ccecd0",
+    "createdAt": "2026-09-18T15:06:54.480Z"
+  },
+  "usr_8c586184d0cfd9fffe5b3eaa": {
+    "uid": "usr_8c586184d0cfd9fffe5b3eaa",
+    "email": "cadanganmek@gmail.com",
+    "passwordHash": "a79fb38d075f2ad3d9db66adfe82d417:ee5e48b0a9010e493f96dc868caef36aa9fa42abc982f21c5948863bdaccc369a569ea094a2720581c23af93b75fd6bac7a1c37ef1e7860930d8302667bfb888",
+    "createdAt": "2026-09-18T15:07:47.529Z"
+  },
+  "usr_3fe453043cc9f011c29cfb74": {
+    "uid": "usr_3fe453043cc9f011c29cfb74",
+    "email": "wendycandra911@gmail.com",
+    "passwordHash": "716b542c9de1c7942ebb74ca15af3eeb:28fdb8ab349f32c79c6c99b02a67ffbc3a7eb4afdb7ac7b42135b8cb68d09c4419f8c9e0607ae30c0aaaaec042c7fcbc4060fa67529fe7f530f38f358bc2281a",
+    "createdAt": "2026-09-18T15:18:22.512Z"
+  },
+  "usr_dceba37e344cc4aa81c4cdda": {
+    "uid": "usr_dceba37e344cc4aa81c4cdda",
+    "email": "test_cloud@example.com",
+    "passwordHash": "f19d51c6f21cac214ecb0c92adbe6a93:841c4a5b93cb20131ce1b01693a08c1cc3c3a0b2413fc95fcc4e993bf4d2731b29244a053353b161753531110ed1e791981a9878f0814ad00323d9d0028ab16b",
+    "createdAt": "2026-10-06T02:09:44.244Z"
+  },
+  "usr_aed2ece6c269a2a7330780c0": {
+    "uid": "usr_aed2ece6c269a2a7330780c0",
+    "email": "autotest@example.com",
+    "passwordHash": "a985c0d5ac40770e5b158ec549479e2b:f38d0ea67d3abb5e74a1dd82f45e3104d83aacf4deb578833ea37c35a9ed0c06dcbddfac5ee726e452352726363903cf5b574732dff2921bce04c85759f03e67",
+    "createdAt": "2026-10-06T02:15:33.959Z"
+  }
+}
