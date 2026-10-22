@@ -3,17 +3,20 @@ import { formatMoney, formatNumFull } from '../../constants';
 import { useState, useMemo } from 'react';
 import SkillSystemModal from '../Modals/SkillSystemModal';
 import RivalBeefModal from '../Modals/RivalBeefModal';
+import ArtistTrophyRoomModal from '../Modals/ArtistTrophyRoomModal';
 import { getEnsuredSkillState, calculateMasteryRank } from '../../data/skillSystemEngine';
 import { getPopularityTierInfo, getHypeStatusInfo } from '../../data/artistGrowthEngine';
 import { getDetailedFanDemographics } from '../../data/fansSystemEngine';
 import { getHiatusStatusSummary } from '../../data/hiatusSystemEngine';
 import { getEnsuredRivalState } from '../../data/rivalBeefSystemEngine';
+import { getArtistTrophyRoomSummary } from '../../data/awardsFormulaAndSimulationEngine';
 import { OfficialArtworkImg } from '../Common/OfficialArtworkImg';
 
 export default function Dashboard() {
   const { state, setState, nextDay, nextDayLoading } = useGameContext();
   const [showSkillModal, setShowSkillModal] = useState(false);
   const [showRivalModal, setShowRivalModal] = useState(false);
+  const [showTrophyRoomModal, setShowTrophyRoomModal] = useState(false);
 
   const skills = getEnsuredSkillState(state.skills);
   const masteryRank = calculateMasteryRank(skills);
@@ -26,6 +29,7 @@ export default function Dashboard() {
   );
   const hiatusSummary = useMemo(() => getHiatusStatusSummary(state), [state.isHiatus, (state as any).hiatusDays]);
   const rivalState = useMemo(() => getEnsuredRivalState(state), [state]);
+  const trophySummary = useMemo(() => getArtistTrophyRoomSummary(state), [state]);
 
   const activeTrainings = useMemo(() => {
     const list: { name: string; targetLevel: number; daysRemaining: number; totalDays: number }[] = [];
@@ -476,12 +480,47 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Artist Profile & Trophy Room Card */}
+      <div className="bg-[#0F0F13] text-white rounded-[28px] border border-[#D4AF37]/30 shadow-[0_8px_24px_-6px_rgba(0,0,0,0.28)] overflow-hidden">
+        <div
+          onClick={() => setShowTrophyRoomModal(true)}
+          className="p-5 flex items-center justify-between cursor-pointer hover:bg-white/[0.03] transition-colors group"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <OfficialArtworkImg
+              artist={state.artist?.name || 'Artist'}
+              explicitSrc={state.artist?.image}
+              isArtistPortrait={true}
+              className="w-12 h-12 rounded-full object-cover border-2 border-[#D4AF37] shrink-0"
+            />
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#D4AF37]">
+                Artist Profile · Trophy Room
+              </p>
+              <h3 className="text-base font-black text-white tracking-tight mt-0.5 truncate">
+                {state.artist?.name || 'Artist'} Honors & Accolades
+              </h3>
+              <p className="text-xs text-neutral-400 mt-0.5 tabular-nums truncate">
+                {trophySummary.grammyWins} GRAMMYs ({trophySummary.grammyNominations} Noms) · {trophySummary.vmaWins} MTV VMAs ({trophySummary.vmaNominations} Noms)
+              </p>
+            </div>
+          </div>
+          <div className="w-10 h-10 rounded-2xl bg-[#D4AF37] text-black flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+            <i className="ph-fill ph-trophy text-base"></i>
+          </div>
+        </div>
+      </div>
+
       {showSkillModal && (
         <SkillSystemModal onClose={() => setShowSkillModal(false)} />
       )}
 
       {showRivalModal && (
         <RivalBeefModal onClose={() => setShowRivalModal(false)} />
+      )}
+
+      {showTrophyRoomModal && (
+        <ArtistTrophyRoomModal onClose={() => setShowTrophyRoomModal(false)} />
       )}
     </div>
   );

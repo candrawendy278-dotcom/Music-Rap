@@ -1,95 +1,102 @@
-# Pembaruan Animasi Next Day, Sistem Streaming Organik & Ekosistem Artis Dunia Nyata
+# Rencana Implementasi: The GRAMMY Awards & MTV Video Music Awards (VMAs)
 
-Rencana ini menghadirkan pengalaman simulasi musik yang jauh lebih hidup dan autentik melalui transisi pergantian hari (*Next Day*) bergaya studio rekaman sinematik, penyempurnaan kurva streaming harian yang lebih stabil terhadap kualitas lagu serta loyalitas fanbase, dan pembaruan menyeluruh seluruh NPC serta katalog chart menggunakan artis dunia nyata lengkap dengan foto profil, diskografi lagu/album asli, dan *cover art* resmi di seluruh chart termasuk Billboard.
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> Berikut adalah keputusan utama yang telah dikonfirmasi dari jawaban Anda dan akan diterapkan secara menyeluruh:
-
-- **Gaya Animasi Next Day**: Animasi sinematik dan keren bergaya studio musik profesional — menampilkan piringan hitam (*vinyl*) berputar dengan *tonearm* bergerak, efek *3D calendar flip* dari hari ini ke hari berikutnya, *live rolling number counter* untuk stream dan royalti yang sedang dikalkulasi, serta visualizer gelombang suara dinamis.
-- **Sistem Streaming & Ketahanan Fanbase/Hype**: Kurva stream harian diperhalus agar bergerak organik mengikuti kualitas lagu (*Song Quality & Synergy*) tanpa fluktuasi kasar, serta memperkuat peran *Dedicated Fans* dan *Hype* sebagai penopang ketahanan (*retention floor*) stream jangka panjang.
-- **Artis Dunia Nyata & Diskografi Asli**: Mengubah seluruh NPC utama dan katalog lagu/album di chart menjadi artis dunia nyata (seperti Taylor Swift, Drake, Bad Bunny, Billie Eilish, The Weeknd, Sabrina Carpenter, Kendrick Lamar, Bruno Mars, Ariana Grande, SZA, Olivia Rodrigo, Travis Scott, Chappell Roan, Charli XCX, Post Malone, Dua Lipa, dll.) lengkap dengan foto profil asli, judul lagu dan album asli, serta *cover art* asli yang tampil di profil maupun di seluruh chart **Billboard** (Hot 100, Global 200, Regional, dan Billboard 200 Albums).
+Pembaruan ini menghadirkan dua ajang penghargaan musik paling bergengsi di dunia ke dalam game—**The GRAMMY Awards** dan **MTV Video Music Awards (VMAs)**—dengan aplikasi terpisah, identitas visual autentik yang mencerminkan masing-masing penghargaan, daftar kategori lengkap seperti di dunia nyata, formula pemilihan nominasi & pemenang yang adil antara Player dan NPC, **Artist Profile Trophy Room**, serta pengumuman otomatis secara mendetail di **X (Twitter)**.
 
 ---
 
-## 1. Overview & Core Concept
+## 1. Dua Aplikasi Terpisah & Identitas Visual Autentik
 
-- **What It Does**:
-  1. **Animasi Next Day Sinematik**: Menyajikan visual pergantian hari yang imersif dengan putaran piringan hitam berlapis cahaya analog, jarum *turntable* yang aktif, kalender yang bertransisi secara halus, dan indikator tahapan simulasi (*Streams & Airplay*, *Billboard & Global Charts*, *Royalties & Fan Growth*) yang responsif.
-  2. **Mesin Streaming Organik & Loyalitas Fanbase**: Menstabilkan kurva pertumbuhan dan penurunan (*decay*) stream harian berdasarkan kualitas lagu, sinergi penulisan/rekaman, serta memberikan bantalan (*streaming floor*) yang kuat dari jumlah *Dedicated Fans* dan *Hype* sehingga lagu berkualitas tinggi bertahan lama di chart sebagaimana hit dunia nyata.
-  3. **Ekosistem Artis Dunia Nyata & Cover Art Billboard**: Mengganti nama parodi dan aset generik dengan nama artis dunia nyata, foto profil asli, katalog single & album asli, serta *cover art* album/single resolusi tinggi yang terintegrasi penuh di Spotify, iTunes, YouTube, X, dan seluruh chart **Billboard** (termasuk sistem *auto-fetch* sampul resmi dari iTunes/Apple Music API dengan *caching* instan dan *fallback* visual anti-rusak).
-- **Target Audience / Persona**: Pemain simulasi karir musik yang menginginkan atmosfer industri musik nyata, bersaing langsung di tangga lagu melawan bintang pop dan hip-hop global sesungguhnya.
-- **Key Value**: Meningkatkan imersi visual setiap kali pemain menekan tombol *Advance Time*, memberikan kepuasan progresi karir saat membangun fanbase dan merilis lagu berkualitas tinggi, serta menghadirkan tampilan chart Billboard dan Spotify yang tampak seperti aplikasi musik sungguhan.
+Di dalam tab **Apps & Services**, akan ditambahkan kategori baru **Awards & Honors** yang berisi dua aplikasi mandiri:
+
+### A. Aplikasi The GRAMMY Awards (`GrammyAwardsApp.tsx`)
+- **Identitas Visual**: *Recording Academy Prestige* — palet warna Obsidian Black (`#0A0A0C`), Brushed Champagne Gold (`#D4AF37`), dan Warm Ivory, dipadukan dengan tipografi editorial serif klasik untuk tajuk utama serta angka tabular untuk statistik.
+- **Fitur Utama di Dalam Aplikasi**:
+  1. **Season Tracker & Kalender Tahunan**: Menampilkan fase musim penghargaan saat ini:
+     - *Eligibility & FYC Submission Window* (Sepanjang tahun hingga pengumuman nominasi)
+     - *Official Nominations Announcement* (15 November setiap tahun)
+     - *Final Academy Voting & FYC Campaign* (15 November – 4 Februari)
+     - *Grammy Ceremony Night* (5 Februari setiap tahun)
+  2. **Daftar Kategori Lengkap (20 Kategori Asli)**:
+     - **General Field (The Big Four)**: *Record of the Year*, *Album of the Year*, *Song of the Year*, *Best New Artist*.
+     - **Pop Field**: *Best Pop Solo Performance*, *Best Pop Duo/Group Performance*, *Best Pop Vocal Album*, *Best Dance Pop Recording*.
+     - **Rap / Hip-Hop Field**: *Best Rap Performance*, *Best Melodic Rap Performance*, *Best Rap Song*, *Best Rap Album*.
+     - **R&B Field**: *Best R&B Performance*, *Best R&B Song*, *Best R&B Album*.
+     - **Rock, Alternative & Global Field**: *Best Rock/Alternative Performance*, *Best Latin/Global Music Performance*, *Best Dance/Electronic Recording*.
+     - **Craft & Visual Field**: *Producer of the Year (Non-Classical)*, *Best Music Video*.
+  3. **Submission & FYC ("For Your Consideration") Campaign**:
+     - Lagu, album/EP, dan MV yang dirilis dalam periode kelayakan otomatis terdaftar.
+     - Player dapat memilih lagu/album/MV unggulan untuk diajukan ke kategori utama dan menjalankan kampanye *For Your Consideration (FYC)* guna meningkatkan perhatian panelis Recording Academy.
+  4. **Historical Archive (Hall of Past Winners)**: Arsip lengkap seluruh pemenang dan nominasi dari tahun ke tahun (baik Player maupun NPC).
+
+### B. Aplikasi MTV Video Music Awards / VMAs (`MtvVmasApp.tsx`)
+- **Identitas Visual**: *High-Voltage Moon Person Stage* — palet warna Deep Carbon (`#09090F`), Chrome Metallic Silver (`#E2E8F0`), Electric Magenta (`#FF1E8A`), dan Cyber Cyan (`#00F0FF`) dengan gaya panggung festival malam penghargaan MTV.
+- **Fitur Utama di Dalam Aplikasi**:
+  1. **Season Tracker & Kalender Tahunan**:
+     - *Official VMA Nominations* (1 Agustus setiap tahun)
+     - *Fan Voting Period* (1 Agustus – 11 September)
+     - *MTV VMAs Live Ceremony Night* (12 September setiap tahun)
+  2. **Daftar Kategori Lengkap (16 Kategori Asli)**:
+     - **Major Categories**: *Video of the Year*, *Artist of the Year*, *Song of the Year*, *Best New Artist*, *Best Collaboration*, *Song of the Summer*.
+     - **Genre Video Categories**: *Best Pop*, *Best Hip-Hop*, *Best R&B*, *Best K-Pop*, *Best Latin*, *Best Afrobeats*, *Best Rock / Alternative*.
+     - **Professional & Technical Craft Categories**: *Best Direction*, *Best Cinematography*, *Best Visual Effects & Choreography*.
+  3. **Submission & Fan Voting Mobilization**:
+     - MV dan lagu otomatis masuk seleksi, ditambah opsi bagi Player untuk memilih video andalan dan menggerakkan *Fanbase Voting Rally* sebelum malam puncak.
+  4. **VMA Moon Person Archive**: Riwayat pemenang dan nominasi VMA setiap tahun.
 
 ---
 
-## 2. User Experience & Visual Design
+## 2. Formula Pemilihan Nominasi & Pemenang (Player & NPC Setara)
 
-- **Key User Flows**:
-  1. **Alur Transisi Next Day**: Saat pemain menekan tombol *Advance Time* di Dashboard, layar menampilkan overlay sinematik. Piringan hitam berputar dengan pantulan cahaya spekular, jarum *tonearm* menempel ke piringan, kartu tanggal berganti dari tanggal lama ke tanggal baru dengan animasi transisi mulus, angka estimasi aktivitas berdetak naik, dan bar progres berdenyut melewati tiga tahap kalkulasi sebelum kembali ke Dashboard.
-  2. **Alur Performa Streaming Lagu**: Saat hari berganti, lagu yang baru dirilis mendapatkan dorongan *Hype* dan *Dedicated Fans* yang nyata. Lagu dengan kualitas tinggi dan dukungan fanbase besar mengalami penurunan harian yang sangat landai (*organic retention*), sementara lagu dari katalog lama tetap menghasilkan *recurrent streams* yang stabil dari penggemar setia.
-  3. **Alur Eksplorasi Artis Nyata & Chart Billboard**: Ketika pemain membuka aplikasi **Billboard** (Singles maupun Billboard 200 Albums) atau **Spotify**, setiap baris chart menampilkan *cover art* asli dari lagu/album artis dunia nyata (misalnya *The Tortured Poets Department* / *Cruel Summer* milik Taylor Swift, *Hit Me Hard and Soft* / *Birds of a Feather* milik Billie Eilish, *GNX* / *Not Like Us* milik Kendrick Lamar, *Short n' Sweet* / *Espresso* milik Sabrina Carpenter, dll.), lengkap dengan foto profil asli saat profil NPC dibuka.
-- **Visual Identity & Theme**:
-  - *Aesthetic Direction*: Studio Rekaman High-Craft & Editorial Musik Modern.
-  - *Color Palette & Mood*: Kanvas gelap berlapis kaca (`#090A0F` hingga `#121316`) pada overlay transisi dengan aksen *Warm Analog Amber* (`#F59E0B`), *Spotify Emerald* (`#1DB954`), dan kontras monokrom tajam khas editorial **Billboard** (`#000000` & `#FFFFFF`).
-  - *Typography & Hierarchy*: Menggunakan angka tabular (`tabular-nums`) untuk seluruh penghitung stream, posisi chart, dan persentase progres agar tidak bergeser saat beranimasi.
-  - *Component Styling & Layout*: Mengikuti ergonomi mobile-first dengan target sentuh minimal `44x44px`, pemisahan elemen yang bersih, serta perlindungan *image fallback* berlapis agar tidak pernah ada gambar pecah.
-- **Interactive Feedback & Motion**:
-  - Animasi berbasis properti kompositor (`transform`, `opacity`) untuk menjamin kelancaran 60fps.
-  - Transisi urutan tangga lagu menggunakan pegas halus (*spring layout animation*) dan pemuatan *cover art* dengan *fade-in* mulus.
+Sistem penilaian menggunakan data nyata dari performa lagu, album, MV, chart Billboard, serta atribut artis (baik Player maupun NPC dari `npcLivingArtistAttributesAndMarketEngine`):
+
+- **Formula The GRAMMY Awards (Academy-Weighted)**:
+  $$\text{Grammy Score} = (0.40 \times \text{Quality & Craft Mastery}) + (0.25 \times \text{Billboard Chart Peak & Longevity}) + (0.20 \times \text{Streams & Pure Sales Impact}) + (0.10 \times \text{Cultural Stature & Popularity}) + (0.05 \times \text{FYC Campaign Bonus})$$
+  - *General Field* dan *Craft Categories* menitikberatkan pada kualitas produksi/penulisan lagu serta dampak kultural, sehingga lagu berkualitas tinggi memiliki peluang menang yang realistis melawan lagu komersial.
+- **Formula MTV VMAs (Fan & Viral Visual-Weighted)**:
+  $$\text{VMA Score} = (0.35 \times \text{YouTube MV Views & Likes Velocity}) + (0.25 \times \text{Dedicated Fans & Stan Voting Power}) + (0.20 \times \text{Viral Hype & Stream Momentum}) + (0.15 \times \text{Billboard Hot 100 / Global 200 Impact}) + (0.05 \times \text{Fan Voting Campaign})$$
+  - Kategorinya sangat menghargai performa Music Video di YouTube, kekuatan fanbase/stan, dan kehebohan viral.
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 3. Interactive Live Ceremony Night (`AwardCeremonyLiveModal.tsx`)
 
-- **Decision 1: Arsitektur Modular untuk Fitur Baru & Kalibrasi**
-  - *Chosen Approach*: Memisahkan modul katalog artis dunia nyata, resolver sampul album/lagu asli, mesin peningkatan kurva streaming organik, dan komponen animasi *Next Day* ke dalam modul khusus yang terhubung bersih dengan sistem utama.
-  - *Why*: Menjaga stabilitas aplikasi, mematuhi prinsip modularitas agar penambahan fitur tidak merusak logika yang sudah berjalan, dan memudahkan pemeliharaan.
-  - *Alternatives Considered*: Menumpuk seluruh data dan logika baru di satu file lama — ditolak karena rawan konflik state dan sulit dipelihara.
-- **Decision 2: Penyediaan Foto Profil & Cover Art Asli Resolusi Tinggi dengan Auto-Resolver**
-  - *Chosen Approach*: Mengombinasikan database URL *artwork* resmi beresolusi tinggi untuk seluruh NPC utama dan lagu/album populer dengan resolver otomatis berbasis iTunes Search API (disertai *local cache* dan *fallback* sampul grafis jika offline).
-  - *Why*: Memastikan setiap lagu dan album milik Taylor Swift, Drake, Bad Bunny, Billie Eilish, The Weeknd, Sabrina Carpenter, Kendrick Lamar, SZA, dan artis lainnya menampilkan sampul album dan foto asli secara instan maupun saat offline.
-  - *Alternatives Considered*: Hanya mengandalkan pencarian API saat runtime tanpa database bawaan — ditolak karena akan menimbulkan jeda loading pada saat chart pertama kali dibuka.
+Saat tanggal malam puncak tiba (**5 Februari** untuk GRAMMYs, **12 September** untuk MTV VMAs):
+- Muncul layar interaktif **Live Ceremony Night** dengan desain khusus sesuai acara (Emas/Obsidian untuk Grammy, Perak Moon Person/Neon untuk VMA).
+- Player dapat membuka amplop kategori demi kategori (*"And the GRAMMY goes to..."* / *"And the Moon Person goes to..."*) atau melihat rekapitulasi langsung, lengkap dengan papan skor pemenang terbanyak malam itu (*Night's Biggest Winners*).
 
 ---
 
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+## 4. Artist Profile Trophy Room (`ArtistTrophyRoomModal.tsx`)
 
-- **Architecture & Component Diagram**:
+Sesuai permintaanmu, **Artist Profile berfungsi sebagai Trophy Room**:
+- Pada **Dashboard / Artist Profile** (serta profil artis), terdapat kartu & tampilan **Artist Profile & Trophy Room** yang menampilkan:
+  - Total **GRAMMY Wins** & **GRAMMY Nominations**
+  - Total **MTV VMA Moon Persons** & **VMA Nominations**
+  - Daftar lengkap piala yang pernah dimenangkan beserta tahun, kategori, dan judul lagu/album/MV (baik untuk Player maupun rekap piala milik NPC papan atas).
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        CORE GAME LOOP & STATE                           │
-│           (Daily Step, Weekly Monday Charts & Real-Time Engine)         │
-└───────────────┬─────────────────────────────────────────┬───────────────┘
-                │                                         │
-                ▼                                         ▼
-┌───────────────────────────────────────┐ ┌───────────────────────────────┐
-│   ENHANCED ORGANIC STREAMING ENGINE   │ │  REAL-WORLD ARTIST & ARTWORK  │
-│  • Smooth Quality-Driven Curve        │ │           REGISTRY            │
-│  • Fanbase & Hype Retention Cushion   │ │  • Authentic Artist Profiles  │
-│  • Recurrent Catalog Stability Floor  │ │  • Real Discographies & Hits  │
-│  • Multi-Week Smash Longevity         │ │  • Official Cover Art & Cache │
-└───────────────┬───────────────────────┘ └───────────────┬───────────────┘
-                │                                         │
-                ▼                                         ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     UI PRESENTATION & IN-GAME APPS                      │
-├───────────────────────┬─────────────────────────┬───────────────────────┤
-│   NEXT DAY CINEMATIC  │     BILLBOARD APP       │   SPOTIFY / ITUNES /  │
-│        OVERLAY        │  • Hot 100 & Global 200 │      YOUTUBE / X      │
-│  • Turntable & Tonearm│  • Billboard 200 Albums │  • Real NPC Showcases │
-│  • 3D Date Card Flip  │  • Verified Cover Art   │  • Full Discography   │
-│  • Live Metric Ticker │    on Every Chart Row   │    & Official Covers  │
-└───────────────────────┴─────────────────────────┴───────────────────────┘
-```
+---
 
-- **Data Model & State**:
-  - **Registry Artis Dunia Nyata**: Menyimpan profil lengkap artis asli (nama resmi, genre, bio autentik, foto profil asli, daftar lagu hit asli beserta angka stream/sales/radio realistis, dan daftar album studio asli beserta sampul resminya).
-  - **Resolver Sampul & Migrasi State Otomatis**: Memetakan setiap kombinasi `artist` + `title` ke sampul asli resmi, serta secara otomatis menyinkronkan data chart atau NPC pada save game yang sedang berjalan agar langsung menampilkan nama artis dan *cover art* asli tanpa perlu mengulang permainan dari awal.
-  - **Model Kurva Streaming**: Menghitung koefisien ketahanan harian menggunakan fungsi kontinu dari `quality`, `synergyScore`, `hype`, dan logaritma jumlah `fans`, menghasilkan perubahan harian (`dailyChangePercent`) yang organik dan stabil.
-- **Interactive Component & State Mapping**:
-  - **Tombol Advance Time -> Cinematic Next Day Overlay**: Memicu tahapan animasi berurutan (0% -> 35% -> 70% -> 100%) dengan indikator visual pergerakan jarum *vinyl*, efek pergantian kartu kalender, dan *ticker* aktivitas harian.
-  - **Billboard Chart View & Breakdown Modal**: Setiap baris di tab *Singles* (Global 200, US Hot 100, Regional) dan *Billboard 200* (Albums) serta modal *Breakdown* memanggil resolver *cover art* asli dengan penanganan `onError` berlapis sehingga sampul asli selalu tampil tajam.
-  - **NPC Showcase & Profile View**: Menampilkan avatar asli dan daftar lagu/album asli ketika pemain melihat rival di Spotify, memilih kolaborator di Studio, atau melihat chart di iTunes dan YouTube.
+## 5. Pengumuman Lengkap di X / Twitter (`awardsXAnnouncementEngine.ts`)
+
+Setiap kali pengumuman nominasi (**15 Nov** & **1 Agu**) dan malam penghargaan (**5 Feb** & **12 Sep**) berlangsung, feed **X (Twitter)** otomatis mempublikasikan laporan lengkap baik saat Player menang maupun saat NPC menang:
+1. **Breaking Nominations Thread**:
+   - Pengumuman daftar nominasi kategori utama (*Record of the Year*, *Album of the Year*, *Video of the Year*, dll.).
+   - Rekapitulasi artis dengan jumlah nominasi terbanyak (*"Most Nominated Artists at the GRAMMYs: @Artist leads with 8 nods..."*).
+2. **Live Winner Announcements (Player & NPC)**:
+   - Cuitan resmi dari `@RecordingAcad`, `@vmas`, `@chartdata`, dan `@PopBase` yang mengumumkan siapa pemenang di tiap kategori besar beserta karya yang menang.
+3. **Final Trophy Haul Recap**:
+   - Pengumuman akhir malam penghargaan tentang siapa yang membawa pulang piala terbanyak (*"MOST WINS TONIGHT: @Artist sweeps the ceremony taking home 5 trophies!"*) serta reaksi fanbase di X.
+
+---
+
+## 6. Struktur File Modular (1 Fitur = 1 File Terpisah)
+
+Sesuai aturan modularitas agar bebas dari error, seluruh fitur baru dibangun dalam file terpisah:
+- `src/data/awardsCategoriesConfig.ts` — Definisi lengkap 20 kategori GRAMMY & 16 kategori MTV VMA beserta syarat kelayakannya.
+- `src/data/awardsFormulaAndSimulationEngine.ts` — Mesin kalkulasi skor nominasi, pemilihan pemenang (Player vs NPC), FYC/Voting campaign, dan penyimpanan riwayat piala.
+- `src/data/awardsXAnnouncementEngine.ts` — Generator otomatis cuitan X/Twitter untuk pengumuman nominasi, pemenang tiap kategori, dan rekap jumlah piala yang dibawa pulang.
+- `src/components/Apps/GrammyAwardsApp.tsx` — Aplikasi mandiri The GRAMMY Awards.
+- `src/components/Apps/MtvVmasApp.tsx` — Aplikasi mandiri MTV Video Music Awards (VMAs).
+- `src/components/Modals/AwardCeremonyLiveModal.tsx` — Layar interaktif malam puncak penghargaan (amplop pemenang & papan skor piala).
+- `src/components/Modals/ArtistTrophyRoomModal.tsx` — Tampilan Artist Profile & Trophy Room lengkap.
+- Integrasi ringan pada `src/types.ts`, `src/hooks/useGame.ts`, `src/components/Tabs/AppsTab.tsx`, `src/components/Tabs/Dashboard.tsx`, dan `src/MainApp.tsx`.

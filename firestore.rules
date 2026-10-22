@@ -1,0 +1,76 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidGameSave(data) {
+      return data.keys().hasAll(['ownerId', 'artistName', 'savePayload', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'artistName', 'savePayload', 'createdAt', 'updatedAt'])
+        && data.ownerId is string
+        && data.ownerId.size() >= 1
+        && data.ownerId.size() <= 128
+        && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownerId == request.auth.uid
+        && data.artistName is string
+        && data.artistName.size() >= 1
+        && data.artistName.size() <= 100
+        && data.savePayload is string
+        && data.savePayload.size() >= 2
+        && data.savePayload.size() <= 900000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /game_saves/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && existing().ownerId == request.auth.uid && request.auth.uid == userId;
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidGameSave(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidGameSave(incoming())
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['artistName', 'savePayload', 'updatedAt']);
+
+      allow delete: if isVerifiedUser()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && existing().ownerId == request.auth.uid;
+    }
+  }
+}

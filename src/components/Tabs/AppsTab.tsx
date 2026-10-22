@@ -30,6 +30,13 @@ export default function AppsTab() {
       ]
     },
     {
+      name: "Awards & Honors",
+      apps: [
+        { id: 'grammys', name: 'The GRAMMYs', icon: 'ph-fill ph-trophy', color: 'text-[#D4AF37]', bg: 'bg-[#12110E]' },
+        { id: 'vmas', name: 'MTV VMAs', icon: 'ph-fill ph-planet', color: 'text-[#FF1E8A]', bg: 'bg-[#120D1D]' },
+      ]
+    },
+    {
       name: "Social & Video",
       apps: [
         { id: 'youtube', name: 'YouTube', icon: 'ph-fill ph-youtube-logo', color: 'text-red-500', bg: 'bg-red-500/10' },

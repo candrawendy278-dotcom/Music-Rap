@@ -35,6 +35,8 @@ import { processDailyRivalSystemStep } from '../data/rivalBeefSystemEngine';
 import { processDailyJobContractSalary } from '../data/jobsSystemEngine';
 import { processDailyCollabRoyaltySplits } from '../data/collabNegotiationAndRoyaltyEngine';
 import { calculateEnhancedMonthlyListenersStep } from '../data/enhancedMonthlyListenersAnalyticsEngine';
+import { processDailyAwardsCalendarStep } from '../data/awardsFormulaAndSimulationEngine';
+import { generateAwardEventXPosts } from '../data/awardsXAnnouncementEngine';
 
 syncNpcRealisticReleaseWorkflow('2026-01-01T00:00:00');
 
@@ -627,6 +629,18 @@ export function useGame() {
 
         // Advance X Social stats daily AFTER all charts are finalized so tweets report 100% accurate live ranks & points
         nextState.xPosts = advanceXSocialDaily(nextState.xPosts || [], nextState);
+
+        // Process Annual GRAMMYs & MTV VMAs Calendar (Nominations & Ceremony Night + X Official Announcements)
+        const awardsStep = processDailyAwardsCalendarStep(nextState, date);
+        (nextState as any).awardsState = awardsStep.updatedAwardsState;
+        if (awardsStep.triggeredEvent) {
+          const awardTweets = generateAwardEventXPosts(
+            nextState,
+            awardsStep.triggeredEvent.season,
+            awardsStep.triggeredEvent.eventType
+          );
+          nextState.xPosts = [...awardTweets, ...(nextState.xPosts || [])].slice(0, 120);
+        }
 
         return nextState;
       });

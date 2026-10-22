@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "GameSave": {
+      "title": "GameSave",
+      "description": "Stores an authenticated player's serialized music career save snapshot.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the save owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "artistName": {
+          "type": "string",
+          "description": "In-game artist stage name.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "savePayload": {
+          "type": "string",
+          "description": "Serialized JSON save state snapshot.",
+          "minLength": 2,
+          "maxLength": 900000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the save record was first created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the save record was last updated."
+        }
+      },
+      "required": ["ownerId", "artistName", "savePayload", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/game_saves/{userId}": {
+      "schema": { "$ref": "#/entities/GameSave" },
+      "description": "Per-user music career cloud save document keyed by Firebase Auth UID."
+    }
+  }
+}

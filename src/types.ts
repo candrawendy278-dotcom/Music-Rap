@@ -191,7 +191,7 @@ export interface GameState {
   xPosts?: XPost[];
   xProfile?: XProfile;
   activeTab: 'dashboard' | 'studio' | 'apps' | 'settings';
-  activeApp: 'none' | 'spotify' | 'youtube' | 'billboard' | 'itunes' | 'statistic' | 'skills' | 'x' | 'jobs';
+  activeApp: 'none' | 'spotify' | 'youtube' | 'billboard' | 'itunes' | 'statistic' | 'skills' | 'x' | 'jobs' | 'grammys' | 'vmas';
   gameMode?: 'normal' | 'realtime';
   lastRealTimeUpdate?: number;
   currentStreamRate?: number;
@@ -200,6 +200,7 @@ export interface GameState {
   cheatUnlocked?: boolean;
   rivalState?: any;
   jobsState?: any;
+  awardsState?: any;
 }
 
 export interface NPC {
