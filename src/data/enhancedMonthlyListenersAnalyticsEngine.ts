@@ -75,69 +75,124 @@ export function calculateEnhancedMonthlyListenersStep(params: {
     releasedSongs = []
   } = params;
 
-  const avgStreamsPerUniqueListenerPerMonth = 4.2 + (popularity / 100) * 1.6;
-  const rolling28DayStreamPool = dailyStreams * 28;
-  const streamDerivedListeners = Math.round(
-    rolling28DayStreamPool / avgStreamsPerUniqueListenerPerMonth
+  // Sort released songs by daily streams descending to account for multi-track listener overlap
+  // (Listeners playing Track #2, #3, etc. on an album largely overlap with Track #1's unique listeners)
+  const sortedByDaily = [...releasedSongs].sort(
+    (a, b) => (b.dailyStreams || 0) - (a.dailyStreams || 0)
   );
 
-  // 1. New Release Discovery Surge (tracks released within last 21 days bring high unique listener discovery)
-  let newReleaseBonus = 0;
-  let playlistReachBonus = 0;
-  let collabCrossoverBonus = 0;
+  let effectiveUniqueDailyReach = 0;
+  if (sortedByDaily.length > 0) {
+    sortedByDaily.forEach((song, idx) => {
+      const sDaily = Math.max(0, song.dailyStreams || 0);
+      const overlapWeight =
+        idx === 0 ? 1.0 :
+        idx === 1 ? 0.34 :
+        idx === 2 ? 0.20 :
+        idx < 6 ? 0.10 : 0.04;
+      effectiveUniqueDailyReach += sDaily * overlapWeight;
+    });
+  } else {
+    effectiveUniqueDailyReach = dailyStreams * 0.75;
+  }
 
-  releasedSongs.forEach(song => {
+  // Average streams per unique listener over a 28-day window (typically 7.2 to 12.5 streams/listener/month)
+  const avgStreamsPerUniqueListenerPerMonth =
+    7.2 + (popularity / 100) * 3.1 + Math.min(2.2, releasedSongs.length * 0.1);
+  const rolling28DayUniqueStreamPool = effectiveUniqueDailyReach * 28;
+  const baseStreamListeners = Math.round(
+    rolling28DayUniqueStreamPool / avgStreamsPerUniqueListenerPerMonth
+  );
+
+  // 1. Bounded New Release & Editorial Playlist reach multipliers (casual discovery lift)
+  let maxFreshnessBoost = 0;
+  let totalPlaylistScore = 0;
+  const collabBonuses: number[] = [];
+
+  sortedByDaily.forEach((song, idx) => {
     const daysOut = song.daysSinceRelease ?? 0;
-    const sDaily = song.dailyStreams || 0;
+    const sDaily = Math.max(0, song.dailyStreams || 0);
 
-    if (daysOut <= 21) {
-      const freshnessFactor = Math.max(0.15, (22 - daysOut) / 22);
-      newReleaseBonus += Math.round(sDaily * 2.4 * freshnessFactor);
+    if (daysOut <= 21 && sDaily > 0) {
+      const freshnessFactor = Math.max(0.1, (22 - daysOut) / 22);
+      const trackWeight = idx === 0 ? 1.0 : idx === 1 ? 0.45 : 0.2;
+      maxFreshnessBoost = Math.max(maxFreshnessBoost, freshnessFactor * 0.16 * trackWeight);
     }
 
-    // 2. Playlist placements bring casual unique listeners
     const plCount = song.playlistPlacements?.length || 0;
     if (plCount > 0) {
-      playlistReachBonus += Math.round(sDaily * Math.min(1.8, plCount * 0.45) + plCount * 4200);
+      const plWeight = idx === 0 ? 1.0 : idx < 3 ? 0.4 : 0.15;
+      totalPlaylistScore += Math.min(4, plCount) * 0.032 * plWeight;
     }
 
-    // 3. Collaboration crossover audience from featured NPC artist
+    // 2. Collaboration crossover audience from featured NPC artist (discounted for multiple collabs)
     if (song.collabId && song.collabId !== 'none') {
       const exp = getNpcCollabExpectations(song.collabId, popularity);
-      const decay = daysOut <= 28 ? 1.0 : Math.max(0.25, 28 / Math.max(28, daysOut));
-      collabCrossoverBonus += Math.round(
-        (sDaily * (1.2 + exp.audienceCrossoverBoost * 3) + exp.npcPop * 650) * decay
+      const decay = daysOut <= 28 ? 1.0 : Math.max(0.2, 28 / Math.max(28, daysOut));
+      const songCollabBonus = Math.round(
+        (sDaily * (0.42 + exp.audienceCrossoverBoost * 0.85) + exp.npcPop * 1400) * decay
       );
+      collabBonuses.push(songCollabBonus);
     }
   });
 
-  // 4. Passive catalog discovery from followers & artist buzz
-  const followerActiveListeners = Math.round(
-    followers * (0.42 + Math.min(0.45, hype / 180))
-  );
-  const discoveryFloor = Math.round(popularity * 1200 + hype * 380);
-
-  const rawTargetListeners = Math.max(
-    streamDerivedListeners + newReleaseBonus + playlistReachBonus + collabCrossoverBonus,
-    followerActiveListeners + collabCrossoverBonus + discoveryFloor
+  collabBonuses.sort((a, b) => b - a);
+  const collabCrossoverBonus = Math.round(
+    collabBonuses.reduce((sum, val, i) => sum + val * (i === 0 ? 1.0 : i === 1 ? 0.3 : 0.1), 0)
   );
 
-  // Smooth 28-day rolling window inertia
+  const reachMultiplier = 1 + Math.min(0.16, maxFreshnessBoost) + Math.min(0.18, totalPlaylistScore);
+  const streamDerivedListeners = Math.round(baseStreamListeners * reachMultiplier);
+
+  // 3. Passive catalog discovery from followers & artist buzz (with realistic active ratio)
+  const rawFollowerActive = Math.round(
+    followers * (0.19 + Math.min(0.14, hype / 420))
+  );
+  const followerActiveListeners =
+    rawFollowerActive > 28_000_000
+      ? 28_000_000 + Math.round((rawFollowerActive - 28_000_000) * 0.45)
+      : rawFollowerActive;
+
+  const discoveryFloor = Math.round(popularity * 850 + hype * 240);
+
+  // Combine stream reach and passive follower reach (accounting for overlap between followers and active streamers)
+  const uncompressedTarget = Math.max(
+    streamDerivedListeners + Math.round(followerActiveListeners * 0.42) + collabCrossoverBonus,
+    followerActiveListeners + Math.round(streamDerivedListeners * 0.35) + collabCrossoverBonus + discoveryFloor
+  );
+
+  // Soft compression curve above 58M so only historic global peaks reach 85M - 110M
+  const softKnee = 58_000_000;
+  const rawTargetListeners =
+    uncompressedTarget > softKnee
+      ? softKnee + Math.round(Math.pow(uncompressedTarget - softKnee, 0.88) * 1.45)
+      : uncompressedTarget;
+
+  // Smooth 28-day rolling window inertia (with automatic downward recalibration for legacy inflated saves)
   let nextListeners = rawTargetListeners;
   if (previousListeners > 0) {
-    if (rawTargetListeners >= previousListeners) {
-      // Surges quickly when new music, playlists, or collabs hit
-      nextListeners = Math.round(previousListeners * 0.72 + rawTargetListeners * 0.28);
+    if (previousListeners > rawTargetListeners * 1.55 && previousListeners > 12_000_000) {
+      // Fast recalibration if previous save had legacy inflated listener numbers
+      nextListeners = Math.round(rawTargetListeners * 1.06);
+    } else if (rawTargetListeners >= previousListeners) {
+      // Surges smoothly when new music, playlists, or collabs hit
+      nextListeners = Math.round(previousListeners * 0.74 + rawTargetListeners * 0.26);
     } else {
       // Gradual 28-day rolling decay when between eras
-      nextListeners = Math.round(previousListeners * 0.91 + rawTargetListeners * 0.09);
+      nextListeners = Math.round(previousListeners * 0.90 + rawTargetListeners * 0.10);
     }
   }
 
-  const hardCap = 148_000_000;
+  const hardCap = 112_000_000;
   const finalListeners = Math.min(hardCap, Math.max(0, nextListeners));
   const listenerDelta = finalListeners - previousListeners;
-  const peakListeners = Math.max(previousPeak || 0, previousListeners, finalListeners);
+  const peakListeners = Math.min(
+    hardCap,
+    Math.max(
+      previousPeak > hardCap ? finalListeners : (previousPeak || 0),
+      finalListeners
+    )
+  );
 
   return {
     listeners: finalListeners,

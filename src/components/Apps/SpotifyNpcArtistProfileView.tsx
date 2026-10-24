@@ -14,6 +14,7 @@ import {
   getCollaborationsForNpcArtist,
   resolveSongMetadataAndCollabCredits
 } from '../../data/spotifyTrackMetadataAndCollabEngine';
+import { calculateNpcMonthlyListeners } from '../../data/spotifyCatalogExpanded';
 
 interface SpotifyNpcArtistProfileViewProps {
   npc: DetailedNPC;
@@ -102,15 +103,11 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
   }, [enrichedNpc.name, state?.songs, state?.date, tracklistVersion]);
 
   const monthlyListeners = useMemo(() => {
-    const ownStreamSum = (enrichedNpc.songs || []).reduce(
-      (acc, s) => acc + (s.dailyStreams ?? Math.floor((s.streams ?? 0) / 28)),
-      0
-    );
     const collabStreamSum = bilateralCollabs.reduce(
       (acc, c) => acc + (c.dailyStreams || Math.floor((c.streams || 0) / 28)) * 0.45,
       0
     );
-    return Math.floor((ownStreamSum + collabStreamSum) * 18);
+    return calculateNpcMonthlyListeners(enrichedNpc, collabStreamSum);
   }, [enrichedNpc, bilateralCollabs]);
 
   const topSongs = useMemo(() => {

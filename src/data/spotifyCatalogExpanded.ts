@@ -183,18 +183,73 @@ export interface SpotifyTopArtistItem {
 }
 
 /**
+ * Shared realistic Monthly Listeners calculator for NPC artists.
+ * Accounts for multi-track listener overlap and non-linear global reach so:
+ * - #1 Global Megastars (pop 97-99) sit around 82M - 106M
+ * - A-List Stars (pop 88-95) sit around 45M - 76M
+ * - Mainstream / Mid-Tier Stars (pop 75-87) sit around 16M - 42M
+ */
+export function calculateNpcMonthlyListeners(
+  npc: DetailedNPC,
+  extraCollabDailyStreams = 0
+): number {
+  const pop = Math.max(20, Math.min(99, npc.pop || 75));
+  const hype = Math.max(15, Math.min(99, npc.hype || 70));
+
+  const popRatio = pop / 100;
+  const hypeRatio = hype / 100;
+
+  // Deterministic artist variance so numbers look organic (not rounded to 000)
+  let hash = 0;
+  const nameStr = npc.name || 'Artist';
+  for (let i = 0; i < nameStr.length; i++) {
+    hash = (hash * 31 + nameStr.charCodeAt(i)) % 1_000_000;
+  }
+  const organicOffset = (hash % 2_400_000) - 900_000;
+
+  // Non-linear global reach baseline from popularity and hype
+  const popReach = Math.pow(popRatio, 2.55) * 68_000_000;
+  const hypeReach = Math.pow(hypeRatio, 2.1) * 16_500_000;
+
+  // Overlap-discounted active catalog stream contribution
+  const sortedDaily = [...(npc.songs || [])]
+    .map(s => Math.max(0, s.dailyStreams ?? Math.floor((s.streams ?? 0) / 35)))
+    .sort((a, b) => b - a);
+
+  let effectiveCatalogDaily = 0;
+  sortedDaily.forEach((dStream, idx) => {
+    const weight = idx === 0 ? 1.0 : idx === 1 ? 0.32 : idx === 2 ? 0.18 : 0.07;
+    effectiveCatalogDaily += dStream * weight;
+  });
+
+  const streamReachContribution = Math.min(
+    24_000_000,
+    Math.round((effectiveCatalogDaily + extraCollabDailyStreams * 0.45) * 2.35)
+  );
+
+  const rawListeners = Math.round(
+    popReach + hypeReach + streamReachContribution * 0.55 + organicOffset
+  );
+
+  // Soft compression above 78M and realistic ceiling at 108.5M
+  const compressed =
+    rawListeners > 78_000_000
+      ? 78_000_000 + Math.round((rawListeners - 78_000_000) * 0.62)
+      : rawListeners;
+
+  return Math.max(850_000, Math.min(108_500_000, compressed));
+}
+
+/**
  * Calculates authentic Top 1-10 Artists by Spotify Monthly Listeners
  * Combines world-class superstar NPCs with the Player's real monthly listeners.
  */
 export function getTopArtistsByMonthlyListeners(state: GameState): SpotifyTopArtistItem[] {
   const list: { name: string; avatar: string; monthlyListeners: number; isPlayer: boolean; npcData?: DetailedNPC }[] = [];
 
-  // 1. Add NPCs with realistic Spotify listener figures (30M - 115M)
+  // 1. Add NPCs with realistic calibrated Spotify listener figures
   DETAILED_NPCS.forEach(n => {
-    // Top artists like The Weekend, Taylor Shift, Drakeo, Billie, Sabrina Carpenter have 70M - 115M listeners
-    const baseListeners = Math.round(
-      (n.pop * 950000) + (n.hype * 280000) + ((n.name.length * 991823) % 4500000)
-    );
+    const baseListeners = calculateNpcMonthlyListeners(n);
 
     list.push({
       name: n.name,
@@ -228,3 +283,4 @@ export function getTopArtistsByMonthlyListeners(state: GameState): SpotifyTopArt
     npcData: item.npcData
   }));
 }
+
