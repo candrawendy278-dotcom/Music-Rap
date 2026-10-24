@@ -166,6 +166,107 @@ export function getAwardEditionLabel(show: AwardShowType, year: number): string 
   return `${year} MTV Video Music Awards`;
 }
 
+export interface AwardShowOpenStatus {
+  isOpen: boolean;
+  statusBadge: string;
+  headline: string;
+  subheadline: string;
+  nextNominationsDateLabel: string;
+  ceremonyDateLabel: string;
+  targetCeremonyYear: number;
+}
+
+/**
+ * Determines whether an award show's current season event is OPEN (active nominations/voting window)
+ * or CLOSED (event has concluded for the season, only Archive & Trophy Room accessible).
+ * - GRAMMYs Active Window: Nov 15 -> Feb 5 (Closed from Feb 6 -> Nov 14, or once Feb 5 Ceremony finishes)
+ * - MTV VMAs Active Window: Aug 1 -> Sep 12 (Closed from Sep 13 -> Jul 31, or once Sep 12 Ceremony finishes)
+ */
+export function getAwardShowOpenStatus(
+  state: GameState,
+  show: AwardShowType
+): AwardShowOpenStatus {
+  const awardsState = getEnsuredAwardsState(state);
+  const currentDate = new Date(state.date || '2026-01-01T00:00:00');
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth() + 1;
+  const day = currentDate.getDate();
+
+  if (show === 'grammys') {
+    const inDateWindow =
+      (month === 11 && day >= 15) ||
+      month === 12 ||
+      month === 1 ||
+      (month === 2 && day <= 5);
+
+    const targetCeremonyYear =
+      month > 2 || (month === 2 && day > 5) ? year + 1 : year;
+
+    const activeSeason = awardsState.activeSeasons.grammys;
+    const isCompletedThisYear =
+      (activeSeason &&
+        activeSeason.editionYear === targetCeremonyYear &&
+        activeSeason.phase === 'ceremony_completed') ||
+      awardsState.history.some(
+        h => h.show === 'grammys' && h.editionYear === targetCeremonyYear
+      );
+
+    const isOpen = inDateWindow && !isCompletedThisYear;
+    const nextNomYear = month >= 11 && day >= 15 ? year + 1 : year;
+
+    return {
+      isOpen,
+      statusBadge: isOpen
+        ? 'OFFICIAL NOMINATIONS OPEN · ENVELOPES SEALED'
+        : 'AWARD EVENT CLOSED · SEASON CONCLUDED',
+      headline: isOpen
+        ? getAwardEditionLabel('grammys', targetCeremonyYear)
+        : 'The GRAMMY Awards Season is Closed',
+      subheadline: isOpen
+        ? `Official Nominations Active · Live Ceremony Night on Feb 5, ${targetCeremonyYear}`
+        : `All events for the recent GRAMMY season have concluded. Next Official Nominations open on November 15, ${nextNomYear}. Explore the Past Winners & Nominations Archive below.`,
+      nextNominationsDateLabel: `Nov 15, ${nextNomYear}`,
+      ceremonyDateLabel: `Feb 5, ${targetCeremonyYear}`,
+      targetCeremonyYear
+    };
+  }
+
+  // MTV VMAs: Active Window is August 1 -> September 12
+  const inVmaWindow =
+    month === 8 || (month === 9 && day <= 12);
+
+  const targetCeremonyYear =
+    month > 9 || (month === 9 && day > 12) ? year + 1 : year;
+
+  const activeSeason = awardsState.activeSeasons.vmas;
+  const isCompletedThisYear =
+    (activeSeason &&
+      activeSeason.editionYear === targetCeremonyYear &&
+      activeSeason.phase === 'ceremony_completed') ||
+    awardsState.history.some(
+      h => h.show === 'vmas' && h.editionYear === targetCeremonyYear
+    );
+
+  const isOpen = inVmaWindow && !isCompletedThisYear;
+  const nextNomYear = month > 8 || (month === 8 && day >= 1) ? year + 1 : year;
+
+  return {
+    isOpen,
+    statusBadge: isOpen
+      ? 'OFFICIAL VMA NOMINATIONS · FAN VOTING OPEN'
+      : 'AWARD EVENT CLOSED · SEASON CONCLUDED',
+    headline: isOpen
+      ? getAwardEditionLabel('vmas', targetCeremonyYear)
+      : 'MTV Video Music Awards Event is Closed',
+    subheadline: isOpen
+      ? `Official Nominations & Fan Voting Active · Live Show on Sep 12, ${targetCeremonyYear}`
+      : `The MTV VMAs season is currently closed. Next Official VMA Nominations & Fan Voting open on August 1, ${month < 8 ? year : nextNomYear}. Browse Past Winners & Full Nominations in the Archive.`,
+    nextNominationsDateLabel: `Aug 1, ${month < 8 ? year : nextNomYear}`,
+    ceremonyDateLabel: `Sep 12, ${targetCeremonyYear}`,
+    targetCeremonyYear
+  };
+}
+
 /**
  * Ensures the AwardsSystemState exists on GameState and caches fallback initialization
  * so UI components never trigger redundant simulations on re-render.
@@ -182,6 +283,17 @@ export function getEnsuredAwardsState(state: GameState): AwardsSystemState {
   }
 
   const seededHistory = generateInauguralPastSeasons(state);
+  const currentDate = new Date(state.date || '2026-01-01T00:00:00');
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth() + 1;
+  const day = currentDate.getDate();
+
+  const isGrammyWindow =
+    (month === 11 && day >= 15) ||
+    month === 12 ||
+    month === 1 ||
+    (month === 2 && day <= 5);
+  const initialGrammyYear = month >= 11 ? year + 1 : year;
 
   const built: AwardsSystemState = {
     initialized: true,
@@ -200,7 +312,9 @@ export function getEnsuredAwardsState(state: GameState): AwardsSystemState {
       totalBonusScore: 0
     },
     activeSeasons: {
-      grammys: null,
+      grammys: isGrammyWindow
+        ? simulateAwardSeason(state, 'grammys', initialGrammyYear, 'nominations_announced')
+        : null,
       vmas: null
     },
     history: seededHistory,

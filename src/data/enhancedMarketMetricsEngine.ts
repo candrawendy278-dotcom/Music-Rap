@@ -76,19 +76,19 @@ export function computeEnhancedSongMarketMultipliers(
   }
 
   // 6. Superfan Pure Sales & First-Week Collector Surge
-  const fanLoyaltyBonus = Math.min(0.28, (fans / 2_000_000) * 0.25);
+  const fanLoyaltyBonus = Math.min(0.14, (fans / 2_500_000) * 0.12);
   let superfanSalesBonus = 1.0 + fanLoyaltyBonus;
   if (daysOut <= 7) {
-    superfanSalesBonus *= 1.22;
+    superfanSalesBonus *= 1.08;
   } else if (daysOut <= 14) {
-    superfanSalesBonus *= 1.10;
+    superfanSalesBonus *= 1.04;
   }
 
   const streamMultiplier = Number(
     Math.min(1.85, qualityReplayMult * catalogCarryoverBonus * collabMult * viralVelocityBonus).toFixed(3)
   );
   const salesMultiplier = Number(
-    Math.min(2.1, superfanSalesBonus * (hasCollab ? 1.10 : 1.0) * (quality >= 85 ? 1.12 : 1.0)).toFixed(3)
+    Math.min(1.32, superfanSalesBonus * (hasCollab ? 1.05 : 1.0) * (quality >= 85 ? 1.06 : 1.0)).toFixed(3)
   );
 
   return {

@@ -7,6 +7,7 @@ import {
 } from '../../data/awardsCategoriesConfig';
 import {
   getEnsuredAwardsState,
+  getAwardShowOpenStatus,
   simulateAwardSeason,
   purchaseAwardCampaignTier,
   setPlayerPreferredSubmission,
@@ -22,18 +23,13 @@ export default function GrammyAwardsApp() {
   const [activeTab, setActiveTab] = useState<'categories' | 'fyc' | 'archive'>('categories');
   const [selectedField, setSelectedField] = useState<string>('All Fields');
   const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null);
+  const [expandedArchiveCatId, setExpandedArchiveCatId] = useState<string | null>(null);
   const [liveCeremonySeason, setLiveCeremonySeason] = useState<AwardSeasonRecord | null>(null);
   const [showTrophyRoom, setShowTrophyRoom] = useState(false);
 
   const awardsState = useMemo(() => getEnsuredAwardsState(state), [state]);
-  const currentDate = new Date(state.date || '2026-01-01');
-  const currentYear = currentDate.getFullYear();
-  const currentMonth = currentDate.getMonth() + 1;
-
-  const targetCeremonyYear =
-    currentMonth > 2 || (currentMonth === 2 && currentDate.getDate() > 5)
-      ? currentYear + 1
-      : currentYear;
+  const openStatus = useMemo(() => getAwardShowOpenStatus(state, 'grammys'), [state]);
+  const targetCeremonyYear = openStatus.targetCeremonyYear;
 
   const currentSeasonPreview = useMemo(() => {
     if (
@@ -44,11 +40,6 @@ export default function GrammyAwardsApp() {
     }
     return simulateAwardSeason(state, 'grammys', targetCeremonyYear, 'nominations_announced');
   }, [state, awardsState, targetCeremonyYear]);
-
-  const isOfficialNominationsLocked = Boolean(
-    awardsState.activeSeasons.grammys &&
-      awardsState.activeSeasons.grammys.editionYear === targetCeremonyYear
-  );
 
   const fields = useMemo(() => {
     const unique = Array.from(new Set(GRAMMY_CATEGORIES.map(c => c.field)));
@@ -152,71 +143,100 @@ export default function GrammyAwardsApp() {
         <div className="rounded-3xl p-5 bg-gradient-to-br from-[#1C1810] via-[#110F0A] to-[#0A0A0D] border border-[#D4AF37]/35 shadow-xl space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#D4AF37]">
-                {isOfficialNominationsLocked
-                  ? 'Official Nominations Ballot · Winners Sealed'
-                  : 'Recording Academy Eligibility Window'}
+              <p
+                className={`text-[10px] font-bold uppercase tracking-[0.2em] ${
+                  openStatus.isOpen ? 'text-[#D4AF37]' : 'text-rose-400'
+                }`}
+              >
+                {openStatus.statusBadge}
               </p>
               <h2 className="text-2xl font-black text-white tracking-tight mt-0.5">
-                {currentSeasonPreview.editionLabel}
+                {openStatus.headline}
               </h2>
               <p className="text-xs text-neutral-400 mt-1">
-                Nominations: Nov {AWARD_CALENDAR_CONFIG.grammys.nominationsDay} · Ceremony Night: Feb {AWARD_CALENDAR_CONFIG.grammys.ceremonyDay}, {targetCeremonyYear}
+                {openStatus.subheadline}
               </p>
             </div>
-            <div className="w-12 h-12 rounded-2xl bg-[#D4AF37]/15 border border-[#D4AF37]/40 flex items-center justify-center shrink-0">
-              <i className="ph-fill ph-trophy text-2xl text-[#E5C158]"></i>
-            </div>
-          </div>
-
-          {/* Player Season Standing Strip (Zero Winner Spoilers!) */}
-          <div className="grid grid-cols-3 divide-x divide-white/10 rounded-2xl bg-black/45 border border-white/10 text-center">
-            <div className="p-3">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                Your Noms
-              </div>
-              <div className="text-lg font-black text-[#E5C158] tabular-nums mt-0.5">
-                {playerStanding?.nominations || 0}
-              </div>
-            </div>
-            <div className="p-3">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                Envelopes
-              </div>
-              <div className="text-sm font-black text-white mt-1">
-                Sealed · Feb {AWARD_CALENDAR_CONFIG.grammys.ceremonyDay}
-              </div>
-            </div>
-            <div className="p-3">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                FYC Outreach
-              </div>
-              <div className="text-sm font-black text-emerald-400 tabular-nums mt-1">
-                {awardsState.grammysCampaign.purchasedCampaignIds.length}/3 Active
-              </div>
-            </div>
-          </div>
-
-          {/* Action to View Official Nominations Ballot */}
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <span className="text-xs text-neutral-400">
-              20 Official Categories · Winners Announced Live on Feb {AWARD_CALENDAR_CONFIG.grammys.ceremonyDay}
-            </span>
-            <button
-              onClick={() => setLiveCeremonySeason(currentSeasonPreview)}
-              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#D4AF37] text-black text-xs font-black whitespace-nowrap shrink-0 cursor-pointer hover:bg-[#E5C158] transition-colors"
+            <div
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border ${
+                openStatus.isOpen
+                  ? 'bg-[#D4AF37]/15 border-[#D4AF37]/40 text-[#E5C158]'
+                  : 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+              }`}
             >
-              View Ballot
-            </button>
+              <i className={`ph-fill ${openStatus.isOpen ? 'ph-trophy' : 'ph-lock-key'} text-2xl`}></i>
+            </div>
           </div>
+
+          {openStatus.isOpen ? (
+            <>
+              {/* Player Season Standing Strip (Zero Winner Spoilers!) */}
+              <div className="grid grid-cols-3 divide-x divide-white/10 rounded-2xl bg-black/45 border border-white/10 text-center">
+                <div className="p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                    Your Noms
+                  </div>
+                  <div className="text-lg font-black text-[#E5C158] tabular-nums mt-0.5">
+                    {playerStanding?.nominations || 0}
+                  </div>
+                </div>
+                <div className="p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                    Envelopes
+                  </div>
+                  <div className="text-sm font-black text-white mt-1">
+                    Sealed · Feb {AWARD_CALENDAR_CONFIG.grammys.ceremonyDay}
+                  </div>
+                </div>
+                <div className="p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                    FYC Outreach
+                  </div>
+                  <div className="text-sm font-black text-emerald-400 tabular-nums mt-1">
+                    {awardsState.grammysCampaign.purchasedCampaignIds.length}/3 Active
+                  </div>
+                </div>
+              </div>
+
+              {/* Action to View Official Nominations Ballot */}
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-xs text-neutral-400">
+                  20 Official Categories · Max 1 Entry/Artist per Category
+                </span>
+                <button
+                  onClick={() => setLiveCeremonySeason(currentSeasonPreview)}
+                  className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#D4AF37] text-black text-xs font-black whitespace-nowrap shrink-0 cursor-pointer hover:bg-[#E5C158] transition-colors"
+                >
+                  View Ballot
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-2xl p-3.5 bg-black/50 border border-rose-500/25 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-black text-rose-300 uppercase tracking-wider">
+                  Event Closed
+                </div>
+                <div className="text-xs text-neutral-400 mt-0.5">
+                  Next Nominations: {openStatus.nextNominationsDateLabel}
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveTab('archive')}
+                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#D4AF37] text-black text-xs font-black whitespace-nowrap shrink-0 cursor-pointer hover:bg-[#E5C158] transition-colors"
+              >
+                Open Archive
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Navigation Tabs */}
         <div className="flex items-center gap-1 p-1 rounded-2xl bg-white/5 border border-white/10">
           {[
-            { id: 'categories', label: '20 Categories' },
+            { id: 'categories', label: openStatus.isOpen ? '20 Categories' : 'Event Closed' },
             { id: 'fyc', label: 'FYC & Submissions' },
-            { id: 'archive', label: 'Past Winners' }
+            { id: 'archive', label: 'Archive (Winners & Noms)' }
           ].map(tab => (
             <button
               key={tab.id}
@@ -232,97 +252,130 @@ export default function GrammyAwardsApp() {
           ))}
         </div>
 
-        {/* TAB 1: 20 CATEGORIES & OFFICIAL NOMINEES (NO POINTS OR SPOILERS) */}
+        {/* TAB 1: 20 CATEGORIES & OFFICIAL NOMINEES (OR CLOSED PANEL WHEN SEASON HAS CONCLUDED) */}
         {activeTab === 'categories' && (
-          <div className="space-y-4">
-            {/* Field Filter Bar */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-              {fields.map(field => (
-                <button
-                  key={field}
-                  onClick={() => setSelectedField(field)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
-                    selectedField === field
-                      ? 'bg-[#D4AF37]/20 border-[#D4AF37] text-[#E5C158]'
-                      : 'bg-white/5 border-white/10 text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  {field}
-                </button>
-              ))}
-            </div>
-
-            {/* Category Cards */}
+          openStatus.isOpen ? (
             <div className="space-y-4">
-              {filteredCategories.map(cat => (
-                <div
-                  key={cat.categoryId}
-                  className="rounded-2xl bg-[#12110E] border border-[#D4AF37]/25 overflow-hidden"
-                >
-                  <div className="p-4 border-b border-white/10 flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-[#D4AF37]">
-                        {cat.field}
-                        {cat.isMajor ? ' · General Field ("Big Four")' : ''}
-                      </p>
-                      <h3 className="text-base font-black text-white mt-0.5">
-                        {cat.categoryName}
-                      </h3>
-                    </div>
-                    <span className="text-xs font-semibold text-neutral-400 shrink-0 tabular-nums">
-                      {cat.nominees.length} Nominees
-                    </span>
-                  </div>
+              {/* Field Filter Bar */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                {fields.map(field => (
+                  <button
+                    key={field}
+                    onClick={() => setSelectedField(field)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
+                      selectedField === field
+                        ? 'bg-[#D4AF37]/20 border-[#D4AF37] text-[#E5C158]'
+                        : 'bg-white/5 border-white/10 text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {field}
+                  </button>
+                ))}
+              </div>
 
-                  <div className="divide-y divide-white/5">
-                    {cat.nominees.map(nom => (
-                      <div
-                        key={nom.id}
-                        className={`p-3.5 flex items-center justify-between gap-3 ${
-                          nom.isPlayer ? 'bg-[#D4AF37]/10' : ''
-                        }`}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <OfficialArtworkImg
-                            artist={nom.artistName}
-                            title={nom.workTitle === nom.artistName ? undefined : nom.workTitle}
-                            explicitSrc={nom.coverArt}
-                            isArtistPortrait={nom.workTitle === nom.artistName}
-                            className="w-10 h-10 rounded-xl object-cover border border-white/10 shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm font-bold text-white truncate">
-                                {nom.workTitle}
-                              </span>
-                              {nom.isPlayer && (
-                                <span className="text-[10px] font-bold text-emerald-400">
-                                  · YOU
+              {/* Category Cards */}
+              <div className="space-y-4">
+                {filteredCategories.map(cat => (
+                  <div
+                    key={cat.categoryId}
+                    className="rounded-2xl bg-[#12110E] border border-[#D4AF37]/25 overflow-hidden"
+                  >
+                    <div className="p-4 border-b border-white/10 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#D4AF37]">
+                          {cat.field}
+                          {cat.isMajor ? ' · General Field ("Big Four")' : ''}
+                        </p>
+                        <h3 className="text-base font-black text-white mt-0.5">
+                          {cat.categoryName}
+                        </h3>
+                      </div>
+                      <span className="text-xs font-semibold text-neutral-400 shrink-0 tabular-nums">
+                        {cat.nominees.length} Nominees
+                      </span>
+                    </div>
+
+                    <div className="divide-y divide-white/5">
+                      {cat.nominees.map(nom => (
+                        <div
+                          key={nom.id}
+                          className={`p-3.5 flex items-center justify-between gap-3 ${
+                            nom.isPlayer ? 'bg-[#D4AF37]/10' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <OfficialArtworkImg
+                              artist={nom.artistName}
+                              title={nom.workTitle === nom.artistName ? undefined : nom.workTitle}
+                              explicitSrc={nom.coverArt}
+                              isArtistPortrait={nom.workTitle === nom.artistName}
+                              className="w-10 h-10 rounded-xl object-cover border border-white/10 shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm font-bold text-white truncate">
+                                  {nom.workTitle}
                                 </span>
-                              )}
+                                {nom.isPlayer && (
+                                  <span className="text-[10px] font-bold text-emerald-400">
+                                    · YOU
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-neutral-400 truncate">
+                                {nom.artistName} · {nom.secondaryLabel}
+                              </p>
                             </div>
-                            <p className="text-xs text-neutral-400 truncate">
-                              {nom.artistName} · {nom.secondaryLabel}
-                            </p>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <span
+                              className={`text-[11px] font-bold ${
+                                nom.isPlayer ? 'text-[#E5C158]' : 'text-neutral-400'
+                              }`}
+                            >
+                              {nom.isPlayer ? 'Your Nomination' : 'Nominee'}
+                            </span>
                           </div>
                         </div>
-
-                        <div className="text-right shrink-0">
-                          <span
-                            className={`text-[11px] font-bold ${
-                              nom.isPlayer ? 'text-[#E5C158]' : 'text-neutral-400'
-                            }`}
-                          >
-                            {nom.isPlayer ? 'Your Nomination' : 'Nominee'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-3xl p-6 bg-[#12110E] border border-[#D4AF37]/30 text-center space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/15 border border-rose-500/35 text-rose-400 flex items-center justify-center mx-auto">
+                <i className="ph-fill ph-lock-key text-2xl"></i>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-400">
+                  Award Event Closed
+                </p>
+                <h3 className="text-xl font-black text-white">
+                  Current GRAMMY Season Has Concluded
+                </h3>
+                <p className="text-xs text-neutral-400 leading-relaxed max-w-sm mx-auto">
+                  The live GRAMMY Awards ceremony and ballot for this cycle have ended. Official Nominations for the next edition open on <strong className="text-[#E5C158]">{openStatus.nextNominationsDateLabel}</strong>. You can view all Past Winners and Official Nominations in the Archive at any time.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-2.5 pt-2">
+                <button
+                  onClick={() => setActiveTab('archive')}
+                  className="min-h-[44px] px-4 py-2.5 rounded-xl bg-[#D4AF37] text-black text-xs font-black cursor-pointer hover:bg-[#E5C158] transition-colors"
+                >
+                  View Past Winners &amp; Nominations
+                </button>
+                <button
+                  onClick={() => setShowTrophyRoom(true)}
+                  className="min-h-[44px] px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-white cursor-pointer"
+                >
+                  Trophy Room
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {/* TAB 2: FYC CAMPAIGNS & PRIORITY SUBMISSIONS */}
@@ -450,7 +503,7 @@ export default function GrammyAwardsApp() {
           </div>
         )}
 
-        {/* TAB 3: HALL OF PAST WINNERS ARCHIVE */}
+        {/* TAB 3: HALL OF PAST WINNERS & NOMINATIONS ARCHIVE */}
         {activeTab === 'archive' && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
@@ -471,7 +524,7 @@ export default function GrammyAwardsApp() {
 
             {activeArchiveSeason && (
               <div className="space-y-4">
-                <div className="rounded-2xl p-4 bg-[#12110E] border border-[#D4AF37]/30 flex items-center justify-between">
+                <div className="rounded-2xl p-4 bg-[#12110E] border border-[#D4AF37]/30 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-[#D4AF37]">
                       Night’s Biggest Winner · {activeArchiveSeason.editionYear}
@@ -480,52 +533,122 @@ export default function GrammyAwardsApp() {
                       {activeArchiveSeason.biggestWinner?.artistName} ({activeArchiveSeason.biggestWinner?.wins} Wins)
                     </h3>
                     <p className="text-xs text-neutral-400 mt-0.5">
-                      {activeArchiveSeason.biggestWinner?.nominations} Total Nominations
+                      {activeArchiveSeason.biggestWinner?.nominations} Total Nominations · Tap any category to inspect all nominees
                     </p>
                   </div>
                   <button
                     onClick={() => setLiveCeremonySeason(activeArchiveSeason)}
-                    className="min-h-[40px] px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-[#E5C158] cursor-pointer"
+                    className="min-h-[40px] px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-[#E5C158] cursor-pointer shrink-0"
                   >
                     Replay Ceremony
                   </button>
                 </div>
 
                 <div className="divide-y divide-white/10 rounded-2xl bg-[#12110E] border border-white/10 overflow-hidden">
-                  {activeArchiveSeason.categories.map(cat => (
-                    <div key={cat.categoryId} className="p-3.5 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <OfficialArtworkImg
-                          artist={cat.winner.artistName}
-                          title={
-                            cat.winner.workTitle === cat.winner.artistName
-                              ? undefined
-                              : cat.winner.workTitle
+                  {activeArchiveSeason.categories.map(cat => {
+                    const isExpanded = expandedArchiveCatId === cat.categoryId;
+                    return (
+                      <div key={cat.categoryId} className="transition-colors">
+                        <button
+                          onClick={() =>
+                            setExpandedArchiveCatId(isExpanded ? null : cat.categoryId)
                           }
-                          explicitSrc={cat.winner.coverArt}
-                          isArtistPortrait={cat.winner.workTitle === cat.winner.artistName}
-                          className="w-11 h-11 rounded-xl object-cover border border-[#D4AF37]/40 shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-[#D4AF37] truncate">
-                            {cat.categoryName}
-                          </p>
-                          <h4 className="text-sm font-black text-white truncate">
-                            {cat.winner.workTitle}
-                          </h4>
-                          <p className="text-xs text-neutral-400 truncate">
-                            Winner: {cat.winner.artistName}
-                          </p>
-                        </div>
+                          className="w-full p-3.5 flex items-center justify-between gap-3 text-left hover:bg-white/[0.03] cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <OfficialArtworkImg
+                              artist={cat.winner.artistName}
+                              title={
+                                cat.winner.workTitle === cat.winner.artistName
+                                  ? undefined
+                                  : cat.winner.workTitle
+                              }
+                              explicitSrc={cat.winner.coverArt}
+                              isArtistPortrait={cat.winner.workTitle === cat.winner.artistName}
+                              className="w-11 h-11 rounded-xl object-cover border border-[#D4AF37]/40 shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-[#D4AF37] truncate">
+                                {cat.categoryName}
+                              </p>
+                              <h4 className="text-sm font-black text-white truncate">
+                                {cat.winner.workTitle}
+                              </h4>
+                              <p className="text-xs text-neutral-400 truncate">
+                                Winner: {cat.winner.artistName} · {cat.nominees.length} Nominees
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 flex items-center gap-2">
+                            <div>
+                              <i className="ph-fill ph-trophy text-[#D4AF37] text-base"></i>
+                              <div className="text-[10px] text-[#E5C158] font-bold">
+                                Winner
+                              </div>
+                            </div>
+                            <i
+                              className={`ph-bold ${
+                                isExpanded ? 'ph-caret-up' : 'ph-caret-down'
+                              } text-xs text-neutral-400`}
+                            ></i>
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="px-3.5 pb-3.5 pt-1 bg-black/40 border-t border-white/5 space-y-1.5">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 py-1">
+                              Official Category Nominees ({activeArchiveSeason.editionYear})
+                            </div>
+                            {cat.nominees.map(nom => {
+                              const isWin =
+                                nom.isWinner ||
+                                (nom.artistName === cat.winner.artistName &&
+                                  nom.workTitle === cat.winner.workTitle);
+                              return (
+                                <div
+                                  key={nom.id}
+                                  className={`p-2.5 rounded-xl flex items-center justify-between gap-2.5 border ${
+                                    isWin
+                                      ? 'bg-[#D4AF37]/15 border-[#D4AF37]/40'
+                                      : 'bg-white/[0.02] border-white/5'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <OfficialArtworkImg
+                                      artist={nom.artistName}
+                                      title={
+                                        nom.workTitle === nom.artistName
+                                          ? undefined
+                                          : nom.workTitle
+                                      }
+                                      explicitSrc={nom.coverArt}
+                                      isArtistPortrait={nom.workTitle === nom.artistName}
+                                      className="w-8 h-8 rounded-lg object-cover shrink-0"
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="text-xs font-bold text-white truncate">
+                                        {nom.workTitle}
+                                      </div>
+                                      <div className="text-[11px] text-neutral-400 truncate">
+                                        {nom.artistName}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <span
+                                    className={`text-[10px] font-black uppercase tracking-wider shrink-0 ${
+                                      isWin ? 'text-[#E5C158]' : 'text-neutral-500'
+                                    }`}
+                                  >
+                                    {isWin ? '★ Winner' : 'Nominee'}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right shrink-0">
-                        <i className="ph-fill ph-trophy text-[#D4AF37] text-base"></i>
-                        <div className="text-[10px] text-[#E5C158] font-bold">
-                          GRAMMY Winner
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

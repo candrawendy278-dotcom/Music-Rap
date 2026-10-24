@@ -233,26 +233,31 @@ function simulateTrackAtDay(
   // First-day and first-week sales rush for singles, scaled by NPC's dedicated Fans & Fan Engagement skill
   const salesRushMult =
     effectiveDaysTracked === 1
-      ? 2.2
+      ? 1.75
       : effectiveDaysTracked <= 7
-      ? 1.35
-      : 0.85;
+      ? 1.22
+      : 0.78;
+
+  const effectiveStreamPool =
+    lastDailyStreams <= 1_200_000
+      ? lastDailyStreams
+      : 1_200_000 + Math.pow(lastDailyStreams - 1_200_000, 0.78) * 16.5;
 
   const dailySales = Math.max(
     10,
     Math.floor(
-      lastDailyStreams *
-        (trackType === 'lead_single' ? 0.0024 : 0.0015) *
+      effectiveStreamPool *
+        (trackType === 'lead_single' ? 0.00145 : trackType === 'single' ? 0.00105 : 0.00035) *
         salesRushMult *
-        npcAttr.salesSynergyMultiplier
+        Math.min(1.45, Math.pow(npcAttr.salesSynergyMultiplier, 0.75))
     )
   );
   const totalSales = Math.max(
     dailySales,
     Math.floor(
       totalStreams *
-        (trackType === 'lead_single' ? 0.0019 : 0.0012) *
-        npcAttr.salesSynergyMultiplier
+        (trackType === 'lead_single' ? 0.0011 : trackType === 'single' ? 0.0008 : 0.00028) *
+        Math.min(1.45, Math.pow(npcAttr.salesSynergyMultiplier, 0.75))
     )
   );
   const radio =
@@ -639,18 +644,22 @@ export function buildStaggeredMultiReleaseForNpc(
     const totalSales2 = simulatedTracks2.reduce((sum, t) => sum + t.sales, 0);
     const dailySales2 = simulatedTracks2.reduce((sum, t) => sum + t.dailySales, 0);
     const daysOut2 = Math.max(0, dayOfYear - era2ProjectReleaseDay);
-    const albumDailyUnits2 = Math.max(30, Math.floor(dailyStreams2 / 1500 + dailySales2 * 0.38));
-    const albumTotalUnits2 = Math.max(
-      albumDailyUnits2,
-      Math.floor(totalStreams2 / 1500 + totalSales2 * 0.38)
+    const debutAlbumBoost2 = daysOut2 === 0 ? 1.55 : daysOut2 <= 3 ? 1.22 : 0.85;
+    const albumDailyPureSales2 = Math.max(
+      25,
+      Math.floor((dailySales2 * 0.28 + Math.pow(Math.max(100, dailyStreams2), 0.72) * 0.22) * debutAlbumBoost2)
+    );
+    const albumTotalPureSales2 = Math.max(
+      albumDailyPureSales2,
+      Math.floor(totalSales2 * 0.26 + Math.pow(Math.max(100, totalStreams2), 0.74) * 0.25)
     );
 
     activeAlbums.push({
       title: secondProject.title,
       cover: secondProject.cover,
-      sales: albumTotalUnits2,
-      dailySales: albumDailyUnits2,
-      weeklySales: albumDailyUnits2 * Math.min(7, Math.max(1, daysOut2 + 1)),
+      sales: albumTotalPureSales2,
+      dailySales: albumDailyPureSales2,
+      weeklySales: albumDailyPureSales2 * Math.min(7, Math.max(1, daysOut2 + 1)),
       streams: totalStreams2,
       dailyStreams: dailyStreams2,
       weeklyStreams: weeklyStreams2,
@@ -681,18 +690,22 @@ export function buildStaggeredMultiReleaseForNpc(
     const totalSales1 = simulatedTracks1.reduce((sum, t) => sum + t.sales, 0);
     const dailySales1 = simulatedTracks1.reduce((sum, t) => sum + t.dailySales, 0);
     const daysOut1 = Math.max(0, dayOfYear - album1ReleaseDay);
-    const albumDailyUnits1 = Math.max(25, Math.floor(dailyAlbum1Streams / 1500 + dailySales1 * 0.35));
-    const albumTotalUnits1 = Math.max(
-      albumDailyUnits1,
-      Math.floor(totalAlbum1Streams / 1500 + totalSales1 * 0.35)
+    const debutAlbumBoost1 = daysOut1 === 0 ? 1.55 : daysOut1 <= 3 ? 1.22 : 0.85;
+    const albumDailyPureSales1 = Math.max(
+      25,
+      Math.floor((dailySales1 * 0.26 + Math.pow(Math.max(100, dailyAlbum1Streams), 0.72) * 0.20) * debutAlbumBoost1)
+    );
+    const albumTotalPureSales1 = Math.max(
+      albumDailyPureSales1,
+      Math.floor(totalSales1 * 0.25 + Math.pow(Math.max(100, totalAlbum1Streams), 0.74) * 0.24)
     );
 
     activeAlbums.push({
       title: album1Title,
       cover: album1Cover,
-      sales: albumTotalUnits1,
-      dailySales: albumDailyUnits1,
-      weeklySales: albumDailyUnits1 * Math.min(7, Math.max(1, daysOut1 + 1)),
+      sales: albumTotalPureSales1,
+      dailySales: albumDailyPureSales1,
+      weeklySales: albumDailyPureSales1 * Math.min(7, Math.max(1, daysOut1 + 1)),
       streams: totalAlbum1Streams,
       dailyStreams: dailyAlbum1Streams,
       weeklyStreams: weeklyStreams1,

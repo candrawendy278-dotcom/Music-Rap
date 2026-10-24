@@ -459,8 +459,10 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
           stats = { streams: rawPts, sales: 0, radio: 0 };
         } else if (platform === 'itunes') {
           const globalSales = s.dailyPureSales || 0;
-          rawPts = Math.round(
-            globalSales * shareFraction * (profile ? profile.salesShare / 0.05 : 1)
+          const territoryBoost = profile ? Math.min(1.8, profile.salesShare / 0.05) : 1;
+          rawPts = Math.min(
+            Math.max(1, Math.round(globalSales * 0.72)),
+            Math.round(globalSales * shareFraction * territoryBoost)
           );
           stats = {
             streams: Math.round((s.dailyStreams || 0) * shareFraction),
@@ -567,9 +569,10 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
         (acc, s) => acc + (s.weeklyStreams || (s.dailyStreams || 0) * 7),
         0
       );
-      const projDailySales =
-        (p.dailyPureSales || 0) +
-        projSongs.reduce((acc, s) => acc + (s.dailyPureSales || 0) * 0.1, 0);
+      const trackEquivAlbumsDaily = Math.round(
+        projSongs.reduce((acc, s) => acc + (s.dailyPureSales || 0), 0) / 10
+      );
+      const projDailySales = (p.dailyPureSales || 0) + Math.min(4500, trackEquivAlbumsDaily);
       const projWeeklySales =
         (p.weeklyPureSales && p.weeklyPureSales > 0)
           ? p.weeklyPureSales
@@ -583,7 +586,7 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
 
       if (!isGlobal) {
         const isHome = playerCountry === region;
-        const share = marketFraction * (isHome ? 2.5 : 0.85);
+        const share = Math.min(0.68, marketFraction * (isHome ? 2.2 : 0.85));
         points = Math.round(points * share);
       }
 
@@ -618,7 +621,7 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
     }
 
     const affinity = getNpcTerritorialAffinityMultiplier(npc.country, npc.genre, region);
-    const scale = isGlobal ? 1.0 : marketFraction * affinity;
+    const scale = isGlobal ? 1.0 : Math.min(0.68, marketFraction * affinity);
 
     (npc.albums || []).forEach((alb, aIdx) => {
       const key = `${npc.name.toLowerCase()}::${alb.title.toLowerCase()}`;
@@ -628,10 +631,6 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
       const daysOut = alb.daysSinceRelease ?? (dayOfYear > 0 ? 1 : 0);
       const trackTotalStreams = (alb.tracks || []).reduce(
         (sum, t) => sum + (t.streams || 0),
-        0
-      );
-      const trackDailyStreams = (alb.tracks || []).reduce(
-        (sum, t) => sum + ((t as any).dailyStreams || 0),
         0
       );
       const trackWeeklyStreams = (alb.tracks || []).reduce(
@@ -662,9 +661,13 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
       const effectiveDailySales =
         (alb as any).dailySales && (alb as any).dailySales > 0
           ? (alb as any).dailySales
-          : alb.sales && alb.sales > 0
-          ? Math.max(25, Math.floor(alb.sales / Math.max(1, daysOut * 3)))
-          : Math.max(40, Math.floor((effectiveWeeklyStreams / 1500) * 0.06));
+          : Math.max(
+              35,
+              Math.floor(
+                Math.pow(Math.max(1000, effectiveWeeklyStreams / 7), 0.74) *
+                  (daysOut <= 2 ? 0.36 : 0.22)
+              )
+            );
 
       const effectiveWeeklySales =
         (alb as any).weeklySales && (alb as any).weeklySales > 0

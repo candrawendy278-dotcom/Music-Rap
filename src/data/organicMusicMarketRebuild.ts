@@ -242,56 +242,62 @@ export function calculateOrganicDailySales(params: {
   const melodicLv = safeSkills.recording.melodicCadence?.level || 1;
 
   const buyerConversionMultiplier = 1.0 + (
-    (emotionLv - 1) * 0.035 +
-    (lyricsLv - 1) * 0.025 +
-    (depthLv - 1) * 0.028 +
-    (melodicLv - 1) * 0.020
+    (emotionLv - 1) * 0.018 +
+    (lyricsLv - 1) * 0.014 +
+    (depthLv - 1) * 0.015 +
+    (melodicLv - 1) * 0.012
   );
 
   // Authentic Sales Lifecycle (Front-loaded Day 1 Stan Rush -> Natural Day 2-7 Taper -> Long-Term Conversion):
   let lifecycleSalesFactor: number;
   if (daysSinceRelease === 0) {
     // Launch Day 1: Peak stanbase & pre-order fulfillment
-    lifecycleSalesFactor = 1.65 + (hype / 100) * 0.75;
+    lifecycleSalesFactor = 1.35 + (hype / 100) * 0.45;
   } else if (daysSinceRelease === 1) {
     // Day 2: Post-launch cooldown
-    lifecycleSalesFactor = 1.15 + (hype / 100) * 0.45;
+    lifecycleSalesFactor = 1.05 + (hype / 100) * 0.25;
   } else if (daysSinceRelease <= 6) {
     // Days 3-7: Gradual first-week taper
-    lifecycleSalesFactor = Math.max(0.75, 1.08 - (daysSinceRelease - 1) * 0.06);
+    lifecycleSalesFactor = Math.max(0.72, 0.96 - (daysSinceRelease - 1) * 0.045);
   } else if (daysSinceRelease <= 21) {
-    lifecycleSalesFactor = 0.68;
+    lifecycleSalesFactor = 0.62;
   } else if (daysSinceRelease <= 60) {
-    lifecycleSalesFactor = 0.50;
+    lifecycleSalesFactor = 0.46;
   } else {
-    lifecycleSalesFactor = 0.36;
+    lifecycleSalesFactor = 0.32;
   }
 
   // B-sides pure digital sales
-  const bsideQualityBonus = quality >= 75 ? 1.25 : (potential >= 75 ? 1.14 : 1.0);
+  const bsideQualityBonus = quality >= 75 ? 1.18 : (potential >= 75 ? 1.10 : 1.0);
   let singleSalesFactor = 1.0;
   if (!isSingle) {
     if (daysSinceRelease <= 7) {
-      singleSalesFactor = 0.38 * (1.0 + (fans ? Math.log10(1 + fans / 500) * 0.035 : 0)) * bsideQualityBonus;
+      singleSalesFactor = 0.28 * bsideQualityBonus;
     } else if (daysSinceRelease <= 30) {
-      singleSalesFactor = 0.24 * bsideQualityBonus;
+      singleSalesFactor = 0.18 * bsideQualityBonus;
     } else {
-      singleSalesFactor = Math.max(0.10, 0.18 * Math.pow(quality / 50, 0.75)) * bsideQualityBonus;
+      singleSalesFactor = Math.max(0.08, 0.14 * Math.pow(quality / 50, 0.65)) * bsideQualityBonus;
     }
   }
 
-  // Music video presence boosts pure digital sales (+15%)
-  const mvFactor = song.hasMV ? 1.15 : 1.0;
+  // Music video presence boosts pure digital sales (+8%)
+  const mvFactor = song.hasMV ? 1.08 : 1.0;
 
-  // Dynamic conversion baseline with Fans buy-in (NO hardcoded 35,000 wall!)
+  // Sub-linear viral stream compression for digital downloads:
+  // Passive playlist streams above 1.2M/day convert at a diminishing rate because only core fans buy digital copies on iTunes.
+  const effectiveStreamPool =
+    dailyStreams <= 1_200_000
+      ? dailyStreams
+      : 1_200_000 + Math.pow(dailyStreams - 1_200_000, 0.78) * 16.5;
+
   const fanSynergy = getFanMarketSynergy(fans || 0, safeSkills);
-  const basePurchaseRate = isSingle 
-    ? (daysSinceRelease === 0 ? 0.00055 : daysSinceRelease <= 3 ? 0.00038 : 0.00024)
-    : 0.00016;
-  const fanLoyaltyFactor = (1.0 + (pop / 100) * 0.45) * fanSynergy.fanSalesBoost;
-  const qualityAppeal = Math.pow(quality / 55, 0.72);
+  const basePurchaseRate = isSingle
+    ? (daysSinceRelease === 0 ? 0.00032 : daysSinceRelease <= 3 ? 0.00022 : 0.00015)
+    : 0.00009;
+  const fanLoyaltyFactor = (1.0 + (pop / 100) * 0.28) * Math.min(1.45, Math.pow(fanSynergy.fanSalesBoost, 0.65));
+  const qualityAppeal = Math.pow(quality / 58, 0.55);
 
-  const rawSales = dailyStreams
+  const rawSales = effectiveStreamPool
     * basePurchaseRate
     * fanLoyaltyFactor
     * buyerConversionMultiplier
@@ -299,7 +305,7 @@ export function calculateOrganicDailySales(params: {
     * singleSalesFactor
     * mvFactor
     * qualityAppeal
-    * (salesModifier ?? 1.0)
+    * Math.min(2.2, salesModifier ?? 1.0)
     * organicVariance;
 
   return Math.max(0, Math.round(rawSales));

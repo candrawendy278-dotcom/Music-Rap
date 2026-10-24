@@ -212,24 +212,25 @@ export function evaluateSingleDebutDynamics(params: {
   }
 
   // --- 2. DIGITAL PURE SALES DEBUT SURGE (Front-loaded Stan Rush on Day 1, Tapering Days 2-7) ---
-  const fanLoyaltyFactor = 1.0 + Math.log10(1 + (fans / 10000)) * 0.28;
-  const stanRushFactor = (0.85 + (hype / 100) * 0.75 + (pop / 100) * 0.40) * proximity.salesWalletFactor;
+  // Note: Fan loyalty and hype conversion are already applied in calculateOrganicDailySales,
+  // so this multiplier provides a clean Day 1 pre-order/launch surge without exponential double-counting.
+  const stanLaunchBoost = (0.92 + (hype / 100) * 0.28 + (pop / 100) * 0.18) * proximity.salesWalletFactor;
 
   let debutSalesMultiplier = 1.0;
   if (daysSinceRelease === 0) {
-    // Day 1: Massive stanbase pre-order & launch day buying rush
-    debutSalesMultiplier = 3.6 * stanRushFactor * fanLoyaltyFactor * (isLeadSingle ? 1.25 : 1.08) * uniqueTrackFactor;
+    // Day 1: Pre-order fulfillment & launch day buying rush
+    debutSalesMultiplier = 1.48 * stanLaunchBoost * (isLeadSingle ? 1.14 : 1.05) * uniqueTrackFactor;
   } else if (daysSinceRelease === 1) {
-    // Day 2: Steep natural post-debut sales drop as core stans bought on Day 1
-    debutSalesMultiplier = 2.0 * stanRushFactor * fanLoyaltyFactor * uniqueTrackFactor;
+    // Day 2: Post-debut sales cooldown as Day 1 pre-orders clear
+    debutSalesMultiplier = 1.12 * stanLaunchBoost * uniqueTrackFactor;
   } else if (daysSinceRelease === 2) {
-    debutSalesMultiplier = 1.45 * stanRushFactor * uniqueTrackFactor;
+    debutSalesMultiplier = 0.96 * stanLaunchBoost * uniqueTrackFactor;
   } else if (daysSinceRelease <= 6) {
     // Days 4-7: Gradual taper through end of Week 1
-    const dayTaper = Math.max(0.85, 1.30 - (daysSinceRelease - 2) * 0.10);
+    const dayTaper = Math.max(0.76, 0.92 - (daysSinceRelease - 2) * 0.04);
     debutSalesMultiplier = dayTaper * proximity.salesWalletFactor * uniqueTrackFactor;
   } else {
-    debutSalesMultiplier = 1.0 * proximity.olderTrackSpotlightPenalty;
+    debutSalesMultiplier = 0.72 * proximity.olderTrackSpotlightPenalty;
   }
 
   // --- 3. YOUTUBE MUSIC VIDEO PREMIERE VELOCITY (Balanced with NPC YouTube Engine) ---
