@@ -8,6 +8,7 @@
 import { Song } from '../types';
 import { HitArchetype } from './songHitViabilityEngine';
 import { PlayerSkillState, getEnsuredSkillState } from './skillSystemEngine';
+import { evaluateSongPublicChemistry } from './publicChemistryLongevityEngine';
 
 export interface EnhancedStreamingStabilityResult {
   continuousLifecycleFactor: number;
@@ -52,6 +53,12 @@ export function evaluateEnhancedStreamingCurve(params: {
   const pop = Math.max(0, Math.min(100, artistPopularity || 2));
   const hype = Math.max(0, Math.min(100, artistHype || 15));
   const safeFans = Math.max(50, fans || 250);
+
+  const publicChemistry = evaluateSongPublicChemistry({
+    song,
+    daysSinceRelease,
+    isSingle
+  });
 
   // 1. Quality & Craft Longevity Index
   const emotionLv = safeSkills.songwriting.emotionalResonance?.level || 1;
@@ -152,33 +159,37 @@ export function evaluateEnhancedStreamingCurve(params: {
       permanentBSideFloor + (1.0 - permanentBSideFloor) * Math.exp(-daysSinceRelease / bSideHalfLife);
   }
 
-  // 4. Recurrent Catalog Floor Streams from Loyal Fanbase
+  // 4. Recurrent Catalog Floor Streams from Loyal Fanbase (scaled by Public Chemistry post-debut floor)
   const fanBaseDailyPerTrack = Math.pow(safeFans, 0.72) * (isSingle ? 0.38 : 0.16);
   const hypeDailyCatalyst = Math.pow(hype, 1.25) * (isSingle ? 8 : 3.5);
   const qualityRetentionMultiplier = Math.pow(quality / 55, 0.85);
   const recurrentCatalogFloorStreams = Math.round(
-    (fanBaseDailyPerTrack + hypeDailyCatalyst) * qualityRetentionMultiplier * continuousLifecycleFactor
+    (fanBaseDailyPerTrack + hypeDailyCatalyst) *
+      qualityRetentionMultiplier *
+      continuousLifecycleFactor *
+      publicChemistry.postDebutFloorMultiplier
   );
 
   // 5. Natural Daily Stream Stabilizer
-  // Does NOT block Week 1 post-debut cooldown! Only prevents erratic 40%+ single-day drops in deep catalog (Day 10+)
+  // Does NOT block Week 1 post-debut cooldown! Uses Public Chemistry drop allowance so Flops can drop steeply
+  // while Sleeper Hits and Mega Hits can surge and hold naturally.
   const stabilizedDailyStreams = (rawCalculatedStreams: number): number => {
     const withFloor = Math.max(rawCalculatedStreams, recurrentCatalogFloorStreams);
     const prevDaily = song.dailyStreams;
 
     // During Week 1 (daysSinceRelease 0..7), let the natural post-debut cooldown & daily variance happen freely!
     if (prevDaily && prevDaily > 0 && daysSinceRelease >= 8) {
-      const maxAllowedDropRatio =
-        quality >= 80
-          ? 0.12
-          : quality >= 65
-          ? 0.15
-          : 0.20;
+      const maxAllowedDropRatio = publicChemistry.maxDailyDropAllowance;
       const minSmoothThreshold = prevDaily * (1.0 - maxAllowedDropRatio);
 
+      // If a Sleeper Hit or Mega Hit is climbing above previous day, let it rise cleanly
+      if (withFloor >= prevDaily) {
+        return Math.max(25, Math.round(prevDaily * 0.08 + withFloor * 0.92));
+      }
+
       const blended = withFloor < minSmoothThreshold
-        ? (minSmoothThreshold * 0.55 + withFloor * 0.45)
-        : (prevDaily * 0.15 + withFloor * 0.85);
+        ? (minSmoothThreshold * 0.48 + withFloor * 0.52)
+        : (prevDaily * 0.14 + withFloor * 0.86);
 
       return Math.max(25, Math.round(blended));
     }

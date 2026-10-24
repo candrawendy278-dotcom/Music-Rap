@@ -20,6 +20,7 @@ import { TrackRole } from './bSideAndSingleStrategyEngine';
 import { getFanMarketSynergy } from './fansSystemEngine';
 import { evaluateSongHitViability } from './songHitViabilityEngine';
 import { evaluateEnhancedStreamingCurve } from './enhancedStreamingCurveEngine';
+import { evaluateSongPublicChemistry } from './publicChemistryLongevityEngine';
 
 export interface OrganicDailyMarketResult {
   dailyStreams: number;
@@ -180,12 +181,20 @@ export function calculateOrganicDailyStreams(params: {
     playlistLift = 1.0 + Math.log2(1 + count * 0.42) * 0.26;
   }
 
-  // --- 6. COMPOSE FINAL DAILY STREAMS (100% UNCLAMPED — NO 28M/31M WALL!) ---
+  // --- 6. PUBLIC CHEMISTRY POST-DEBUT LONGEVITY (STRICTLY 1.0x ON DAY 1 DEBUT!) ---
+  const publicChemistry = evaluateSongPublicChemistry({
+    song,
+    daysSinceRelease,
+    isSingle
+  });
+
+  // --- 7. COMPOSE FINAL DAILY STREAMS (100% UNCLAMPED — NO 28M/31M WALL!) ---
   const launchBonus = (launchSurge ?? 1.0);
   const rawStreams = baseListenerPool
     * qualityFactor
     * potentialFactor
     * lifecycleTrajectory
+    * publicChemistry.postDebutStreamMultiplier
     * roleFactor
     * playlistLift
     * (song.momentum || 1.0)

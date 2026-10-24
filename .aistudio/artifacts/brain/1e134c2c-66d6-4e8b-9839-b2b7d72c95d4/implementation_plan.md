@@ -1,102 +1,107 @@
-# Rencana Implementasi: The GRAMMY Awards & MTV Video Music Awards (VMAs)
+# Sistem Public Chemistry & Kurva Umur Lagu (Flop / Biasa / Normal / Hit / Mega Hit)
 
-Pembaruan ini menghadirkan dua ajang penghargaan musik paling bergengsi di dunia ke dalam game—**The GRAMMY Awards** dan **MTV Video Music Awards (VMAs)**—dengan aplikasi terpisah, identitas visual autentik yang mencerminkan masing-masing penghargaan, daftar kategori lengkap seperti di dunia nyata, formula pemilihan nominasi & pemenang yang adil antara Player dan NPC, **Artist Profile Trophy Room**, serta pengumuman otomatis secara mendetail di **X (Twitter)**.
-
----
-
-## 1. Dua Aplikasi Terpisah & Identitas Visual Autentik
-
-Di dalam tab **Apps & Services**, akan ditambahkan kategori baru **Awards & Honors** yang berisi dua aplikasi mandiri:
-
-### A. Aplikasi The GRAMMY Awards (`GrammyAwardsApp.tsx`)
-- **Identitas Visual**: *Recording Academy Prestige* — palet warna Obsidian Black (`#0A0A0C`), Brushed Champagne Gold (`#D4AF37`), dan Warm Ivory, dipadukan dengan tipografi editorial serif klasik untuk tajuk utama serta angka tabular untuk statistik.
-- **Fitur Utama di Dalam Aplikasi**:
-  1. **Season Tracker & Kalender Tahunan**: Menampilkan fase musim penghargaan saat ini:
-     - *Eligibility & FYC Submission Window* (Sepanjang tahun hingga pengumuman nominasi)
-     - *Official Nominations Announcement* (15 November setiap tahun)
-     - *Final Academy Voting & FYC Campaign* (15 November – 4 Februari)
-     - *Grammy Ceremony Night* (5 Februari setiap tahun)
-  2. **Daftar Kategori Lengkap (20 Kategori Asli)**:
-     - **General Field (The Big Four)**: *Record of the Year*, *Album of the Year*, *Song of the Year*, *Best New Artist*.
-     - **Pop Field**: *Best Pop Solo Performance*, *Best Pop Duo/Group Performance*, *Best Pop Vocal Album*, *Best Dance Pop Recording*.
-     - **Rap / Hip-Hop Field**: *Best Rap Performance*, *Best Melodic Rap Performance*, *Best Rap Song*, *Best Rap Album*.
-     - **R&B Field**: *Best R&B Performance*, *Best R&B Song*, *Best R&B Album*.
-     - **Rock, Alternative & Global Field**: *Best Rock/Alternative Performance*, *Best Latin/Global Music Performance*, *Best Dance/Electronic Recording*.
-     - **Craft & Visual Field**: *Producer of the Year (Non-Classical)*, *Best Music Video*.
-  3. **Submission & FYC ("For Your Consideration") Campaign**:
-     - Lagu, album/EP, dan MV yang dirilis dalam periode kelayakan otomatis terdaftar.
-     - Player dapat memilih lagu/album/MV unggulan untuk diajukan ke kategori utama dan menjalankan kampanye *For Your Consideration (FYC)* guna meningkatkan perhatian panelis Recording Academy.
-  4. **Historical Archive (Hall of Past Winners)**: Arsip lengkap seluruh pemenang dan nominasi dari tahun ke tahun (baik Player maupun NPC).
-
-### B. Aplikasi MTV Video Music Awards / VMAs (`MtvVmasApp.tsx`)
-- **Identitas Visual**: *High-Voltage Moon Person Stage* — palet warna Deep Carbon (`#09090F`), Chrome Metallic Silver (`#E2E8F0`), Electric Magenta (`#FF1E8A`), dan Cyber Cyan (`#00F0FF`) dengan gaya panggung festival malam penghargaan MTV.
-- **Fitur Utama di Dalam Aplikasi**:
-  1. **Season Tracker & Kalender Tahunan**:
-     - *Official VMA Nominations* (1 Agustus setiap tahun)
-     - *Fan Voting Period* (1 Agustus – 11 September)
-     - *MTV VMAs Live Ceremony Night* (12 September setiap tahun)
-  2. **Daftar Kategori Lengkap (16 Kategori Asli)**:
-     - **Major Categories**: *Video of the Year*, *Artist of the Year*, *Song of the Year*, *Best New Artist*, *Best Collaboration*, *Song of the Summer*.
-     - **Genre Video Categories**: *Best Pop*, *Best Hip-Hop*, *Best R&B*, *Best K-Pop*, *Best Latin*, *Best Afrobeats*, *Best Rock / Alternative*.
-     - **Professional & Technical Craft Categories**: *Best Direction*, *Best Cinematography*, *Best Visual Effects & Choreography*.
-  3. **Submission & Fan Voting Mobilization**:
-     - MV dan lagu otomatis masuk seleksi, ditambah opsi bagi Player untuk memilih video andalan dan menggerakkan *Fanbase Voting Rally* sebelum malam puncak.
-  4. **VMA Moon Person Archive**: Riwayat pemenang dan nominasi VMA setiap tahun.
+Menghadirkan dinamika resepsi publik yang organik setelah rilis lagu—di mana setiap rilis memiliki nasib umur chart yang berbeda (**Flop, Biasa/Underperform, Normal, Hit, Sleeper Hit, hingga Mega Hit**) berdasarkan kualitas lagu, kecocokan tren pasar, dan faktor kejutan organik, **tanpa mengubah angka debut Hari Pertama (Day 1)** dan **tanpa label bocoran di UI** sehingga pemain merasakannya langsung dari pergerakan stream dan posisi chart.
 
 ---
 
-## 2. Formula Pemilihan Nominasi & Pemenang (Player & NPC Setara)
+### User Review & Critical Decisions
 
-Sistem penilaian menggunakan data nyata dari performa lagu, album, MV, chart Billboard, serta atribut artis (baik Player maupun NPC dari `npcLivingArtistAttributesAndMarketEngine`):
+> [!IMPORTANT]
+> Rencana ini disusun langsung berdasarkan pilihan yang telah kamu konfirmasi:
 
-- **Formula The GRAMMY Awards (Academy-Weighted)**:
-  $$\text{Grammy Score} = (0.40 \times \text{Quality & Craft Mastery}) + (0.25 \times \text{Billboard Chart Peak & Longevity}) + (0.20 \times \text{Streams & Pure Sales Impact}) + (0.10 \times \text{Cultural Stature & Popularity}) + (0.05 \times \text{FYC Campaign Bonus})$$
-  - *General Field* dan *Craft Categories* menitikberatkan pada kualitas produksi/penulisan lagu serta dampak kultural, sehingga lagu berkualitas tinggi memiliki peluang menang yang realistis melawan lagu komersial.
-- **Formula MTV VMAs (Fan & Viral Visual-Weighted)**:
-  $$\text{VMA Score} = (0.35 \times \text{YouTube MV Views & Likes Velocity}) + (0.25 \times \text{Dedicated Fans & Stan Voting Power}) + (0.20 \times \text{Viral Hype & Stream Momentum}) + (0.15 \times \text{Billboard Hot 100 / Global 200 Impact}) + (0.05 \times \text{Fan Voting Campaign})$$
-  - Kategorinya sangat menghargai performa Music Video di YouTube, kekuatan fanbase/stan, dan kehebohan viral.
-
----
-
-## 3. Interactive Live Ceremony Night (`AwardCeremonyLiveModal.tsx`)
-
-Saat tanggal malam puncak tiba (**5 Februari** untuk GRAMMYs, **12 September** untuk MTV VMAs):
-- Muncul layar interaktif **Live Ceremony Night** dengan desain khusus sesuai acara (Emas/Obsidian untuk Grammy, Perak Moon Person/Neon untuk VMA).
-- Player dapat membuka amplop kategori demi kategori (*"And the GRAMMY goes to..."* / *"And the Moon Person goes to..."*) atau melihat rekapitulasi langsung, lengkap dengan papan skor pemenang terbanyak malam itu (*Night's Biggest Winners*).
+- **Tanpa Spoiler / Label di UI (Confirmed)**: Sistem bekerja secara *invisible* di balik layar. Pemain tidak diberitahu lewat teks/badge apakah lagunya Flop atau Mega Hit, melainkan menyadarinya sendiri saat melihat grafik stream harian dan ketahanan lagu di chart dari minggu ke minggu.
+- **3 Pilar Penentu Public Chemistry (Confirmed)**: Nasib lagu setelah debut ditentukan oleh kombinasi **(1) Kualitas & Sinergi Lagu**, **(2) Kecocokan dengan Tren Pasar Saat Rilis (Market Trend Alignment)**, dan **(3) Faktor Kejutan Organik (Organic Zeitgeist Roll)**.
+- **Debut Hari Pertama Tetap Utuh (Confirmed)**: Angka rilis di **Hari ke-1 (`Day 0`) tidak diubah sama sekali** karena didorong oleh ukuran fanbase, Hype, dan promosi awal. Efek Public Chemistry baru bekerja membentuk **kurva retensi, lonjakan minggu ke-2/ke-3, atau penurunan tajam** mulai hari-hari berikutnya.
+- **Modular & Terpisah (Confirmed)**: Seluruh logika Public Chemistry & Market Trend dibangun di modul terpisah yang mandiri agar aman dan bebas konflik dengan formula dasar yang sudah ada.
 
 ---
 
-## 4. Artist Profile Trophy Room (`ArtistTrophyRoomModal.tsx`)
+### 1. Overview & Core Concept
 
-Sesuai permintaanmu, **Artist Profile berfungsi sebagai Trophy Room**:
-- Pada **Dashboard / Artist Profile** (serta profil artis), terdapat kartu & tampilan **Artist Profile & Trophy Room** yang menampilkan:
-  - Total **GRAMMY Wins** & **GRAMMY Nominations**
-  - Total **MTV VMA Moon Persons** & **VMA Nominations**
-  - Daftar lengkap piala yang pernah dimenangkan beserta tahun, kategori, dan judul lagu/album/MV (baik untuk Player maupun rekap piala milik NPC papan atas).
-
----
-
-## 5. Pengumuman Lengkap di X / Twitter (`awardsXAnnouncementEngine.ts`)
-
-Setiap kali pengumuman nominasi (**15 Nov** & **1 Agu**) dan malam penghargaan (**5 Feb** & **12 Sep**) berlangsung, feed **X (Twitter)** otomatis mempublikasikan laporan lengkap baik saat Player menang maupun saat NPC menang:
-1. **Breaking Nominations Thread**:
-   - Pengumuman daftar nominasi kategori utama (*Record of the Year*, *Album of the Year*, *Video of the Year*, dll.).
-   - Rekapitulasi artis dengan jumlah nominasi terbanyak (*"Most Nominated Artists at the GRAMMYs: @Artist leads with 8 nods..."*).
-2. **Live Winner Announcements (Player & NPC)**:
-   - Cuitan resmi dari `@RecordingAcad`, `@vmas`, `@chartdata`, dan `@PopBase` yang mengumumkan siapa pemenang di tiap kategori besar beserta karya yang menang.
-3. **Final Trophy Haul Recap**:
-   - Pengumuman akhir malam penghargaan tentang siapa yang membawa pulang piala terbanyak (*"MOST WINS TONIGHT: @Artist sweeps the ceremony taking home 5 trophies!"*) serta reaksi fanbase di X.
+- **Apa yang Dilakukan Sistem Ini**:
+  Di industri musik nyata, hari pertama rilis mencerminkan seberapa besar fanbase dan antisipasi terhadap artis tersebut (*front-loaded hype*). Namun, apakah lagu tersebut bertahan 20 minggu di Top 10 atau langsung terjun bebas di minggu ke-2 ditentukan oleh **Public Chemistry** (apakah masyarakat umum / *General Public* suka dan memutar ulang lagu tersebut).
+- **6 Profil Kurva Umur Lagu (Tersembunyi di Balik Layar)**:
+  1. **Front-Loaded Flop**: Debut Hari ke-1 tetap besar sesuai level artis, tetapi publik umum kurang cocok. Mulai Hari ke-3 hingga Minggu ke-2 stream turun drastis (`-65%` s/d `-82%` dari debut) dan cepat keluar dari chart.
+  2. **Underperform (Biasa)**: Bertahan wajar di minggu pertama karena didorong fans, namun mulai melemah cukup cepat di Minggu ke-2 dan ke-3 (`-50%` s/d `-65%`) tanpa daya tahan jangka panjang.
+  3. **Normal Release**: Siklus standar single/album yang sehat—turun perlahan secara alami dari minggu ke minggu sesuai usia rilis.
+  4. **Solid Hit**: Disukai publik dan radio; penurunan mingguan sangat landai sehingga awet di chart selama 6–10 minggu.
+  5. **Sleeper Hit (Viral Lambat)**: Debut Hari ke-1 terlihat normal, sempat turun sedikit di hari ke-3, tetapi mulai Hari ke-8 hingga Hari ke-24 justru **naik kembali (Second-Wind Surge)** karena algoritma/mulut ke mulut dan bertahan lama di chart.
+  6. **Cultural Mega Hit**: Lagu yang benar-benar mengunci selera pasar; setelah debut besar, stream hariannya sangat stabil di puncak selama berminggu-minggu (bahkan bisa mencetak *re-peak* di minggu ke-2/ke-3) dan memiliki *catalog floor* jangka panjang yang tinggi.
 
 ---
 
-## 6. Struktur File Modular (1 Fitur = 1 File Terpisah)
+### 2. User Experience & Simulasi Pergerakan Chart
 
-Sesuai aturan modularitas agar bebas dari error, seluruh fitur baru dibangun dalam file terpisah:
-- `src/data/awardsCategoriesConfig.ts` — Definisi lengkap 20 kategori GRAMMY & 16 kategori MTV VMA beserta syarat kelayakannya.
-- `src/data/awardsFormulaAndSimulationEngine.ts` — Mesin kalkulasi skor nominasi, pemilihan pemenang (Player vs NPC), FYC/Voting campaign, dan penyimpanan riwayat piala.
-- `src/data/awardsXAnnouncementEngine.ts` — Generator otomatis cuitan X/Twitter untuk pengumuman nominasi, pemenang tiap kategori, dan rekap jumlah piala yang dibawa pulang.
-- `src/components/Apps/GrammyAwardsApp.tsx` — Aplikasi mandiri The GRAMMY Awards.
-- `src/components/Apps/MtvVmasApp.tsx` — Aplikasi mandiri MTV Video Music Awards (VMAs).
-- `src/components/Modals/AwardCeremonyLiveModal.tsx` — Layar interaktif malam puncak penghargaan (amplop pemenang & papan skor piala).
-- `src/components/Modals/ArtistTrophyRoomModal.tsx` — Tampilan Artist Profile & Trophy Room lengkap.
-- Integrasi ringan pada `src/types.ts`, `src/hooks/useGame.ts`, `src/components/Tabs/AppsTab.tsx`, `src/components/Tabs/Dashboard.tsx`, dan `src/MainApp.tsx`.
+- **Pengalaman Pemain dari Hari ke Hari**:
+  - **Hari ke-1 (Debut Day)**: Pemain merilis single atau album. Angka stream dan penjualan debut keluar persis menggunakan perhitungan dasar game yang sudah ada.
+  - **Hari ke-2 s/d Hari ke-6 (Fase Uji Publik)**: Semua lagu mengalami *post-debut cooldown* alami, namun lagu yang kurang klik dengan pasar mulai terlihat turun lebih cepat, sedangkan lagu dengan *Public Chemistry* tinggi menahan penurunannya dengan kuat.
+  - **Minggu ke-2 s/d Minggu ke-6 (Fase Penentuan Nasib Era)**:
+    - Jika lagu adalah **Flop / Biasa**, pemain akan melihat lagunya merosot tajam di Spotify Global Chart dan Billboard Hot 100 meskipun debut awalnya tinggi.
+    - Jika lagu adalah **Sleeper Hit**, pemain akan merasakan kejutan menyenangkan ketika lagu yang awalnya biasa saja tiba-tiba merangkak naik setiap hari di minggu ke-2 dan ke-3.
+    - Jika lagu adalah **Mega Hit**, lagu tersebut mendominasi papan atas chart lintas minggu dengan penurunan harian yang sangat tipis.
+- **Tanpa Elemen UI Tambahan**:
+  Tidak ada *popup*, *toast*, atau indikator teks yang membocorkan status internal lagu. Semua tercermin secara organik pada angka stream harian, pergerakan *rank* (`+`, `-`, `PEAK`), dan grafik di aplikasi chart yang sudah ada.
+
+---
+
+### 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Mengapa Hari ke-1 (Debut) Dipertahankan 100%?**
+  - *Chosen Approach*: Mengunci multiplier Public Chemistry pada nilai netral (`1.0x`) saat `daysSinceRelease === 0`, dan baru mengaktifkan kurva divergensi secara bertahap mulai `daysSinceRelease >= 1`.
+  - *Why*: Menjaga kepuasan saat rilis awal (di mana promosi, Hype, dan ukuran fanbase tetap dihargai penuh di hari pertama) sekaligus membuat kelanjutan era terasa mendebarkan karena debut besar belum tentu menjamin bertahan lama.
+- **Decision 2: Bagaimana "Kecocokan Tren Pasar" (Market Trend Alignment) Bekerja Tanpa Terlihat Kaku?**
+  - *Chosen Approach*: Pasar musik memiliki gelombang tren dinamis yang berputar secara organik berdasarkan kalender permainan (kombinasi bulan/musim dan siklus pasar untuk Genre, Tema, dan nuansa vokal/produksi).
+  - *Why*: Membuat pemilihan genre, subgenre, tema, dan gaya rekaman terasa hidup—lagu yang kebetulan pas dengan gelombang selera pasar saat itu punya peluang lebih besar menjadi *Hit* atau *Mega Hit*, sementara kombinasi yang berlawanan arus atau kurang sinergis berisiko menjadi *Front-Loaded Flop* kecuali diselamatkan oleh kualitas tinggi atau faktor kejutan organik.
+
+---
+
+### 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+- **Architecture & Simulation Flow Diagram**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     DAILY RELEASE SIMULATION TICK                       │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│             EXISTING CORE STREAMING & DEBUT ENGINE                      │
+│  • Menghitung Base Listener Pool, Fanbase, Hype, & Debut Surge          │
+│  • Hari ke-1 (daysSinceRelease === 0) menggunakan nilai asli 100%       │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │ (Jika daysSinceRelease >= 1)
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│          PUBLIC CHEMISTRY & MARKET TREND LONGEVITY ENGINE               │
+│                                                                         │
+│  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────┐  │
+│  │ 1. Song Quality &   │  │ 2. Dynamic Market   │  │ 3. Organic      │  │
+│  │    Studio Synergy   │  │    Trend Alignment  │  │    Surprise Roll│  │
+│  │  (Bobot ~40%)       │  │  (Bobot ~30%)       │  │  (Bobot ~30%)   │  │
+│  └──────────┬──────────┘  └──────────┬──────────┘  └────────┬────────┘  │
+│             └────────────────────────┼──────────────────────┘           │
+│                                      ▼                                  │
+│                  [ Penentuan Profil Kurva Umur Lagu ]                   │
+│     • Front-Loaded Flop     • Normal Release     • Sleeper Hit          │
+│     • Underperform (Biasa)  • Solid Hit          • Cultural Mega Hit    │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                 POST-DEBUT TRAJECTORY & RETENTION CURVE                 │
+│  • Mengatur kecepatan decay harian (Half-Life) di Minggu 1 s/d Bulan 3+ │
+│  • Mengatur gelombang "Second-Wind" (kenaikan bertahap untuk Sleeper)   │
+│  • Menyesuaikan batas tahanan lantai (Recurrent Floor) agar lagu Flop   │
+│    bisa benar-benar turun tajam, sedangkan Mega Hit bertahan kuat       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Data Model & Perhitungan Deterministik**:
+  - Setiap lagu menggunakan *seed* deterministik berbasis identitas unik lagu + tanggal rilis sehingga profil Public Chemistry-nya konsisten setiap hari tanpa perlu mengubah struktur save data lama.
+  - **Bobot Komposit Public Chemistry**:
+    - **Kualitas & Sinergi Studio (~40%)**: Kualitas rekaman, penguasaan *hook/storytelling*, dan keselarasan antara genre, tema, serta gaya vokal.
+    - **Kecocokan Tren Pasar (~30%)**: Evaluasi kecocokan genre, tema, dan nuansa lagu terhadap tren pasar yang sedang berlangsung pada tanggal rilis lagu tersebut.
+    - **Faktor Kejutan Organik (~30%)**: *Gaussian-like zeitgeist roll* yang memungkinkan deviasi realistis—sehingga artis besar dengan lagu bagus tetap punya risiko rilisnya *Biasa/Flop*, dan rilisan standar punya peluang meledak jadi *Sleeper Hit* atau *Mega Hit*.
+  - **Penyesuaian Stabilizer Pasca-Debut**:
+    - Melonggarkan *floor* penahan buatan pada lagu yang mendapat kurva **Flop / Underperform** setelah hari ke-4 agar penurunannya benar-benar terasa nyata di chart, sembari memperkuat *hold* dan gelombang *second-wind* pada lagu **Hit / Sleeper Hit / Mega Hit**.
