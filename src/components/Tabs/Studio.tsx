@@ -29,12 +29,13 @@ export default function Studio() {
     const writingCount = state.songs.filter(s => s.status === 'writing').length;
     const writtenReadyToRecord = state.songs.filter(s => s.status === 'written').length;
     const recordedReady = state.songs.filter(s => s.status === 'recorded').length;
+    const packagedSinglesReady = state.songs.filter(s => s.status === 'packaged').length;
     const projectsReadyToRelease = state.projects.filter(p => p.status === 'created').length;
     return {
       writingCount,
       writtenReadyToRecord,
       recordedReady,
-      readyToReleaseTotal: recordedReady + projectsReadyToRelease
+      readyToReleaseTotal: recordedReady + packagedSinglesReady + projectsReadyToRelease
     };
   }, [state.songs, state.projects]);
 

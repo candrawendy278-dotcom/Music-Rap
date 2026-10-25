@@ -96,6 +96,185 @@ function getNpcTerritorialAffinityMultiplier(
   return Math.max(0.35, 1.0 - targetProfile.domesticLoyalty * 0.45);
 }
 
+interface PrecomputedNpcSongCandidate {
+  npcId: string;
+  npcIdx: number;
+  npcName: string;
+  npcCountry: string;
+  npcGenre: string;
+  sIdx: number;
+  rawTitle: string;
+  youtubeTitle: string;
+  formattedArtistCredits: string;
+  featuredArtists: string[];
+  isExplicit: boolean;
+  hasMusicVideo: boolean;
+  daysOut: number;
+  weeksOnChart: number;
+  rawDailyStreams: number;
+  rawWeeklyStreams: number;
+  rawDailySales: number;
+  rawWeeklySales: number;
+  rawRadio: number;
+  globalDailyViews: number;
+  globalWeeklyViews: number;
+  audioCover: string;
+  videoCover: string;
+}
+
+let cachedNpcPoolKey = '';
+let cachedNpcPool: PrecomputedNpcSongCandidate[] = [];
+
+function getPrecomputedNpcPoolForDay(
+  effectiveDate: Date,
+  dayOfYear: number,
+  playerName: string
+): PrecomputedNpcSongCandidate[] {
+  const topNpcLeadTitle = REAL_WORLD_NPCS[0]?.songs?.[0]?.title || '';
+  const cacheKey = `${effectiveDate.getUTCFullYear()}_${dayOfYear}_${(playerName || '').toLowerCase()}_${topNpcLeadTitle}`;
+  if (cachedNpcPoolKey === cacheKey && cachedNpcPool.length > 0) {
+    return cachedNpcPool;
+  }
+
+  const pool: PrecomputedNpcSongCandidate[] = [];
+  const seenKeys = new Set<string>();
+
+  REAL_WORLD_NPCS.forEach((npc, npcIdx) => {
+    if (playerName && isNpcMatchingPlayerName(npc.name, playerName)) {
+      return;
+    }
+
+    const activeSongs = [...(npc.songs || [])];
+    if (npc.albums && npc.albums.length > 0 && npc.albums[0].tracks) {
+      for (const albTrk of npc.albums[0].tracks) {
+        if (!activeSongs.some(s => s.title.toLowerCase() === albTrk.title.toLowerCase())) {
+          activeSongs.push({
+            title: albTrk.title,
+            streams: albTrk.streams || 0,
+            dailyStreams: (albTrk as any).dailyStreams || 0,
+            weeklyStreams: (albTrk as any).weeklyStreams || 0,
+            sales: (albTrk as any).sales || 0,
+            dailySales: (albTrk as any).dailySales || 0,
+            radio: (albTrk as any).radio || 0,
+            daysSinceRelease: (albTrk as any).daysSinceRelease ?? 0,
+            cover: (albTrk as any).cover || npc.albums[0].cover
+          });
+        }
+      }
+    }
+
+    const hasRecentDrop = activeSongs.some(s => (s.daysSinceRelease ?? 99) <= 14);
+    const npcAttributes = getNpcLivingAttributes(npc.name, dayOfYear, hasRecentDrop);
+
+    activeSongs.forEach((song, sIdx) => {
+      const daysOut = song.daysSinceRelease ?? (dayOfYear > 0 ? 1 : 0);
+      if (dayOfYear > 0 && daysOut <= 0 && (song.streams || 0) === 0 && (song.dailyStreams || 0) === 0) {
+        return;
+      }
+
+      const rawTitle = song.title;
+      const youtubeTitle = !rawTitle.toLowerCase().includes('music video')
+        ? `${rawTitle} (Official Music Video)`
+        : rawTitle;
+
+      const dedupeKey = `${npc.name.toLowerCase()}::${rawTitle.toLowerCase()}`;
+      if (seenKeys.has(dedupeKey)) return;
+      seenKeys.add(dedupeKey);
+
+      const fallbackDay0Streams =
+        dayOfYear === 0
+          ? Math.max(
+              15000,
+              Math.floor(
+                3100000 *
+                  Math.pow(Math.max(30, npcAttributes.popularity) / 100, 2.8) *
+                  npcAttributes.streamSynergyMultiplier *
+                  (sIdx === 0 ? 1.0 : Math.pow(0.72, sIdx))
+              )
+            )
+          : 0;
+
+      const rawDailyStreams =
+        song.dailyStreams && song.dailyStreams > 0
+          ? song.dailyStreams
+          : song.streams && song.streams > 0
+          ? Math.max(1000, Math.floor(song.streams / Math.max(1, daysOut)))
+          : fallbackDay0Streams;
+
+      const rawWeeklyStreams =
+        song.weeklyStreams && song.weeklyStreams > 0
+          ? song.weeklyStreams
+          : song.streams && song.streams > 0
+          ? Math.min(song.streams, rawDailyStreams * Math.min(7, Math.max(1, daysOut)))
+          : rawDailyStreams * 7;
+
+      const rawDailySales =
+        song.dailySales && song.dailySales > 0
+          ? song.dailySales
+          : Math.max(5, Math.floor(rawDailyStreams * 0.0018 * npcAttributes.salesSynergyMultiplier));
+
+      const rawWeeklySales =
+        song.sales && song.sales > 0
+          ? Math.min(song.sales, rawDailySales * Math.min(7, Math.max(1, daysOut)))
+          : rawDailySales * 7;
+
+      const rawRadio =
+        song.radio && song.radio > 0
+          ? song.radio
+          : Math.floor(rawDailyStreams * 0.015);
+
+      const npcYoutubeViews = calculateUnifiedYoutubeViewsFromStreams({
+        dailyStreams: rawDailyStreams,
+        weeklyStreams: rawWeeklyStreams,
+        artistCountry: npc.country || 'US',
+        artistPopularity: npcAttributes.popularity,
+        artistHype: npcAttributes.hype,
+        artistFans: npcAttributes.fans,
+        visualSkillLevel: npcAttributes.skills.visuals,
+        daysSinceRelease: daysOut,
+        hasVEVO: true,
+        hasAdCampaign: daysOut <= 7 && sIdx === 0 && npcAttributes.popularity >= 75,
+        uniqueSeed: npcIdx * 31 + sIdx * 17 + dayOfYear
+      });
+
+      const weeksOnChart = Math.max(1, Math.ceil(Math.max(1, daysOut) / 7));
+      const audioCover = song.cover || resolveRealWorldCoverArt(npc.name, rawTitle, false);
+      const videoCover = getNpcVideoThumbnail(npc.name, rawTitle);
+      const meta = resolveSongMetadataAndCollabCredits(song, npc.name);
+
+      pool.push({
+        npcId: npc.id,
+        npcIdx,
+        npcName: npc.name,
+        npcCountry: npc.country || 'US',
+        npcGenre: npc.genre || 'Pop',
+        sIdx,
+        rawTitle,
+        youtubeTitle,
+        formattedArtistCredits: meta.formattedArtistCredits,
+        featuredArtists: meta.featuredArtists,
+        isExplicit: meta.isExplicit,
+        hasMusicVideo: meta.hasMusicVideo,
+        daysOut,
+        weeksOnChart,
+        rawDailyStreams,
+        rawWeeklyStreams,
+        rawDailySales,
+        rawWeeklySales,
+        rawRadio,
+        globalDailyViews: npcYoutubeViews.dailyViews,
+        globalWeeklyViews: npcYoutubeViews.weeklyViews,
+        audioCover,
+        videoCover
+      });
+    });
+  });
+
+  cachedNpcPoolKey = cacheKey;
+  cachedNpcPool = pool;
+  return pool;
+}
+
 /**
  * Generates any Singles chart (Spotify Daily/Weekly, Billboard Hot 100/Global 200/Regional,
  * iTunes Top Songs, YouTube Trending Videos) 100% from actual NPC releases + Player releases.
@@ -129,219 +308,102 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
   const profile = isGlobal ? null : getCountryMarketProfile(region);
 
   const candidates: ChartItem[] = [];
-  const seenKeys = new Set<string>();
+  const precomputedPool = getPrecomputedNpcPoolForDay(effectiveDate, dayOfYear, playerName);
 
-  // 2. Collect all currently released songs from REAL_WORLD_NPCS
-  REAL_WORLD_NPCS.forEach((npc, npcIdx) => {
-    if (playerName && isNpcMatchingPlayerName(npc.name, playerName)) {
-      return; // Skip deduplicated NPC
-    }
+  // 2. Score precomputed NPC songs for the target platform & territory
+  for (let i = 0; i < precomputedPool.length; i++) {
+    const item = precomputedPool[i];
+    const territorialAffinity = isGlobal
+      ? 1.0
+      : getNpcTerritorialAffinityMultiplier(item.npcCountry, item.npcGenre, region);
+    const territoryScale = isGlobal ? 1.0 : marketFraction * territorialAffinity;
 
-    // Gather released singles from npc.songs + any released album tracks if needed for deep charts (e.g. Global 200)
-    const activeSongs = [...(npc.songs || [])];
-    if (npc.albums && npc.albums.length > 0 && npc.albums[0].tracks) {
-      for (const albTrk of npc.albums[0].tracks) {
-        if (!activeSongs.some(s => s.title.toLowerCase() === albTrk.title.toLowerCase())) {
-          activeSongs.push({
-            title: albTrk.title,
-            streams: albTrk.streams || 0,
-            dailyStreams: (albTrk as any).dailyStreams || 0,
-            weeklyStreams: (albTrk as any).weeklyStreams || 0,
-            sales: (albTrk as any).sales || 0,
-            dailySales: (albTrk as any).dailySales || 0,
-            radio: (albTrk as any).radio || 0,
-            daysSinceRelease: (albTrk as any).daysSinceRelease ?? 0,
-            cover: (albTrk as any).cover || npc.albums[0].cover
-          });
-        }
-      }
-    }
+    const territoryDailyStreams = Math.max(100, Math.round(item.rawDailyStreams * territoryScale));
+    const territoryWeeklyStreams = Math.max(500, Math.round(item.rawWeeklyStreams * territoryScale));
+    const territoryDailySales = Math.max(2, Math.round(item.rawDailySales * territoryScale));
+    const territoryWeeklySales = Math.max(10, Math.round(item.rawWeeklySales * territoryScale));
+    const territoryRadio = isGlobal ? 0 : Math.max(50, Math.round(item.rawRadio * territoryScale));
 
-    const hasRecentDrop = activeSongs.some(s => (s.daysSinceRelease ?? 99) <= 14);
-    // Resolve this NPC's living Fans, Popularity, Hype, and Craft Skills (Songwriting, Vocals, Production, Visuals, Fan Engagement)
-    const npcAttributes = getNpcLivingAttributes(npc.name, dayOfYear, hasRecentDrop);
+    const territoryDailyViews = Math.max(150, Math.round(item.globalDailyViews * territoryScale));
+    const territoryWeeklyViews = Math.max(800, Math.round(item.globalWeeklyViews * territoryScale));
 
-    const territorialAffinity = getNpcTerritorialAffinityMultiplier(
-      npc.country,
-      npc.genre,
-      region
-    );
+    let points = 0;
+    let stats = {
+      streams: territoryWeeklyStreams,
+      sales: territoryWeeklySales,
+      radio: territoryRadio
+    };
 
-    activeSongs.forEach((song, sIdx) => {
-      // Only include songs that have been released in the NPC's workflow
-      const daysOut = song.daysSinceRelease ?? (dayOfYear > 0 ? 1 : 0);
-      if (dayOfYear > 0 && daysOut <= 0 && (song.streams || 0) === 0 && (song.dailyStreams || 0) === 0) {
-        return;
-      }
-
-      const displayTitle =
-        platform === 'youtube' && !song.title.toLowerCase().includes('music video')
-          ? `${song.title} (Official Music Video)`
-          : song.title;
-
-      const dedupeKey = `${npc.name.toLowerCase()}::${displayTitle.toLowerCase()}`;
-      if (seenKeys.has(dedupeKey)) return;
-      seenKeys.add(dedupeKey);
-
-      // Extract real simulated metrics from the NPC's release (already driven by their living Fans, Popularity, Hype & Skills)
-      const fallbackDay0Streams =
-        dayOfYear === 0
-          ? Math.max(
-              15000,
-              Math.floor(
-                3100000 *
-                  Math.pow(Math.max(30, npcAttributes.popularity) / 100, 2.8) *
-                  npcAttributes.streamSynergyMultiplier *
-                  (sIdx === 0 ? 1.0 : Math.pow(0.72, sIdx))
-              )
-            )
-          : 0;
-
-      const rawDailyStreams =
-        (song.dailyStreams && song.dailyStreams > 0)
-          ? song.dailyStreams
-          : (song.streams && song.streams > 0)
-          ? Math.max(1000, Math.floor(song.streams / Math.max(1, daysOut)))
-          : fallbackDay0Streams;
-
-      const rawWeeklyStreams =
-        (song.weeklyStreams && song.weeklyStreams > 0)
-          ? song.weeklyStreams
-          : (song.streams && song.streams > 0)
-          ? Math.min(song.streams, rawDailyStreams * Math.min(7, Math.max(1, daysOut)))
-          : rawDailyStreams * 7;
-
-      const rawDailySales =
-        (song.dailySales && song.dailySales > 0)
-          ? song.dailySales
-          : Math.max(5, Math.floor(rawDailyStreams * 0.0018 * npcAttributes.salesSynergyMultiplier));
-
-      const rawWeeklySales =
-        (song.sales && song.sales > 0)
-          ? Math.min(song.sales, rawDailySales * Math.min(7, Math.max(1, daysOut)))
-          : rawDailySales * 7;
-
-      const rawRadio =
-        (song.radio && song.radio > 0)
-          ? song.radio
-          : Math.floor(rawDailyStreams * 0.015);
-
-      const territoryScale = isGlobal ? 1.0 : marketFraction * territorialAffinity;
-
-      const territoryDailyStreams = Math.max(100, Math.round(rawDailyStreams * territoryScale));
-      const territoryWeeklyStreams = Math.max(500, Math.round(rawWeeklyStreams * territoryScale));
-      const territoryDailySales = Math.max(2, Math.round(rawDailySales * territoryScale));
-      const territoryWeeklySales = Math.max(10, Math.round(rawWeeklySales * territoryScale));
-      const territoryRadio = isGlobal
-        ? 0
-        : Math.max(50, Math.round(rawRadio * territoryScale));
-
-      // Unified YouTube MV daily & weekly views using the NPC's own Fans, Popularity, Hype, Visual Skill, and Premiere Surge!
-      const npcYoutubeViews = calculateUnifiedYoutubeViewsFromStreams({
-        dailyStreams: territoryDailyStreams,
-        weeklyStreams: territoryWeeklyStreams,
-        artistCountry: isGlobal ? (npc.country || 'US') : region,
-        artistPopularity: npcAttributes.popularity,
-        artistHype: npcAttributes.hype,
-        artistFans: npcAttributes.fans,
-        visualSkillLevel: npcAttributes.skills.visuals,
-        daysSinceRelease: daysOut,
-        hasVEVO: true,
-        hasAdCampaign: daysOut <= 7 && sIdx === 0 && npcAttributes.popularity >= 75,
-        uniqueSeed: npcIdx * 31 + sIdx * 17 + dayOfYear
+    if (platform === 'spotify') {
+      points = isWeekly ? territoryWeeklyStreams : territoryDailyStreams;
+      stats = {
+        streams: points,
+        sales: isWeekly ? territoryWeeklySales : territoryDailySales,
+        radio: territoryRadio
+      };
+    } else if (platform === 'youtube') {
+      points = territoryDailyViews;
+      stats = {
+        streams: territoryDailyViews,
+        sales: territoryDailySales,
+        radio: territoryRadio
+      };
+    } else if (platform === 'itunes') {
+      points = territoryDailySales;
+      stats = {
+        streams: territoryDailyStreams,
+        sales: territoryDailySales,
+        radio: territoryRadio
+      };
+    } else {
+      points = calculateAuthenticBillboardPoints({
+        weeklyAudioStreams: territoryWeeklyStreams,
+        weeklyVideoViews: territoryWeeklyViews,
+        weeklyPureSales: territoryWeeklySales,
+        weeklyRadioPlays: territoryRadio,
+        isGlobal
       });
-
-      const territoryDailyViews = npcYoutubeViews.dailyViews;
-      const territoryWeeklyViews = npcYoutubeViews.weeklyViews;
-
-      let points = 0;
-      let stats = {
+      stats = {
         streams: territoryWeeklyStreams,
         sales: territoryWeeklySales,
         radio: territoryRadio
       };
+    }
 
-      if (platform === 'spotify') {
-        points = isWeekly ? territoryWeeklyStreams : territoryDailyStreams;
-        stats = {
-          streams: points,
-          sales: isWeekly ? territoryWeeklySales : territoryDailySales,
-          radio: territoryRadio
-        };
-      } else if (platform === 'youtube') {
-        points = territoryDailyViews;
-        stats = {
-          streams: territoryDailyViews,
-          sales: territoryDailySales,
-          radio: territoryRadio
-        };
-      } else if (platform === 'itunes') {
-        points = territoryDailySales;
-        stats = {
-          streams: territoryDailyStreams,
-          sales: territoryDailySales,
-          radio: territoryRadio
-        };
-      } else {
-        // Billboard Hot 100 / Global 200 / Regional Top 100
-        points = calculateAuthenticBillboardPoints({
-          weeklyAudioStreams: territoryWeeklyStreams,
-          weeklyVideoViews: territoryWeeklyViews,
-          weeklyPureSales: territoryWeeklySales,
-          weeklyRadioPlays: territoryRadio,
-          isGlobal
-        });
-        stats = {
-          streams: territoryWeeklyStreams,
-          sales: territoryWeeklySales,
-          radio: territoryRadio
-        };
-      }
+    if (points <= 0) continue;
 
-      if (points <= 0) return;
+    const rankWave = getDailyCompetitiveRankWave(
+      item.npcName,
+      item.rawTitle,
+      effectiveDate,
+      platform,
+      region
+    );
+    points = Math.max(1, Math.round(points * rankWave));
 
-      // Apply organic daily/weekly competitive rank wave so chart positions naturally shift (+, -, =, RE-ENTRY)
-      const rankWave = getDailyCompetitiveRankWave(
-        npc.name,
-        song.title,
-        effectiveDate,
-        platform,
-        region
-      );
-      points = Math.max(1, Math.round(points * rankWave));
-
-      const weeksOnChart = Math.max(1, Math.ceil(Math.max(1, daysOut) / 7));
-      const coverArt =
-        platform === 'youtube'
-          ? getNpcVideoThumbnail(npc.name, song.title)
-          : song.cover || resolveRealWorldCoverArt(npc.name, song.title, false);
-
-      const meta = resolveSongMetadataAndCollabCredits(song, npc.name);
-
-      candidates.push({
-        id: `npc_single_${region}_${npc.id}_${sIdx}`,
-        title: displayTitle,
-        artist: meta.formattedArtistCredits,
-        primaryArtist: npc.name,
-        featuredArtists: meta.featuredArtists,
-        isExplicit: meta.isExplicit,
-        hasMV: meta.hasMusicVideo,
-        daysSinceRelease: daysOut,
-        isPlayer: false,
-        cover: coverArt,
-        points,
-        score: points,
-        streams: stats.streams,
-        sales: stats.sales,
-        radio: stats.radio,
-        weeksOnChart,
-        weeks: weeksOnChart,
-        lastPosition: null,
-        peakPosition: 1,
-        stats
-      } as any);
-    });
-  });
+    candidates.push({
+      id: `npc_single_${region}_${item.npcId}_${item.sIdx}`,
+      title: platform === 'youtube' ? item.youtubeTitle : item.rawTitle,
+      artist: item.formattedArtistCredits,
+      primaryArtist: item.npcName,
+      featuredArtists: item.featuredArtists,
+      isExplicit: item.isExplicit,
+      hasMV: item.hasMusicVideo,
+      daysSinceRelease: item.daysOut,
+      isPlayer: false,
+      cover: platform === 'youtube' ? item.videoCover : item.audioCover,
+      points,
+      score: points,
+      streams: stats.streams,
+      sales: stats.sales,
+      radio: stats.radio,
+      weeksOnChart: item.weeksOnChart,
+      weeks: item.weeksOnChart,
+      lastPosition: null,
+      peakPosition: 1,
+      stats
+    } as any);
+  }
 
   // 3. Evaluate Player's Released Songs using the exact same metric rules
   playerSongs

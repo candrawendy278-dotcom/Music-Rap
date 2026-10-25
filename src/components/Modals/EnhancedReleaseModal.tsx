@@ -86,18 +86,34 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
 
   const releaseItems = useMemo(() => {
     const singles = state.songs
-      .filter(s => s.status === 'recorded')
-      .map(s => ({
-        key: `song_${s.id}`,
-        kind: 'single' as const,
-        id: s.id,
-        title: s.title,
-        subtitle: `${s.subgenre || s.genre} · Standalone Single`,
-        cover: s.cover,
-        quality: Math.round(s.quality || 50),
-        trackCount: 1,
-        hasCollab: s.collabId && s.collabId !== 'none'
-      }));
+      .filter(
+        s =>
+          s.status === 'recorded' ||
+          s.status === 'packaged' ||
+          (s.status === 'released' && s.trackType === 'b_side')
+      )
+      .map(s => {
+        const parentProj = state.projects.find(p =>
+          p.songs?.some(ps => ps.id === s.id)
+        );
+        const roleLabel =
+          s.status === 'released' && s.trackType === 'b_side'
+            ? `Promote Album Track as Single${parentProj ? ` · from "${parentProj.title}"` : ''}`
+            : s.status === 'packaged' && parentProj
+            ? `Pre-Release Single · from "${parentProj.title}"`
+            : 'Standalone Single';
+        return {
+          key: `song_${s.id}`,
+          kind: 'single' as const,
+          id: s.id,
+          title: s.title,
+          subtitle: `${s.subgenre || s.genre} · ${roleLabel}`,
+          cover: s.cover || parentProj?.cover,
+          quality: Math.round(s.quality || 50),
+          trackCount: 1,
+          hasCollab: s.collabId && s.collabId !== 'none'
+        };
+      });
 
     const projects = state.projects
       .filter(p => p.status === 'created')
@@ -205,6 +221,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
 
       if (releaseTarget.startsWith('song_')) {
         const id = parseInt(releaseTarget.split('_')[1]);
+        let updatedSongPot = 0;
         nextP.songs = nextP.songs.map(s => {
           if (s.id === id) {
             const collabBonus = s.collabId && s.collabId !== 'none' ? 25 : 0;
@@ -212,15 +229,35 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
               ((s.quality * 0.5) + (state.popularity * 0.3) + (newHype * 0.2) + collabBonus) *
               tierMultiplier *
               activeDistro.potMult;
+            updatedSongPot = Math.max(s.basePotential || 0, calcPot);
             return {
               ...s,
               status: targetStatus,
-              releaseDate,
+              releaseDate: s.status === 'released' ? (s.releaseDate || releaseDate) : releaseDate,
               trackType: 'single' as const,
-              basePotential: calcPot
+              basePotential: updatedSongPot,
+              momentum: Math.max(s.momentum || 1.0, 1.08)
             };
           }
           return s;
+        });
+
+        // Also synchronize this song inside any parent project's songs list
+        nextP.projects = nextP.projects.map(pr => {
+          if (!pr.songs || !pr.songs.some(ps => ps.id === id)) return pr;
+          return {
+            ...pr,
+            songs: pr.songs.map(ps =>
+              ps.id === id
+                ? {
+                    ...ps,
+                    status: targetStatus,
+                    trackType: 'single' as const,
+                    basePotential: updatedSongPot || ps.basePotential
+                  }
+                : ps
+            )
+          };
         });
       } else if (releaseTarget.startsWith('proj_')) {
         const id = parseInt(releaseTarget.split('_')[1]);

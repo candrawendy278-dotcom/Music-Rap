@@ -1002,7 +1002,7 @@ export function simulateAwardSeason(
       if (topNominees.length >= AWARD_CALENDAR_CONFIG[show].nomineesPerCategory) break;
       const aKey = nom.artistName.toLowerCase();
       const currentCount = artistCountInCat.get(aKey) || 0;
-      const maxAllowed = nom.isPlayer ? 2 : 1;
+      const maxAllowed = 1;
       if (currentCount < maxAllowed) {
         topNominees.push(nom);
         artistCountInCat.set(aKey, currentCount + 1);

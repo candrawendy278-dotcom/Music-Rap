@@ -225,7 +225,7 @@ export function injectRivalCounterReleaseIntoNpcCatalog(state?: GameState) {
       dailyStreams: counter.dailyStreams,
       weeklyStreams: counter.weeklyStreams,
       daysSinceRelease: counter.daysSinceRelease,
-      year: new Date(state.date || '2026-01-01').getFullYear() || 2026,
+      year: new Date(state?.date || counter.releaseDate || '2026-01-01').getFullYear() || 2026,
       tracks: [
         counterSongEntry,
         ...(targetNpc.songs.slice(1, 7).map(s => ({

@@ -583,6 +583,8 @@ export interface CountryMetricResult {
   isHomeMarket: boolean;
 }
 
+const territorialBreakdownCache = new Map<string, CountryMetricResult[]>();
+
 /**
  * Calculates realistic country-by-country breakdown for streams, views, and pure sales.
  */
@@ -593,6 +595,15 @@ export function calculateSongTerritorialBreakdown(
   artistHype: number = 20,
   isWeekly = false
 ): CountryMetricResult[] {
+  const cacheKey = `${song?.id ?? 0}_${song?.title ?? ''}_${artistCountry}_${Math.round(artistPop)}_${Math.round(artistHype)}_${isWeekly ? 1 : 0}_${song?.streams ?? 0}_${song?.weeklyStreams ?? 0}_${song?.dailyStreams ?? 0}_${song?.views ?? 0}_${song?.weeklyViews ?? 0}_${song?.dailyViews ?? 0}_${song?.pureSales ?? 0}_${song?.weeklyPureSales ?? 0}_${song?.dailyPureSales ?? 0}_${song?.radioPlays ?? 0}`;
+  const cached = territorialBreakdownCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  if (territorialBreakdownCache.size > 400) {
+    territorialBreakdownCache.clear();
+  }
+
   const hitInfo = evaluateSongHitScope(song, artistCountry, artistPop, artistHype);
   const homeProfile = getCountryMarketProfile(artistCountry);
   const homeRegion = homeProfile.regionGroup;
@@ -699,6 +710,7 @@ export function calculateSongTerritorialBreakdown(
   // Sort descending by total units
   results.sort((a, b) => b.totalUnits - a.totalUnits);
 
+  territorialBreakdownCache.set(cacheKey, results);
   return results;
 }
 

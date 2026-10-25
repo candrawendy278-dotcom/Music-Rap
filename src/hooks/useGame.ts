@@ -171,15 +171,17 @@ export function useGame() {
 
     // Step 4: Run the heavy state calculation non-blockingly so the browser stays fluid
     setTimeout(() => {
+      try {
       setState(prev => {
         let nextState = { ...prev };
         let date = new Date(nextState.date);
         date.setDate(date.getDate() + 1);
         nextState.date = date.toISOString();
 
-        // Sync Player-NPC deduplication & NPC realistic release workflow
-        syncPlayerNameNpcDeduplication(nextState.artist?.name);
-        syncNpcRealisticReleaseWorkflow(date);
+        try {
+          // Sync Player-NPC deduplication & NPC realistic release workflow
+          syncPlayerNameNpcDeduplication(nextState.artist?.name);
+          syncNpcRealisticReleaseWorkflow(date);
 
       // Update writing status
       nextState.songs = nextState.songs.map(song => {
@@ -585,7 +587,8 @@ export function useGame() {
                  'spotify_weekly_global'
              );
              
-             Object.keys(COUNTRY_TIERS).forEach(cc => {
+             const weeklyCountriesToSync = isMonday ? Object.keys(COUNTRY_TIERS) : coreDailyCountries;
+             weeklyCountriesToSync.forEach(cc => {
                  const prevCountryWeekly = nextState.spotify.charts[`weekly_${cc}`] || [];
                  nextState.spotify.charts[`weekly_${cc}`] = finalizeSpotifyChart(
                      generateSpotifyChart(true, cc),
@@ -641,24 +644,30 @@ export function useGame() {
           );
           nextState.xPosts = [...awardTweets, ...(nextState.xPosts || [])].slice(0, 120);
         }
+        } catch (innerErr) {
+          console.error('Error inside nextDay state calculation:', innerErr);
+        }
 
         return nextState;
       });
+      } catch (err) {
+        console.error('Error during nextDay transition:', err);
+      } finally {
+        // Complete progress smoothly
+        setNextDayLoading(prev => ({
+          ...prev,
+          stepMessage: 'Day transition complete!',
+          progressPercent: 100
+        }));
 
-      // Complete progress smoothly
-      setNextDayLoading(prev => ({
-        ...prev,
-        stepMessage: 'Day transition complete!',
-        progressPercent: 100
-      }));
-
-      setTimeout(() => {
-        setNextDayLoading({
-          isLoading: false,
-          stepMessage: '',
-          progressPercent: 0
-        });
-      }, 300);
+        setTimeout(() => {
+          setNextDayLoading({
+            isLoading: false,
+            stepMessage: '',
+            progressPercent: 0
+          });
+        }, 300);
+      }
     }, 720);
   }, [nextDayLoading.isLoading, state.date]);
 
