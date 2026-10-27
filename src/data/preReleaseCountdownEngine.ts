@@ -3,7 +3,7 @@
 // 1. Single Role Classification (Lead Single, Pre-Release Single, Promotional Single, Official/Focus Single, B-Side)
 // 2. Scheduled Project Pre-Save Accumulation & Day-1 Conversion Multipliers
 // 3. Real-time Countdown Timer Breakdown (Days | Hours | Minutes | Seconds)
-// 4. Deterministic NPC Upcoming Album/EP Countdowns on Spotify Artist Profiles
+// 4. Deterministic NPC Upcoming Album/EP Countdowns on Spotify Artist Profiles that strictly count down 1 day per turn and release into Discography on Day 0
 
 import { GameState, Project, Song } from '../types';
 import { DetailedNPC } from './npcAssets';
@@ -132,36 +132,47 @@ export interface CountdownTimeBreakdown {
 
 /**
  * Calculates live Days | Hours | Minutes | Seconds between the game's current date
- * (plus a live real-time offset inside the current day) and the target releaseDate.
+ * (plus a live real-time offset inside the current day) and the fixed target releaseDate.
+ * Uses UTC calendar date arithmetic so every turn in-game strictly decreases `days` by 1.
  */
 export function calculateReleaseCountdownBreakdown(
   currentGameDateStr: string,
   targetReleaseDateStr: string,
   liveTickOffsetSeconds: number = 0
 ): CountdownTimeBreakdown {
-  const gameNow = new Date(currentGameDateStr);
+  const rawNow = new Date(currentGameDateStr || '2026-01-01T00:00:00Z');
   const cleanTarget = targetReleaseDateStr.includes('T')
     ? targetReleaseDateStr
-    : `${targetReleaseDateStr}T00:00:00`;
-  const targetDate = new Date(cleanTarget);
+    : `${targetReleaseDateStr}T00:00:00Z`;
+  const rawTarget = new Date(cleanTarget);
 
-  const formattedReleaseDate = targetDate.toLocaleDateString('en-US', {
+  const formattedReleaseDate = rawTarget.toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',
-    year: 'numeric'
+    year: 'numeric',
+    timeZone: 'UTC'
   });
 
-  const shortReleaseDate = targetDate.toLocaleDateString('en-US', {
+  const shortReleaseDate = rawTarget.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
-    year: 'numeric'
+    year: 'numeric',
+    timeZone: 'UTC'
   });
 
-  // Base difference in milliseconds from current game date to midnight of release date
-  // Add a deterministic intraday hour/minute window (22h 51m 12s) so a newly scheduled release
-  // shows full authentic Days | Hours | Minutes | Seconds like real Spotify Countdowns
-  const rawDiffMs = targetDate.getTime() - gameNow.getTime();
-  if (rawDiffMs <= 0) {
+  const nowUtcMs = Date.UTC(
+    rawNow.getUTCFullYear(),
+    rawNow.getUTCMonth(),
+    rawNow.getUTCDate()
+  );
+  const targetUtcMs = Date.UTC(
+    rawTarget.getUTCFullYear(),
+    rawTarget.getUTCMonth(),
+    rawTarget.getUTCDate()
+  );
+
+  const rawDiffDays = Math.round((targetUtcMs - nowUtcMs) / 86400000);
+  if (rawDiffDays <= 0) {
     return {
       days: 0,
       hours: 0,
@@ -174,7 +185,7 @@ export function calculateReleaseCountdownBreakdown(
     };
   }
 
-  const baseDays = Math.max(0, Math.floor(rawDiffMs / (1000 * 60 * 60 * 24)) - 1);
+  const baseDays = Math.max(0, rawDiffDays - 1);
   const intradaySeedSeconds = 22 * 3600 + 51 * 60 + 19;
   const totalSecondsRemaining = Math.max(
     1,
@@ -412,8 +423,11 @@ const AUTHENTIC_NPC_RECORD_LABELS: Record<string, string> = {
 };
 
 /**
- * Generates an authentic upcoming release countdown for an NPC artist using 100% real-world
- * albums, official album covers, and real studio album tracklists from their actual discography.
+ * Generates an authentic upcoming release countdown for an NPC artist tied 100% to their
+ * fixed calendar `releaseDayOfYear` in `npcScheduledMultiReleaseEngine.ts`:
+ * - Every turn the player advances the game, `days` strictly decreases by 1.
+ * - On `dayOfYear === releaseDayOfYear`, the countdown finishes and the album officially
+ *   releases into the NPC's Discography with all tracks unlocked.
  */
 export function getNpcUpcomingReleaseCountdown(
   npc: DetailedNPC,
@@ -422,56 +436,38 @@ export function getNpcUpcomingReleaseCountdown(
   if (!npc || !npc.name) return null;
 
   const cleanName = normalizeRealArtistName(npc.name).trim();
-  const now = new Date(currentDateStr || '2026-01-01T00:00:00');
   const nameHash = cleanName.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
 
   const workflow = getNpcWorkflowStatus(cleanName, currentDateStr);
   const master = getMasterNpcCatalogSnapshot(cleanName);
+  if (!workflow || !workflow.rolloutSteps) return null;
 
   const activeAlbumTitlesLower = new Set(
     (npc.albums || []).map(a => a.title.toLowerCase().trim())
   );
 
-  // Determine the upcoming real album from the NPC's authentic discography
-  // Must strictly be an UNRELEASED album (never an album already present in npc.albums)
-  let chosenAlbumTitle = '';
-  let chosenAlbumCover = '';
-  let daysAhead = 12 + ((nameHash * 7 + now.getDate()) % 16);
+  // Find the next genuinely scheduled, unreleased studio album step from the NPC's live workflow
+  const upcomingAlbumStep = workflow.rolloutSteps.find(
+    st =>
+      st.isAlbumStep &&
+      !st.isReleased &&
+      st.daysRemaining > 0 &&
+      !st.title.toLowerCase().includes('(deluxe ep)') &&
+      !activeAlbumTitlesLower.has(st.title.toLowerCase().trim())
+  );
 
-  // 1. Check if the NPC's live staggered workflow has an upcoming unreleased real studio album
-  if (workflow && workflow.rolloutSteps) {
-    const upcomingAlbumStep = workflow.rolloutSteps.find(
-      st =>
-        st.isAlbumStep &&
-        !st.isReleased &&
-        st.daysRemaining > 0 &&
-        !st.title.toLowerCase().includes('(deluxe ep)') &&
-        !activeAlbumTitlesLower.has(st.title.toLowerCase().trim())
-    );
-    if (upcomingAlbumStep) {
-      chosenAlbumTitle = upcomingAlbumStep.title;
-      chosenAlbumCover = upcomingAlbumStep.cover;
-      daysAhead = Math.max(2, upcomingAlbumStep.daysRemaining);
-    }
-  }
+  // If the NPC has no unreleased scheduled studio album left in this cycle, return null
+  if (!upcomingAlbumStep) return null;
 
-  // 2. Otherwise, pick an authentic album from the NPC's real-world master discography
-  // ONLY if it is NOT already released in their active Discography
-  if (!chosenAlbumTitle && master && master.masterAlbums.length > 0) {
-    const unreleasedRealAlbum = master.masterAlbums.find(
-      a =>
-        !activeAlbumTitlesLower.has(a.title.toLowerCase().trim()) &&
-        !a.title.toLowerCase().includes('(deluxe ep)')
-    );
+  const chosenAlbumTitle = upcomingAlbumStep.title;
+  let chosenAlbumCover = upcomingAlbumStep.cover || '';
 
-    if (unreleasedRealAlbum) {
-      chosenAlbumTitle = unreleasedRealAlbum.title;
-      chosenAlbumCover = unreleasedRealAlbum.cover || '';
-    }
-  }
-
-  // If all of the NPC's albums are already released in their Discography, do not show a Pre-Save countdown
-  if (!chosenAlbumTitle) return null;
+  // Compute the FIXED calendar release date from workflow.gameYear + upcomingAlbumStep.releaseDayOfYear
+  // so it never drifts or increases as currentDateStr advances!
+  const targetReleaseUtc = new Date(
+    Date.UTC(workflow.gameYear, 0, 1 + upcomingAlbumStep.releaseDayOfYear)
+  );
+  const releaseDate = targetReleaseUtc.toISOString().split('T')[0];
 
   // Resolve 100% official real-world album cover art
   const officialCover =
@@ -488,7 +484,13 @@ export function getNpcUpcomingReleaseCountdown(
       '';
   }
 
-  // Resolve 100% authentic real-world tracklist for this exact album
+  // Use the exact simulated tracks for this upcoming album from workflow.upcomingAlbumTracks
+  // (or resolve from getAuthenticAlbumFullTracklist) so pre-released singles match 1:1
+  const simUpcomingTracks =
+    workflow.upcomingAlbumTracks && workflow.upcomingAlbumTracks.length > 0
+      ? workflow.upcomingAlbumTracks
+      : null;
+
   const rawTracklist = getAuthenticAlbumFullTracklist(
     cleanName,
     chosenAlbumTitle,
@@ -498,11 +500,21 @@ export function getNpcUpcomingReleaseCountdown(
 
   if (!rawTracklist || rawTracklist.length === 0) return null;
 
-  const futureDate = new Date(now.getTime());
-  futureDate.setDate(futureDate.getDate() + daysAhead);
-  const releaseDate = futureDate.toISOString().split('T')[0];
+  const simTrackMap = new Map<
+    string,
+    { isReleased: boolean; streams: number; trackType: string }
+  >();
+  if (simUpcomingTracks) {
+    simUpcomingTracks.forEach(st => {
+      simTrackMap.set(st.title.toLowerCase().trim(), {
+        isReleased: st.isReleased && st.trackType !== 'b_side',
+        streams: st.streams || 0,
+        trackType: st.trackType
+      });
+    });
+  }
 
-  // Match only official singles (never b_sides) that have already dropped ahead of this upcoming album
+  // Also check active singles in npc.songs in case the lead single is already out
   const activeNpcSinglesMap = new Map<string, { streams: number; trackType?: string }>();
   (npc.songs || []).forEach(s => {
     const tType = (s as any).trackType || 'single';
@@ -518,17 +530,20 @@ export function getNpcUpcomingReleaseCountdown(
   const maxPreReleaseSingles = Math.min(2, Math.max(1, rawTracklist.length - 2));
 
   const tracks = rawTracklist.map((trk, idx) => {
-    const activeMatch = activeNpcSinglesMap.get(trk.title.toLowerCase().trim());
-    const canUnlockAsPreRelease =
-      Boolean(activeMatch) && unlockedPreReleaseCount < maxPreReleaseSingles;
-    const existingLeadSong = (npc.songs || [])[0];
-    const defaultLeadStreams = Math.max(
-      450_000,
-      Math.floor((existingLeadSong?.streams || 2_200_000) * 0.85)
-    );
+    const normKey = trk.title.toLowerCase().trim();
+    const simMatch = simTrackMap.get(normKey);
+    const activeMatch = activeNpcSinglesMap.get(normKey);
 
-    if (canUnlockAsPreRelease) {
+    const isSingleOutNow =
+      Boolean((simMatch && simMatch.isReleased) || activeMatch) &&
+      unlockedPreReleaseCount < maxPreReleaseSingles;
+
+    if (isSingleOutNow) {
       unlockedPreReleaseCount++;
+      const resolvedStreams =
+        (simMatch && simMatch.streams > 0 ? simMatch.streams : 0) ||
+        (activeMatch && activeMatch.streams > 0 ? activeMatch.streams : 0);
+
       return {
         id: `npc_up_trk_${idx}`,
         title: trk.title,
@@ -537,10 +552,7 @@ export function getNpcUpcomingReleaseCountdown(
         trackType: (unlockedPreReleaseCount === 1
           ? 'lead_single'
           : 'pre_release_single') as ExtendedTrackRole,
-        streams:
-          activeMatch?.streams && activeMatch.streams > 0
-            ? activeMatch.streams
-            : defaultLeadStreams,
+        streams: resolvedStreams,
         isExplicit: (nameHash + idx) % 5 === 1
       };
     }
@@ -556,8 +568,13 @@ export function getNpcUpcomingReleaseCountdown(
     };
   });
 
+  // Pre-saves grow naturally each day as the countdown approaches release day
   const popFactor = Math.max(40, npc.pop || 78);
-  const preSaves = Math.round(Math.pow(popFactor, 2.3) * (15 + (nameHash % 9)));
+  const daysElapsedInRollout = Math.max(1, 25 - upcomingAlbumStep.daysRemaining);
+  const basePreSaves = Math.round(Math.pow(popFactor, 2.15) * (8 + (nameHash % 6)));
+  const dailyPreSaveAdd = Math.round(basePreSaves * 0.065 * daysElapsedInRollout);
+  const preSaves = basePreSaves + dailyPreSaveAdd;
+
   const projectType: 'album' | 'ep' = rawTracklist.length <= 7 ? 'ep' : 'album';
   const labelName =
     AUTHENTIC_NPC_RECORD_LABELS[cleanName] ||

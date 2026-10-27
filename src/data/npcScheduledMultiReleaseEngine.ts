@@ -3,8 +3,9 @@
 // 1. On New Game (dayOfYear === 0): Simultaneous baseline releases so all charts (Singles & Albums)
 //    are populated immediately on Day 1.
 // 2. Across the 365-Day Year: NPCs do NOT all drop on the same day. Each NPC follows a staggered
-//    release calendar and actively drops up to 2 Projects (2 Studio Albums, or Album + EP) and
-//    4-6 Singles across the year so the music industry feels alive every single week.
+//    release calendar (Lead Single -> Pre-Release Single -> Album Countdown -> Full Album Drop)
+//    and artists with larger real-world discographies (e.g. Taylor Swift, Post Malone, Drake, etc.)
+//    roll out up to 3 album eras per year while preserving their full back-catalog in Discography.
 
 import type { DetailedNPC, NpcAlbum, NpcSong } from './npcAssets';
 import { resolveRealWorldCoverArt } from './realWorldArtistCatalog';
@@ -229,7 +230,6 @@ function simulateTrackAtDay(
     }
   }
 
-  // First-day and first-week sales rush for singles, scaled by NPC's dedicated Fans & Fan Engagement skill
   const salesRushMult =
     effectiveDaysTracked === 1
       ? 1.75
@@ -321,72 +321,97 @@ function selectSingleIndicesForTracklist(
   return candidateIndices;
 }
 
-/**
- * Resolves a second project (2nd Studio Album or EP) for the NPC's second annual release cycle
- * so every NPC can release 2 projects (Album/EP) + multiple singles in a year.
- */
-function resolveSecondProjectForYear(
+function resolveProjectByIndex(
   npcName: string,
   master: MultiCycleNpcMasterSnapshot,
-  era1Idx: number,
-  era1AlbumTitle: string,
-  era1Cover: string
+  albumIdx: number,
+  fallbackCover: string
 ): {
   title: string;
   cover: string;
   projectType: 'album' | 'ep';
   tracks: AuthenticAlbumTrackEntry[];
 } {
-  if (master.masterAlbums.length >= 2) {
-    const era2Idx = (era1Idx + 1) % master.masterAlbums.length;
-    const chosen2 = master.masterAlbums[era2Idx];
-    const verifiedCover = getVerifiedOfficialReleaseCover(npcName, chosen2.title, true);
-    const resolvedCover =
-      verifiedCover || resolveRealWorldCoverArt(npcName, chosen2.title, true);
-    const cover2 =
-      resolvedCover && !resolvedCover.startsWith('data:image/svg+xml')
-        ? resolvedCover
-        : chosen2.cover || era1Cover;
+  const chosen = master.masterAlbums[albumIdx % master.masterAlbums.length];
+  const verifiedCover = getVerifiedOfficialReleaseCover(npcName, chosen.title, true);
+  const resolvedCover =
+    verifiedCover || resolveRealWorldCoverArt(npcName, chosen.title, true);
+  const cover =
+    resolvedCover && !resolvedCover.startsWith('data:image/svg+xml')
+      ? resolvedCover
+      : chosen.cover || fallbackCover;
 
-    const fullTracks = getAuthenticAlbumFullTracklist(
-      npcName,
-      chosen2.title,
-      master.pop,
-      master.masterSongs
-    );
-    return {
-      title: chosen2.title,
-      cover: cover2,
-      projectType: fullTracks.length <= 7 ? 'ep' : 'album',
-      tracks: fullTracks
-    };
-  }
-
-  // Fallback if NPC only has 1 master album in catalog: create an authentic 6-track EP / Deluxe Edition
-  const baseTracks = getAuthenticAlbumFullTracklist(
+  const fullTracks = getAuthenticAlbumFullTracklist(
     npcName,
-    era1AlbumTitle,
+    chosen.title,
     master.pop,
     master.masterSongs
   );
-  const epTracks: AuthenticAlbumTrackEntry[] = baseTracks.slice(0, 5).map((t, i) => ({
-    title: i === 0 ? `${t.title} (Extended Mix)` : i === 1 ? `${t.title} (Live Session)` : t.title,
-    streams: t.streams,
-    trackType: i <= 1 ? 'single' : 'b_side'
-  }));
+  return {
+    title: chosen.title,
+    cover,
+    projectType: fullTracks.length <= 7 ? 'ep' : 'album',
+    tracks: fullTracks
+  };
+}
+
+function buildSimulatedAlbumObject(
+  title: string,
+  cover: string,
+  year: number,
+  daysOut: number,
+  simTracks: SimulatedNpcTrackState[]
+): NpcAlbum {
+  const totalStreams = simTracks.reduce((sum, t) => sum + t.streams, 0);
+  const dailyStreams = simTracks.reduce((sum, t) => sum + t.dailyStreams, 0);
+  const weeklyStreams = simTracks.reduce((sum, t) => sum + t.weeklyStreams, 0);
+  const totalSales = simTracks.reduce((sum, t) => sum + t.sales, 0);
+  const dailySales = simTracks.reduce((sum, t) => sum + t.dailySales, 0);
+  const debutAlbumBoost = daysOut === 0 ? 1.55 : daysOut <= 3 ? 1.22 : 0.85;
+  const albumDailyPureSales = Math.max(
+    25,
+    Math.floor(
+      (dailySales * 0.27 + Math.pow(Math.max(100, dailyStreams), 0.72) * 0.21) * debutAlbumBoost
+    )
+  );
+  const albumTotalPureSales = Math.max(
+    albumDailyPureSales,
+    Math.floor(totalSales * 0.25 + Math.pow(Math.max(100, totalStreams), 0.74) * 0.24)
+  );
 
   return {
-    title: `${era1AlbumTitle} (Deluxe EP)`,
-    cover: era1Cover,
-    projectType: 'ep',
-    tracks: epTracks
+    title,
+    cover,
+    sales: albumTotalPureSales,
+    dailySales: albumDailyPureSales,
+    weeklySales: albumDailyPureSales * Math.min(7, Math.max(1, daysOut + 1)),
+    streams: totalStreams,
+    dailyStreams,
+    weeklyStreams,
+    daysSinceRelease: daysOut,
+    year,
+    tracks: simTracks.map(t => ({
+      title: t.title,
+      streams: t.streams,
+      dailyStreams: t.dailyStreams,
+      weeklyStreams: t.weeklyStreams,
+      sales: t.sales,
+      dailySales: t.dailySales,
+      radio: t.radio,
+      daysSinceRelease: t.daysSinceRelease,
+      cover: t.cover,
+      trackType: t.trackType
+    }))
   };
 }
 
 /**
- * Executes the staggered 2-cycle annual release schedule for all NPCs.
- * - On Day 0 (New Game): All NPCs have their baseline simultaneous release active so charts are full.
- * - On Day 1..364: NPCs drop new singles, EPs, and 2nd albums on staggered dates throughout the year!
+ * Executes the staggered multi-era annual release schedule for all NPCs.
+ * - Every scheduled album era follows: Lead Single -> Pre-Release Single -> Fixed Album Release Day.
+ * - While `leadSingleDay <= dayOfYear < albumReleaseDay`, the NPC's Upcoming Release Countdown
+ *   counts down 1 day per turn and releases the exact album on `dayOfYear === albumReleaseDay`.
+ * - Artists with 3+ real albums roll out up to 3 distinct albums per year AND keep their
+ *   remaining real-world catalog albums in their Discography.
  */
 export function buildStaggeredMultiReleaseForNpc(
   npc: DetailedNPC,
@@ -396,25 +421,15 @@ export function buildStaggeredMultiReleaseForNpc(
   dayOfYear: number,
   dropsCollector: ScheduledNpcDropEvent[]
 ): NpcWorkflowStatusSummary {
+  const totalRealAlbums = Math.max(1, master.masterAlbums.length);
   const yearOffset = Math.max(0, gameYear - 2026);
-  const era1Idx = (yearOffset * 2) % master.masterAlbums.length;
-  const chosenAlbum1 = master.masterAlbums[era1Idx];
-  const album1Title = chosenAlbum1.title;
+  const erasPerYear = totalRealAlbums >= 3 ? 3 : totalRealAlbums === 2 ? 2 : 1;
+  const era1Idx = (yearOffset * erasPerYear) % totalRealAlbums;
 
-  const verifiedAlb1Cover = getVerifiedOfficialReleaseCover(npc.name, album1Title, true);
-  const resolvedAlb1Cover =
-    verifiedAlb1Cover || resolveRealWorldCoverArt(npc.name, album1Title, true);
-  const album1Cover =
-    resolvedAlb1Cover && !resolvedAlb1Cover.startsWith('data:image/svg+xml')
-      ? resolvedAlb1Cover
-      : chosenAlbum1.cover || resolvedAlb1Cover;
-
-  const rawTracks1 = getAuthenticAlbumFullTracklist(
-    npc.name,
-    album1Title,
-    master.pop,
-    master.masterSongs
-  );
+  const project1 = resolveProjectByIndex(npc.name, master, era1Idx, '');
+  const album1Title = project1.title;
+  const album1Cover = project1.cover;
+  const rawTracks1 = project1.tracks;
 
   const masterHitNormSet = new Set(
     (master.masterSongs || []).map(s => normalizeMatch(s.title)).filter(Boolean)
@@ -428,21 +443,19 @@ export function buildStaggeredMultiReleaseForNpc(
 
   const scheduleHash = hashSchedule(`${npc.id}::${gameYear}::staggered_v2`);
   const workflowType: NpcReleaseWorkflowType =
-    scheduleHash % 10 < 6 ? 'single_first_then_album' : 'simultaneous_album_and_single';
+    scheduleHash % 10 < 7 ? 'single_first_then_album' : 'simultaneous_album_and_single';
 
-  // --- CYCLE 1 SCHEDULE (H1: Day 0 .. Day 160) ---
-  // On New Game (Day 0), Lead Single #1 is ALWAYS released on Day 0 so every NPC has an active single on Day 1.
-  // For Album #1: ~35% of NPCs drop Album #1 on Day 0 (so New Game album charts are full),
-  // while the remaining 65% stagger their Album #1 drop across Day 3 to Day 120 so new albums drop every week!
+  // --- ERA 1 SCHEDULE (Lead Single on Day 0 -> Pre-Release Single -> Album Drop on Day 9..24) ---
   const leadSingle1Day = 0;
-  const isDayZeroAlbumLaunch = workflowType === 'simultaneous_album_and_single' || npcIdx % 3 === 0;
+  const isDayZeroAlbumLaunch =
+    workflowType === 'simultaneous_album_and_single' && npcIdx % 4 === 0;
   const secondSingle1Day = isDayZeroAlbumLaunch
     ? 0
-    : 2 + ((scheduleHash + npcIdx * 5) % 42); // Staggered Day 2..43
+    : 3 + ((scheduleHash + npcIdx * 3) % 6); // Day 3..8
   const album1ReleaseDay = isDayZeroAlbumLaunch
     ? 0
-    : Math.max(secondSingle1Day + 3, 6 + ((scheduleHash + npcIdx * 9) % 95)); // Staggered Day 6..100
-  const postAlbumSingle1Day = album1ReleaseDay + 12 + (scheduleHash % 24);
+    : secondSingle1Day + 6 + ((scheduleHash + npcIdx * 7) % 11); // Day 9..24
+  const postAlbumSingle1Day = album1ReleaseDay + 8 + (scheduleHash % 10);
 
   const isAlbum1Released = dayOfYear >= album1ReleaseDay;
 
@@ -479,20 +492,30 @@ export function buildStaggeredMultiReleaseForNpc(
     );
   });
 
-  // --- CYCLE 2 SCHEDULE (2nd Album / EP / Standalone Singles in same year!) ---
-  // Staggered across Day 10 to Day 310 so every single week of the year has fresh Era 2 drops!
-  const secondProject = resolveSecondProjectForYear(
-    npc.name,
-    master,
-    era1Idx,
-    album1Title,
-    album1Cover
-  );
+  // --- ERA 2 SCHEDULE (2nd Real Album if totalRealAlbums >= 2, else Deluxe EP) ---
+  const hasSecondRealAlbum = totalRealAlbums >= 2;
+  const era2Idx = hasSecondRealAlbum ? (era1Idx + 1) % totalRealAlbums : era1Idx;
+  const secondProject = hasSecondRealAlbum
+    ? resolveProjectByIndex(npc.name, master, era2Idx, album1Cover)
+    : {
+        title: `${album1Title} (Deluxe EP)`,
+        cover: album1Cover,
+        projectType: 'ep' as const,
+        tracks: rawTracks1.slice(0, 5).map((t, i) => ({
+          title:
+            i === 0
+              ? `${t.title} (Extended Mix)`
+              : i === 1
+              ? `${t.title} (Live Session)`
+              : t.title,
+          streams: t.streams,
+          trackType: (i <= 1 ? 'single' : 'b_side') as 'lead_single' | 'single' | 'b_side'
+        }))
+      };
 
-  const cycle2Offset = 10 + ((scheduleHash * 7 + npcIdx * 13) % 260); // Staggered Day 10..269
-  const era2LeadSingleDay = Math.max(album1ReleaseDay + 8, cycle2Offset);
-  const era2SecondSingleDay = era2LeadSingleDay + 5 + (scheduleHash % 12);
-  const era2ProjectReleaseDay = era2SecondSingleDay + 6 + ((scheduleHash >> 3) % 16);
+  const era2LeadSingleDay = album1ReleaseDay + 5 + ((scheduleHash + npcIdx * 5) % 9);
+  const era2SecondSingleDay = era2LeadSingleDay + 4 + (scheduleHash % 5);
+  const era2ProjectReleaseDay = era2SecondSingleDay + 6 + ((scheduleHash >> 3) % 10);
 
   const singleIndices2 = selectSingleIndicesForTracklist(secondProject.tracks, masterHitNormSet);
   const singleOrderMap2 = new Map<number, number>();
@@ -521,16 +544,64 @@ export function buildStaggeredMultiReleaseForNpc(
       role,
       idx,
       master.pop,
-      Math.min(99, master.hype + 4),
+      Math.min(99, master.hype + 3),
       trackReleaseDay,
       dayOfYear,
       secondProject.cover
     );
   });
 
+  // --- ERA 3 SCHEDULE (3rd Real Studio Album in same year for artists with 3+ albums) ---
+  const hasThirdRealAlbum = totalRealAlbums >= 3;
+  const era3Idx = hasThirdRealAlbum ? (era1Idx + 2) % totalRealAlbums : era1Idx;
+  const thirdProject = hasThirdRealAlbum
+    ? resolveProjectByIndex(npc.name, master, era3Idx, album1Cover)
+    : null;
+
+  const era3LeadSingleDay = era2ProjectReleaseDay + 7 + ((scheduleHash + npcIdx * 11) % 10);
+  const era3SecondSingleDay = era3LeadSingleDay + 4 + ((scheduleHash >> 2) % 5);
+  const era3ProjectReleaseDay = era3SecondSingleDay + 6 + ((scheduleHash >> 4) % 10);
+  const isEra3ProjectReleased = Boolean(thirdProject && dayOfYear >= era3ProjectReleaseDay);
+
+  const singleIndices3 = thirdProject
+    ? selectSingleIndicesForTracklist(thirdProject.tracks, masterHitNormSet)
+    : [];
+  const singleOrderMap3 = new Map<number, number>();
+  singleIndices3.slice(0, 3).forEach((tIdx, orderIdx) => {
+    singleOrderMap3.set(tIdx, orderIdx + 1);
+  });
+
+  const simulatedTracks3: SimulatedNpcTrackState[] = thirdProject
+    ? thirdProject.tracks.map((trk, idx) => {
+        const ord = singleOrderMap3.get(idx) || 0;
+        const role: 'lead_single' | 'single' | 'b_side' =
+          ord === 1 ? 'lead_single' : ord === 2 || ord === 3 ? 'single' : 'b_side';
+
+        let trackReleaseDay = era3ProjectReleaseDay;
+        if (ord === 1) {
+          trackReleaseDay = era3LeadSingleDay;
+        } else if (ord === 2) {
+          trackReleaseDay = era3SecondSingleDay;
+        }
+
+        return simulateTrackAtDay(
+          npc.name,
+          thirdProject.title,
+          trk.title,
+          role,
+          idx,
+          master.pop,
+          Math.min(99, master.hype + 5),
+          trackReleaseDay,
+          dayOfYear,
+          thirdProject.cover
+        );
+      })
+    : [];
+
   // Collect recently dropped singles/projects (released within the last 2 days) for X feed news!
   if (dayOfYear > 0) {
-    [...simulatedTracks1, ...simulatedTracks2].forEach(t => {
+    [...simulatedTracks1, ...simulatedTracks2, ...simulatedTracks3].forEach(t => {
       if (
         t.isReleased &&
         (t.trackType === 'lead_single' || t.trackType === 'single') &&
@@ -588,10 +659,28 @@ export function buildStaggeredMultiReleaseForNpc(
         cover: secondProject.cover
       });
     }
+
+    if (thirdProject && isEra3ProjectReleased && dayOfYear - era3ProjectReleaseDay <= 2) {
+      const alb3Daily = simulatedTracks3.reduce((s, t) => s + t.dailyStreams, 0);
+      const alb3Total = simulatedTracks3.reduce((s, t) => s + t.streams, 0);
+      dropsCollector.push({
+        npcId: npc.id,
+        npcName: npc.name,
+        npcAvatar: npc.avatar || npc.image || '',
+        npcPop: master.pop,
+        releaseTitle: thirdProject.title,
+        releaseType: thirdProject.projectType,
+        releaseDayOfYear: era3ProjectReleaseDay,
+        daysSinceRelease: dayOfYear - era3ProjectReleaseDay,
+        dailyStreams: alb3Daily,
+        totalStreams: alb3Total,
+        cover: thirdProject.cover
+      });
+    }
   }
 
-  // --- COMBINE ACTIVE SINGLES & ALBUMS FROM BOTH CYCLES ---
-  const combinedSimTracks = [...simulatedTracks2, ...simulatedTracks1];
+  // --- COMBINE ACTIVE SINGLES & ALBUMS ACROSS ERAS ---
+  const combinedSimTracks = [...simulatedTracks3, ...simulatedTracks2, ...simulatedTracks1];
   const seenTrackTitles = new Set<string>();
   const deduplicatedTracks: SimulatedNpcTrackState[] = [];
 
@@ -607,7 +696,6 @@ export function buildStaggeredMultiReleaseForNpc(
   const releasedSingles = deduplicatedTracks
     .filter(t => t.trackType === 'lead_single' || t.trackType === 'single')
     .sort((a, b) => {
-      // Prioritize newer releases so fresh singles actively climb charts
       if (a.daysSinceRelease <= 14 && b.daysSinceRelease > 14) return -1;
       if (b.daysSinceRelease <= 14 && a.daysSinceRelease > 14) return 1;
       return b.dailyStreams - a.dailyStreams;
@@ -616,7 +704,7 @@ export function buildStaggeredMultiReleaseForNpc(
   const releasedBSides = deduplicatedTracks
     .filter(t => t.trackType === 'b_side')
     .sort((a, b) => b.dailyStreams - a.dailyStreams)
-    .slice(0, 4);
+    .slice(0, 6);
 
   const finalActiveSongs = [...releasedSingles, ...releasedBSides];
 
@@ -633,50 +721,51 @@ export function buildStaggeredMultiReleaseForNpc(
     cover: trk.cover
   }));
 
-  // Build active albums list (can hold BOTH Era 2 Project and Era 1 Album!)
+  // Build active albums list:
+  // 1. Any current-year eras (Era 3, Era 2, Era 1) that have ALREADY released
+  // 2. For artists with multiple real albums (e.g. Taylor Swift, Post Malone, Travis Scott, etc.),
+  //    include all of their other real studio albums that are NOT currently waiting in an unreleased
+  //    countdown of this year so their Discography displays their full real-world album catalog!
   const activeAlbums: NpcAlbum[] = [];
+  const addedAlbumTitlesLower = new Set<string>();
+  const unreleasedCurrentYearTitlesLower = new Set<string>();
+
+  if (!isAlbum1Released) {
+    unreleasedCurrentYearTitlesLower.add(album1Title.toLowerCase().trim());
+  }
+  if (hasSecondRealAlbum && !isEra2ProjectReleased) {
+    unreleasedCurrentYearTitlesLower.add(secondProject.title.toLowerCase().trim());
+  }
+  if (thirdProject && !isEra3ProjectReleased) {
+    unreleasedCurrentYearTitlesLower.add(thirdProject.title.toLowerCase().trim());
+  }
+
+  if (thirdProject && isEra3ProjectReleased) {
+    const daysOut3 = Math.max(0, dayOfYear - era3ProjectReleaseDay);
+    activeAlbums.push(
+      buildSimulatedAlbumObject(
+        thirdProject.title,
+        thirdProject.cover,
+        gameYear,
+        daysOut3,
+        simulatedTracks3
+      )
+    );
+    addedAlbumTitlesLower.add(thirdProject.title.toLowerCase().trim());
+  }
 
   if (isEra2ProjectReleased) {
-    const totalStreams2 = simulatedTracks2.reduce((sum, t) => sum + t.streams, 0);
-    const dailyStreams2 = simulatedTracks2.reduce((sum, t) => sum + t.dailyStreams, 0);
-    const weeklyStreams2 = simulatedTracks2.reduce((sum, t) => sum + t.weeklyStreams, 0);
-    const totalSales2 = simulatedTracks2.reduce((sum, t) => sum + t.sales, 0);
-    const dailySales2 = simulatedTracks2.reduce((sum, t) => sum + t.dailySales, 0);
     const daysOut2 = Math.max(0, dayOfYear - era2ProjectReleaseDay);
-    const debutAlbumBoost2 = daysOut2 === 0 ? 1.55 : daysOut2 <= 3 ? 1.22 : 0.85;
-    const albumDailyPureSales2 = Math.max(
-      25,
-      Math.floor((dailySales2 * 0.28 + Math.pow(Math.max(100, dailyStreams2), 0.72) * 0.22) * debutAlbumBoost2)
+    activeAlbums.push(
+      buildSimulatedAlbumObject(
+        secondProject.title,
+        secondProject.cover,
+        gameYear,
+        daysOut2,
+        simulatedTracks2
+      )
     );
-    const albumTotalPureSales2 = Math.max(
-      albumDailyPureSales2,
-      Math.floor(totalSales2 * 0.26 + Math.pow(Math.max(100, totalStreams2), 0.74) * 0.25)
-    );
-
-    activeAlbums.push({
-      title: secondProject.title,
-      cover: secondProject.cover,
-      sales: albumTotalPureSales2,
-      dailySales: albumDailyPureSales2,
-      weeklySales: albumDailyPureSales2 * Math.min(7, Math.max(1, daysOut2 + 1)),
-      streams: totalStreams2,
-      dailyStreams: dailyStreams2,
-      weeklyStreams: weeklyStreams2,
-      daysSinceRelease: daysOut2,
-      year: gameYear,
-      tracks: simulatedTracks2.map(t => ({
-        title: t.title,
-        streams: t.streams,
-        dailyStreams: t.dailyStreams,
-        weeklyStreams: t.weeklyStreams,
-        sales: t.sales,
-        dailySales: t.dailySales,
-        radio: t.radio,
-        daysSinceRelease: t.daysSinceRelease,
-        cover: t.cover,
-        trackType: t.trackType
-      }))
-    });
+    addedAlbumTitlesLower.add(secondProject.title.toLowerCase().trim());
   }
 
   let totalAlbum1Streams = 0;
@@ -685,114 +774,71 @@ export function buildStaggeredMultiReleaseForNpc(
   if (isAlbum1Released) {
     totalAlbum1Streams = simulatedTracks1.reduce((sum, t) => sum + t.streams, 0);
     dailyAlbum1Streams = simulatedTracks1.reduce((sum, t) => sum + t.dailyStreams, 0);
-    const weeklyStreams1 = simulatedTracks1.reduce((sum, t) => sum + t.weeklyStreams, 0);
-    const totalSales1 = simulatedTracks1.reduce((sum, t) => sum + t.sales, 0);
-    const dailySales1 = simulatedTracks1.reduce((sum, t) => sum + t.dailySales, 0);
     const daysOut1 = Math.max(0, dayOfYear - album1ReleaseDay);
-    const debutAlbumBoost1 = daysOut1 === 0 ? 1.55 : daysOut1 <= 3 ? 1.22 : 0.85;
-    const albumDailyPureSales1 = Math.max(
-      25,
-      Math.floor((dailySales1 * 0.26 + Math.pow(Math.max(100, dailyAlbum1Streams), 0.72) * 0.20) * debutAlbumBoost1)
-    );
-    const albumTotalPureSales1 = Math.max(
-      albumDailyPureSales1,
-      Math.floor(totalSales1 * 0.25 + Math.pow(Math.max(100, totalAlbum1Streams), 0.74) * 0.24)
-    );
-
-    activeAlbums.push({
-      title: album1Title,
-      cover: album1Cover,
-      sales: albumTotalPureSales1,
-      dailySales: albumDailyPureSales1,
-      weeklySales: albumDailyPureSales1 * Math.min(7, Math.max(1, daysOut1 + 1)),
-      streams: totalAlbum1Streams,
-      dailyStreams: dailyAlbum1Streams,
-      weeklyStreams: weeklyStreams1,
-      daysSinceRelease: daysOut1,
-      year: gameYear,
-      tracks: simulatedTracks1.map(t => ({
-        title: t.title,
-        streams: t.streams,
-        dailyStreams: t.dailyStreams,
-        weeklyStreams: t.weeklyStreams,
-        sales: t.sales,
-        dailySales: t.dailySales,
-        radio: t.radio,
-        daysSinceRelease: t.daysSinceRelease,
-        cover: t.cover,
-        trackType: t.trackType
-      }))
-    });
-  }
-
-  // If Era 1 Album is still in its Upcoming Release countdown, include the NPC's previous real catalog album in Discography
-  // only if the NPC actually has more than 1 distinct album in their master catalog.
-  if (activeAlbums.length === 0 && master.masterAlbums.length > 1) {
-    const prevAlbIdx = (era1Idx + master.masterAlbums.length - 1) % master.masterAlbums.length;
-    const prevAlb = master.masterAlbums[prevAlbIdx];
-    const prevAlbCover =
-      getVerifiedOfficialReleaseCover(npc.name, prevAlb.title, true) ||
-      resolveRealWorldCoverArt(npc.name, prevAlb.title, true) ||
-      prevAlb.cover ||
-      album1Cover;
-    const prevRawTracks = getAuthenticAlbumFullTracklist(
-      npc.name,
-      prevAlb.title,
-      master.pop,
-      master.masterSongs
-    );
-    const prevSimTracks = prevRawTracks.map((trk, idx) =>
-      simulateTrackAtDay(
-        npc.name,
-        prevAlb.title,
-        trk.title,
-        trk.trackType,
-        idx,
-        master.pop,
-        master.hype,
-        0,
-        dayOfYear,
-        prevAlbCover
+    activeAlbums.push(
+      buildSimulatedAlbumObject(
+        album1Title,
+        album1Cover,
+        gameYear,
+        daysOut1,
+        simulatedTracks1
       )
     );
-    const prevTotalStreams = prevSimTracks.reduce((sum, t) => sum + t.streams, 0);
-    const prevDailyStreams = prevSimTracks.reduce((sum, t) => sum + t.dailyStreams, 0);
-    const prevWeeklyStreams = prevSimTracks.reduce((sum, t) => sum + t.weeklyStreams, 0);
-    const prevTotalSales = prevSimTracks.reduce((sum, t) => sum + t.sales, 0);
-    const prevDailySales = prevSimTracks.reduce((sum, t) => sum + t.dailySales, 0);
+    addedAlbumTitlesLower.add(album1Title.toLowerCase().trim());
+  }
 
-    activeAlbums.push({
-      title: prevAlb.title,
-      cover: prevAlbCover,
-      sales: Math.max(50000, Math.floor(prevTotalSales * 0.28)),
-      dailySales: Math.max(100, Math.floor(prevDailySales * 0.25)),
-      weeklySales: Math.max(700, Math.floor(prevDailySales * 1.6)),
-      streams: prevTotalStreams,
-      dailyStreams: prevDailyStreams,
-      weeklyStreams: prevWeeklyStreams,
-      daysSinceRelease: dayOfYear + 30,
-      year: Math.max(2024, gameYear - 1),
-      tracks: prevSimTracks.map(t => ({
-        title: t.title,
-        streams: t.streams,
-        dailyStreams: t.dailyStreams,
-        weeklyStreams: t.weeklyStreams,
-        sales: t.sales,
-        dailySales: t.dailySales,
-        radio: t.radio,
-        daysSinceRelease: t.daysSinceRelease,
-        cover: t.cover,
-        trackType: t.trackType
-      }))
+  // Include all other established real studio albums from the NPC's master catalog
+  // that are not currently scheduled as an unreleased future drop in the current year.
+  if (totalRealAlbums > 1) {
+    let catalogYearOffset = 1;
+    master.masterAlbums.forEach((catAlb, catIdx) => {
+      const cleanTitleLower = catAlb.title.toLowerCase().trim();
+      if (
+        addedAlbumTitlesLower.has(cleanTitleLower) ||
+        unreleasedCurrentYearTitlesLower.has(cleanTitleLower) ||
+        cleanTitleLower.includes('(deluxe ep)')
+      ) {
+        return;
+      }
+
+      const resolvedProj = resolveProjectByIndex(npc.name, master, catIdx, album1Cover);
+      const catSimTracks = resolvedProj.tracks.map((trk, idx) =>
+        simulateTrackAtDay(
+          npc.name,
+          resolvedProj.title,
+          trk.title,
+          trk.trackType,
+          idx,
+          master.pop,
+          master.hype,
+          0,
+          Math.max(14, dayOfYear + catalogYearOffset * 12),
+          resolvedProj.cover
+        )
+      );
+
+      const catAlbumObj = buildSimulatedAlbumObject(
+        resolvedProj.title,
+        resolvedProj.cover,
+        Math.max(2017, gameYear - catalogYearOffset),
+        dayOfYear + catalogYearOffset * 30,
+        catSimTracks
+      );
+      activeAlbums.push(catAlbumObj);
+      addedAlbumTitlesLower.add(cleanTitleLower);
+      catalogYearOffset++;
     });
   }
 
   npc.albums = activeAlbums;
 
-  // Build Rollout Steps showing both Cycle 1 and Cycle 2 activity
+  // Build Rollout Steps across Era 1, Era 2, and Era 3
   const trk1 = simulatedTracks1[singleIndices1[0] ?? 0] || simulatedTracks1[0];
-  const trk2 = simulatedTracks1[singleIndices1[1] ?? 0] || trk1;
   const era2LeadTrk = simulatedTracks2[singleIndices2[0] ?? 0] || simulatedTracks2[0];
+  const era3LeadTrk =
+    thirdProject && simulatedTracks3.length > 0
+      ? simulatedTracks3[singleIndices3[0] ?? 0] || simulatedTracks3[0]
+      : null;
 
   const rolloutSteps: NpcRolloutStepItem[] = [
     {
@@ -849,17 +895,86 @@ export function buildStaggeredMultiReleaseForNpc(
     }
   ];
 
+  if (thirdProject && era3LeadTrk) {
+    rolloutSteps.push(
+      {
+        stepNumber: 5,
+        roleLabel: 'Era 3 Lead Single',
+        title: era3LeadTrk.title || thirdProject.title,
+        isAlbumStep: false,
+        releaseDayOfYear: era3LeadSingleDay,
+        isReleased: dayOfYear >= era3LeadSingleDay,
+        daysRemaining: Math.max(0, era3LeadSingleDay - dayOfYear),
+        streams: dayOfYear >= era3LeadSingleDay ? era3LeadTrk.streams || 0 : 0,
+        dailyStreams: dayOfYear >= era3LeadSingleDay ? era3LeadTrk.dailyStreams || 0 : 0,
+        cover: era3LeadTrk.cover || thirdProject.cover
+      },
+      {
+        stepNumber: 6,
+        roleLabel: `Project #3 (${thirdProject.projectType.toUpperCase()})`,
+        title: thirdProject.title,
+        isAlbumStep: true,
+        releaseDayOfYear: era3ProjectReleaseDay,
+        isReleased: isEra3ProjectReleased,
+        daysRemaining: Math.max(0, era3ProjectReleaseDay - dayOfYear),
+        streams: isEra3ProjectReleased
+          ? simulatedTracks3.reduce((s, t) => s + t.streams, 0)
+          : 0,
+        dailyStreams: isEra3ProjectReleased
+          ? simulatedTracks3.reduce((s, t) => s + t.dailyStreams, 0)
+          : 0,
+        cover: thirdProject.cover
+      }
+    );
+  }
+
+  // Determine the currently active or next upcoming album tracks for countdown inspection
+  let activeUpcomingTracks = simulatedTracks1;
+  let nextAlbumReleaseDay = album1ReleaseDay;
+  let currentEraTitle = album1Title;
+  let currentEraCover = album1Cover;
+
+  if (!isAlbum1Released) {
+    activeUpcomingTracks = simulatedTracks1;
+    nextAlbumReleaseDay = album1ReleaseDay;
+    currentEraTitle = album1Title;
+    currentEraCover = album1Cover;
+  } else if (!isEra2ProjectReleased) {
+    activeUpcomingTracks = simulatedTracks2;
+    nextAlbumReleaseDay = era2ProjectReleaseDay;
+    currentEraTitle = secondProject.title;
+    currentEraCover = secondProject.cover;
+  } else if (thirdProject && !isEra3ProjectReleased) {
+    activeUpcomingTracks = simulatedTracks3;
+    nextAlbumReleaseDay = era3ProjectReleaseDay;
+    currentEraTitle = thirdProject.title;
+    currentEraCover = thirdProject.cover;
+  } else if (thirdProject && isEra3ProjectReleased) {
+    activeUpcomingTracks = simulatedTracks3;
+    nextAlbumReleaseDay = era3ProjectReleaseDay;
+    currentEraTitle = thirdProject.title;
+    currentEraCover = thirdProject.cover;
+  } else {
+    activeUpcomingTracks = simulatedTracks2;
+    nextAlbumReleaseDay = era2ProjectReleaseDay;
+    currentEraTitle = secondProject.title;
+    currentEraCover = secondProject.cover;
+  }
+
   let currentPhase: NpcRolloutPhase = 'album_released_phase';
-  let phaseBadgeText = `Era 1 "${album1Title}" Active`;
+  let phaseBadgeText = `Era "${currentEraTitle}" Active`;
   if (!isAlbum1Released) {
     currentPhase = 'lead_single_phase';
     phaseBadgeText = `Single Out • "${album1Title}" in ${Math.max(1, album1ReleaseDay - dayOfYear)}d`;
-  } else if (isEra2ProjectReleased) {
-    currentPhase = 'post_album_single_phase';
-    phaseBadgeText = `2nd Project "${secondProject.title}" Out Now`;
-  } else if (dayOfYear >= era2LeadSingleDay) {
+  } else if (!isEra2ProjectReleased) {
     currentPhase = 'second_single_phase';
     phaseBadgeText = `Era 2 Single Out • "${secondProject.title}" in ${Math.max(1, era2ProjectReleaseDay - dayOfYear)}d`;
+  } else if (thirdProject && !isEra3ProjectReleased) {
+    currentPhase = 'second_single_phase';
+    phaseBadgeText = `Era 3 Single Out • "${thirdProject.title}" in ${Math.max(1, era3ProjectReleaseDay - dayOfYear)}d`;
+  } else {
+    currentPhase = 'post_album_single_phase';
+    phaseBadgeText = `"${currentEraTitle}" Out Now`;
   }
 
   return {
@@ -868,21 +983,23 @@ export function buildStaggeredMultiReleaseForNpc(
     gameYear,
     dayOfYear,
     workflowType,
-    workflowLabel: '2-Project Staggered Annual Schedule',
-    workflowDescription: `Releases "${album1Title}" & "${secondProject.title}" plus staggered singles across ${gameYear}.`,
+    workflowLabel: `${erasPerYear}-Project Staggered Annual Schedule`,
+    workflowDescription: `Releases ${erasPerYear} full projects plus staggered pre-release singles across ${gameYear}.`,
     currentPhase,
     phaseBadgeText,
-    eraAlbumTitle: isEra2ProjectReleased ? secondProject.title : album1Title,
-    eraAlbumCover: isEra2ProjectReleased ? secondProject.cover : album1Cover,
-    isAlbumReleased: isAlbum1Released || isEra2ProjectReleased,
-    albumReleaseDayOfYear: isAlbum1Released ? era2ProjectReleaseDay : album1ReleaseDay,
-    daysUntilAlbumRelease: isAlbum1Released
-      ? Math.max(0, era2ProjectReleaseDay - dayOfYear)
-      : Math.max(0, album1ReleaseDay - dayOfYear),
+    eraAlbumTitle: currentEraTitle,
+    eraAlbumCover: currentEraCover,
+    isAlbumReleased:
+      isAlbum1Released &&
+      isEra2ProjectReleased &&
+      (!thirdProject || isEra3ProjectReleased),
+    albumReleaseDayOfYear: nextAlbumReleaseDay,
+    daysUntilAlbumRelease: Math.max(0, nextAlbumReleaseDay - dayOfYear),
     releasedSinglesCount: releasedSingles.length,
-    totalAlbumTracksCount: simulatedTracks1.length + simulatedTracks2.length,
+    totalAlbumTracksCount:
+      simulatedTracks1.length + simulatedTracks2.length + simulatedTracks3.length,
     rolloutSteps,
-    upcomingAlbumTracks: isEra2ProjectReleased ? simulatedTracks2 : simulatedTracks1
+    upcomingAlbumTracks: activeUpcomingTracks
   };
 }
 
