@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GameState, Project, Song } from '../../types';
-import { formatNum, formatNumFull } from '../../constants';
+import { formatNumFull } from '../../constants';
 import { OfficialArtworkImg } from '../Common/OfficialArtworkImg';
 import {
   calculateReleaseCountdownBreakdown,
@@ -119,7 +119,6 @@ export const SpotifyArtistUpcomingReleaseBanner: React.FC<
   SpotifyArtistUpcomingReleaseBannerProps
 > = ({ countdownRelease, currentDateStr, onOpenCountdownPage }) => {
   const [tickSeconds, setTickSeconds] = useState(0);
-  const [isPreSaved, setIsPreSaved] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -141,8 +140,6 @@ export const SpotifyArtistUpcomingReleaseBanner: React.FC<
       ? 'Single'
       : 'Album';
 
-  const releasedSingleCount = countdownRelease.tracks.filter(t => t.isReleased).length;
-
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3">
@@ -156,7 +153,7 @@ export const SpotifyArtistUpcomingReleaseBanner: React.FC<
         onClick={onOpenCountdownPage}
         className="bg-gradient-to-br from-[#242424] via-[#1A1A1A] to-[#141414] hover:from-[#2A2A2A] hover:to-[#181818] border border-white/10 rounded-xl p-3.5 transition cursor-pointer shadow-xl group"
       >
-        {/* Top Row: Artwork + Metadata + Pre-save */}
+        {/* Top Row: Artwork + Metadata */}
         <div className="flex items-center gap-3.5">
           <div className="relative shrink-0">
             <OfficialArtworkImg
@@ -176,42 +173,7 @@ export const SpotifyArtistUpcomingReleaseBanner: React.FC<
             <h4 className="text-white font-black text-base truncate mt-0.5 group-hover:underline">
               {countdownRelease.title}
             </h4>
-            <div className="flex items-center gap-2 mt-1 text-[11px] text-[#A7A7A7]">
-              <span>{countdownRelease.tracks.length} tracks</span>
-              {releasedSingleCount > 0 && (
-                <>
-                  <span>•</span>
-                  <span className="text-white font-semibold">
-                    {releasedSingleCount} pre-release {releasedSingleCount === 1 ? 'single' : 'singles'} out now
-                  </span>
-                </>
-              )}
-              {countdownRelease.preSaves > 0 && (
-                <>
-                  <span>•</span>
-                  <span className="text-[#1ED760] font-semibold">
-                    {formatNum(countdownRelease.preSaves + (isPreSaved ? 1 : 0))} pre-saves
-                  </span>
-                </>
-              )}
-            </div>
           </div>
-
-          <button
-            type="button"
-            onClick={e => {
-              e.stopPropagation();
-              setIsPreSaved(p => !p);
-            }}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shrink-0 transition active:scale-95 cursor-pointer ${
-              isPreSaved
-                ? 'bg-white/15 text-white border border-white/25'
-                : 'bg-[#1ED760] hover:bg-[#1fdf64] text-black shadow-md'
-            }`}
-          >
-            <span>{isPreSaved ? 'Pre-saved' : 'Pre-save'}</span>
-            <i className={`ph-bold ${isPreSaved ? 'ph-check-circle' : 'ph-plus-circle'} text-sm`}></i>
-          </button>
         </div>
 
         {/* Bottom Row: Authentic 4-Column Countdown Strip */}
@@ -314,8 +276,6 @@ export const SpotifyReleaseCountdownPage: React.FC<SpotifyReleaseCountdownPagePr
     countdownRelease.distributor,
     countdownRelease.labelName
   );
-
-  const totalDisplayedPreSaves = countdownRelease.preSaves + (isPreSaved ? 1 : 0);
 
   return (
     <div
@@ -485,16 +445,6 @@ export const SpotifyReleaseCountdownPage: React.FC<SpotifyReleaseCountdownPagePr
             >
               <i className="ph ph-share-network text-2xl"></i>
             </button>
-            {totalDisplayedPreSaves > 0 && (
-              <div className="text-xs text-[#A7A7A7] font-medium">
-                <span className="text-white font-bold">{formatNumFull(totalDisplayedPreSaves)}</span> pre-saves
-                {countdownRelease.isPlayer && Boolean(countdownRelease.dailyPreSaves) && (
-                  <span className="text-[#1ED760] font-bold ml-1.5">
-                    (+{formatNumFull(countdownRelease.dailyPreSaves || 0)}/day)
-                  </span>
-                )}
-              </div>
-            )}
           </div>
 
           <button
