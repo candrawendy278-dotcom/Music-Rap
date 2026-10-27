@@ -107,8 +107,8 @@ export function computeStaggeredNpcDailyStreams(
   } else if (trackType === 'single') {
     roleWeight = trackIdx <= 2 ? 0.92 : 0.78;
   } else {
-    const bSideDecay = Math.pow(0.91, Math.max(0, trackIdx - 2));
-    roleWeight = Math.max(0.14, 0.36 * bSideDecay);
+    const bSideDecay = Math.pow(0.92, Math.max(0, trackIdx - 2));
+    roleWeight = Math.max(0.20, 0.42 * bSideDecay);
   }
 
   const viralRoll = trackSeed % 100;
@@ -121,33 +121,32 @@ export function computeStaggeredNpcDailyStreams(
       ? 0.74
       : 0.92 + (viralRoll % 25) / 100;
 
-  // Realistic post-debut trajectory:
-  // Day 1 is big debut rush; Days 2-7 settle naturally (or rise if viralRoll >= 82); Week 2+ glides smoothly
+  // Original debut/opening levels with improved post-week-1 longevity (especially for B-sides)
   let lifecycleMult = 1.0;
   if (daySinceRelease === 1) {
     lifecycleMult = trackType === 'b_side' ? 1.18 : 1.26;
   } else if (daySinceRelease <= 7) {
     if (trackType === 'b_side') {
-      lifecycleMult = Math.max(0.48, 1.15 - (daySinceRelease - 1) * 0.09);
+      lifecycleMult = Math.max(0.62, 1.15 - (daySinceRelease - 1) * 0.065);
     } else if (viralRoll >= 84) {
       // Viral riser during Week 1
       lifecycleMult = 1.12 + Math.sin((daySinceRelease / 7) * Math.PI) * 0.22;
     } else {
-      // Natural post-debut settle (82% -> 71% of Day 1 rush)
-      lifecycleMult = Math.max(0.68, 1.06 - (daySinceRelease - 1) * 0.052);
+      // Natural post-debut settle
+      lifecycleMult = Math.max(0.74, 1.06 - (daySinceRelease - 1) * 0.045);
     }
   } else if (daySinceRelease <= 28) {
     lifecycleMult =
       trackType === 'b_side'
-        ? Math.max(0.24, 0.54 * Math.pow(0.95, daySinceRelease - 7))
-        : Math.max(0.58, 0.86 * Math.pow(0.984, daySinceRelease - 7));
+        ? Math.max(0.38, 0.64 * Math.pow(0.972, daySinceRelease - 7))
+        : Math.max(0.66, 0.88 * Math.pow(0.988, daySinceRelease - 7));
   } else if (daySinceRelease <= 90) {
     lifecycleMult =
       trackType === 'b_side'
-        ? Math.max(0.14, 0.26 * Math.pow(0.988, daySinceRelease - 28))
-        : Math.max(0.36, 0.68 * Math.pow(0.99, daySinceRelease - 28));
+        ? Math.max(0.24, 0.38 * Math.pow(0.992, daySinceRelease - 28))
+        : Math.max(0.46, 0.72 * Math.pow(0.993, daySinceRelease - 28));
   } else {
-    lifecycleMult = trackType === 'b_side' ? 0.11 : 0.28;
+    lifecycleMult = trackType === 'b_side' ? 0.20 : 0.38;
   }
 
   const dailyWave = 0.93 + (((trackSeed + daySinceRelease * 41) % 15) / 100);
@@ -712,6 +711,67 @@ export function buildStaggeredMultiReleaseForNpc(
       daysSinceRelease: daysOut1,
       year: gameYear,
       tracks: simulatedTracks1.map(t => ({
+        title: t.title,
+        streams: t.streams,
+        dailyStreams: t.dailyStreams,
+        weeklyStreams: t.weeklyStreams,
+        sales: t.sales,
+        dailySales: t.dailySales,
+        radio: t.radio,
+        daysSinceRelease: t.daysSinceRelease,
+        cover: t.cover,
+        trackType: t.trackType
+      }))
+    });
+  }
+
+  // If Era 1 Album is still in its Upcoming Release countdown, include the NPC's previous real catalog album in Discography
+  if (activeAlbums.length === 0 && master.masterAlbums.length > 0) {
+    const prevAlbIdx = (era1Idx + master.masterAlbums.length - 1) % master.masterAlbums.length;
+    const prevAlb = master.masterAlbums[prevAlbIdx];
+    const prevAlbCover =
+      getVerifiedOfficialReleaseCover(npc.name, prevAlb.title, true) ||
+      resolveRealWorldCoverArt(npc.name, prevAlb.title, true) ||
+      prevAlb.cover ||
+      album1Cover;
+    const prevRawTracks = getAuthenticAlbumFullTracklist(
+      npc.name,
+      prevAlb.title,
+      master.pop,
+      master.masterSongs
+    );
+    const prevSimTracks = prevRawTracks.map((trk, idx) =>
+      simulateTrackAtDay(
+        npc.name,
+        prevAlb.title,
+        trk.title,
+        trk.trackType,
+        idx,
+        master.pop,
+        master.hype,
+        0,
+        dayOfYear,
+        prevAlbCover
+      )
+    );
+    const prevTotalStreams = prevSimTracks.reduce((sum, t) => sum + t.streams, 0);
+    const prevDailyStreams = prevSimTracks.reduce((sum, t) => sum + t.dailyStreams, 0);
+    const prevWeeklyStreams = prevSimTracks.reduce((sum, t) => sum + t.weeklyStreams, 0);
+    const prevTotalSales = prevSimTracks.reduce((sum, t) => sum + t.sales, 0);
+    const prevDailySales = prevSimTracks.reduce((sum, t) => sum + t.dailySales, 0);
+
+    activeAlbums.push({
+      title: prevAlb.title,
+      cover: prevAlbCover,
+      sales: Math.max(50000, Math.floor(prevTotalSales * 0.28)),
+      dailySales: Math.max(100, Math.floor(prevDailySales * 0.25)),
+      weeklySales: Math.max(700, Math.floor(prevDailySales * 1.6)),
+      streams: prevTotalStreams,
+      dailyStreams: prevDailyStreams,
+      weeklyStreams: prevWeeklyStreams,
+      daysSinceRelease: dayOfYear + 30,
+      year: Math.max(2024, gameYear - 1),
+      tracks: prevSimTracks.map(t => ({
         title: t.title,
         streams: t.streams,
         dailyStreams: t.dailyStreams,

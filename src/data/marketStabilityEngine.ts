@@ -44,6 +44,10 @@ import {
   computeEnhancedProjectSales
 } from './enhancedMarketMetricsEngine';
 import { calculateDailyVisualizerAndLyricViews } from './youtubeVisualFormatsEngine';
+import {
+  calculateDailyProjectPreSaveGrowth,
+  getPreSaveLaunchBoostMultipliers
+} from './preReleaseCountdownEngine';
 
 export interface MarketDailyUpdateResult {
   updatedSongs: Song[];
@@ -213,9 +217,28 @@ export function processDailyMarketStep(
         allReleasedSnapshot
       );
 
+      const projPreSaveBoost =
+        parentProject && parentProject.preSaves && daysSinceRelease <= 2
+          ? getPreSaveLaunchBoostMultipliers(parentProject.preSaves)
+          : null;
+      const preSaveStreamMult =
+        projPreSaveBoost
+          ? daysSinceRelease === 0
+            ? projPreSaveBoost.streamBoostMultiplier
+            : 1 + (projPreSaveBoost.streamBoostMultiplier - 1) * 0.45
+          : 1.0;
+      const preSavePerTrackBonus =
+        projPreSaveBoost && daysSinceRelease === 0 && totalTracks
+          ? Math.round(projPreSaveBoost.bonusFirstDayStreams / Math.max(1, totalTracks))
+          : 0;
+
       const dailyStreams = Math.max(
         0,
-        Math.round(rawDailyStreams * enhancedMetrics.streamMultiplier + enhancedMetrics.playlistOrganicBoost)
+        Math.round(
+          rawDailyStreams * enhancedMetrics.streamMultiplier * preSaveStreamMult +
+            enhancedMetrics.playlistOrganicBoost +
+            preSavePerTrackBonus
+        )
       );
 
       // MV daily views using authentic video velocity model + audio-to-video spillover
@@ -356,12 +379,27 @@ export function processDailyMarketStep(
     return song;
   });
 
-  // Released albums pure sales & momentum
+  // Released & Scheduled albums pure sales, pre-saves & momentum
   const updatedProjects = projects.map(proj => {
     if (proj.status === 'scheduled' && proj.releaseDate) {
       const todayStr = currentDate.toISOString().split('T')[0];
       if (todayStr >= proj.releaseDate) {
-        proj = { ...proj, status: 'released' as const, momentum: 1.0 };
+        proj = { ...proj, status: 'released' as const, momentum: 1.0, dailyPreSaves: 0 };
+      } else {
+        // Still counting down: accumulate daily Pre-Saves!
+        const preSaveStep = calculateDailyProjectPreSaveGrowth(
+          proj,
+          updatedSongs,
+          artistPopularity,
+          artistHype,
+          playerFans || 250,
+          currentDate
+        );
+        return {
+          ...proj,
+          preSaves: preSaveStep.totalPreSaves,
+          dailyPreSaves: preSaveStep.dailyPreSavesAdded
+        };
       }
     }
 
@@ -369,6 +407,7 @@ export function processDailyMarketStep(
       const projReleaseObj = proj.releaseDate ? new Date(proj.releaseDate) : currentDate;
       const projDaysSinceRelease = Math.max(0, Math.floor((currentDate.getTime() - projReleaseObj.getTime()) / (1000 * 60 * 60 * 24)));
       const newMomentum = Math.max(0.015, (proj.momentum || 1) * 0.972);
+      const preSaveBoost = getPreSaveLaunchBoostMultipliers(proj.preSaves || 0);
 
       // Calibrated album pure sales: realistic industry volumes (thousands per day at launch, sustainable catalog)
       const rawAlbumSales = calculateRebalancedAlbumSales(
@@ -380,12 +419,18 @@ export function processDailyMarketStep(
         artistHype,
         proj.type === 'ep'
       );
-      const dailySales = computeEnhancedProjectSales(
+      const baseDailySales = computeEnhancedProjectSales(
         rawAlbumSales,
         proj,
         artistHype,
         projDaysSinceRelease
       );
+      const dailySales =
+        projDaysSinceRelease === 0
+          ? Math.round(baseDailySales * preSaveBoost.salesBoostMultiplier + preSaveBoost.bonusFirstDaySales)
+          : projDaysSinceRelease <= 6
+          ? Math.round(baseDailySales * (1 + (preSaveBoost.salesBoostMultiplier - 1) * 0.45))
+          : baseDailySales;
 
       totalRevenue += dailySales * 9.99;
       totalSales += dailySales;

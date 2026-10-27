@@ -15,10 +15,21 @@ import {
   resolveSongMetadataAndCollabCredits
 } from '../../data/spotifyTrackMetadataAndCollabEngine';
 import { calculateNpcMonthlyListeners } from '../../data/spotifyCatalogExpanded';
+import {
+  getNpcUpcomingReleaseCountdown,
+  getTrackRoleBadgeMeta
+} from '../../data/preReleaseCountdownEngine';
+import {
+  SpotifyArtistUpcomingReleaseBanner,
+  SpotifyReleaseCountdownPage,
+  buildNpcUnifiedCountdown
+} from './SpotifyReleaseCountdownView';
+import { SpotifyAppearsOnSection } from './SpotifyAppearsOnSection';
 
 interface SpotifyNpcArtistProfileViewProps {
   npc: DetailedNPC;
   onClose: () => void;
+  onSelectPlaylist?: (playlist: any) => void;
 }
 
 interface NpcReleaseItem {
@@ -44,16 +55,19 @@ interface NpcReleaseItem {
 
 export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewProps> = ({
   npc,
-  onClose
+  onClose,
+  onSelectPlaylist
 }) => {
   const { state } = useGameContext();
   const [currentNpcTarget, setCurrentNpcTarget] = useState<DetailedNPC>(npc);
   const [selectedRelease, setSelectedRelease] = useState<NpcReleaseItem | null>(null);
+  const [showNpcCountdownPage, setShowNpcCountdownPage] = useState<boolean>(false);
   const [tracklistVersion, setTracklistVersion] = useState(0);
 
   useEffect(() => {
     setCurrentNpcTarget(npc);
     setSelectedRelease(null);
+    setShowNpcCountdownPage(false);
   }, [npc]);
 
   useEffect(() => {
@@ -96,6 +110,12 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
       fetchAuthenticAlbumTracklistFromServer(enrichedNpc.name, alb.title).catch(() => {});
     });
   }, [enrichedNpc]);
+
+  const npcUpcomingCountdown = useMemo(() => {
+    const raw = getNpcUpcomingReleaseCountdown(enrichedNpc, state?.date || '2026-01-01T00:00:00');
+    if (!raw) return null;
+    return buildNpcUnifiedCountdown(raw);
+  }, [enrichedNpc, state?.date]);
 
   // Bilateral Collaborations: find all Player and other NPC songs where this NPC is a featured collaborator!
   const bilateralCollabs = useMemo(() => {
@@ -366,19 +386,16 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
                       <h4 className="text-white font-medium text-base leading-tight truncate">
                         {s.title}
                       </h4>
-                      {s.trackType === 'b_side' ? (
-                        <span className="text-[8px] bg-purple-900/50 text-purple-300 px-1.5 py-0.5 rounded border border-purple-700/40 uppercase font-bold shrink-0">
-                          B-Side
-                        </span>
-                      ) : s.trackType === 'lead_single' ? (
-                        <span className="text-[8px] bg-amber-900/50 text-amber-300 px-1.5 py-0.5 rounded border border-amber-700/40 uppercase font-bold shrink-0">
-                          Lead Single
-                        </span>
-                      ) : (
-                        <span className="text-[8px] bg-emerald-900/50 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-700/40 uppercase font-bold shrink-0">
-                          Single
-                        </span>
-                      )}
+                      {(() => {
+                        const roleBadge = getTrackRoleBadgeMeta(s.trackType);
+                        return (
+                          <span
+                            className={`text-[8px] px-1.5 py-0.5 rounded border uppercase font-bold shrink-0 ${roleBadge.className}`}
+                          >
+                            {roleBadge.label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <SpotifyTrackSubRow
                       songOrItem={s}
@@ -515,6 +532,16 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
               )}
             </div>
 
+            {npcUpcomingCountdown && (
+              <div className="mb-8">
+                <SpotifyArtistUpcomingReleaseBanner
+                  countdownRelease={npcUpcomingCountdown}
+                  currentDateStr={state?.date || '2026-01-01T00:00:00'}
+                  onOpenCountdownPage={() => setShowNpcCountdownPage(true)}
+                />
+              </div>
+            )}
+
             <h3 className="text-xl font-bold text-white mb-4">Discography</h3>
             <div className="flex overflow-x-auto space-x-4 hide-scrollbar pb-4 -mx-4 px-4">
               {allReleases.length > 0 ? (
@@ -550,6 +577,22 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
               )}
             </div>
 
+            <SpotifyAppearsOnSection
+              isPlayer={false}
+              artistName={enrichedNpc.name}
+              artistAvatar={enrichedNpc.image || enrichedNpc.avatar}
+              state={state}
+              npc={enrichedNpc}
+              bilateralCollabs={bilateralCollabs}
+              onSelectPlaylist={pl => {
+                if (onSelectPlaylist) {
+                  onSelectPlaylist(pl);
+                }
+              }}
+              onSelectRelease={rel => setSelectedRelease(rel)}
+              onSelectCollaboratorArtist={handleSelectAnotherArtist}
+            />
+
             <h3 className="text-xl font-bold text-white mb-4 mt-8">About</h3>
             <div className="bg-[#282828] rounded-xl hover:bg-[#333] transition cursor-pointer relative overflow-hidden mb-8 h-80 group">
               <OfficialArtworkImg
@@ -575,6 +618,14 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
             </div>
           </div>
         </div>
+      )}
+
+      {showNpcCountdownPage && npcUpcomingCountdown && (
+        <SpotifyReleaseCountdownPage
+          countdownRelease={npcUpcomingCountdown}
+          currentDateStr={state?.date || '2026-01-01T00:00:00'}
+          onBack={() => setShowNpcCountdownPage(false)}
+        />
       )}
     </div>
   );

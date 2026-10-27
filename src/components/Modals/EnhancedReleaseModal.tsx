@@ -8,6 +8,11 @@ import {
   injectRivalCounterReleaseIntoNpcCatalog,
   getEnsuredRivalState
 } from '../../data/rivalBeefSystemEngine';
+import {
+  SINGLE_ROLE_OPTIONS,
+  ExtendedTrackRole,
+  calculateInitialProjectPreSaves
+} from '../../data/preReleaseCountdownEngine';
 
 interface EnhancedReleaseModalProps {
   onClose: () => void;
@@ -86,22 +91,38 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
 
   const releaseItems = useMemo(() => {
     const singles = state.songs
-      .filter(
-        s =>
-          s.status === 'recorded' ||
-          s.status === 'packaged' ||
-          (s.status === 'released' && s.trackType === 'b_side')
-      )
+      .filter(s => {
+        if (s.status === 'recorded' || s.status === 'packaged') return true;
+        if (s.status === 'released' && s.trackType === 'b_side') return true;
+        // Also allow tracks inside a scheduled Album/EP to be dropped early as Pre-Release / Promo Singles while countdown runs!
+        if (s.status === 'scheduled') {
+          const parentProj = state.projects.find(
+            p => p.status === 'scheduled' && p.songs?.some(ps => ps.id === s.id)
+          );
+          if (parentProj) return true;
+        }
+        return false;
+      })
       .map(s => {
         const parentProj = state.projects.find(p =>
           p.songs?.some(ps => ps.id === s.id)
         );
         const roleLabel =
           s.status === 'released' && s.trackType === 'b_side'
-            ? `Promote Album Track as Single${parentProj ? ` · from "${parentProj.title}"` : ''}`
+            ? `Post-Release Single · from "${parentProj?.title || 'Album'}"`
+            : s.status === 'scheduled' && parentProj
+            ? `Countdown Pre-Release Single · from "${parentProj.title}"`
             : s.status === 'packaged' && parentProj
-            ? `Pre-Release Single · from "${parentProj.title}"`
-            : 'Standalone Single';
+            ? `Album Track · from "${parentProj.title}"`
+            : 'Standalone Master';
+        const defaultRole: ExtendedTrackRole =
+          s.status === 'scheduled' && parentProj
+            ? 'pre_release_single'
+            : s.status === 'packaged' && parentProj
+            ? parentProj.songs.some(ps => ps.status === 'released' && ps.trackType === 'lead_single')
+              ? 'pre_release_single'
+              : 'lead_single'
+            : 'single';
         return {
           key: `song_${s.id}`,
           kind: 'single' as const,
@@ -111,7 +132,10 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
           cover: s.cover || parentProj?.cover,
           quality: Math.round(s.quality || 50),
           trackCount: 1,
-          hasCollab: s.collabId && s.collabId !== 'none'
+          hasCollab: s.collabId && s.collabId !== 'none',
+          parentProjectId: parentProj?.id,
+          parentProjectTitle: parentProj?.title,
+          defaultRole
         };
       });
 
@@ -126,7 +150,10 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
         cover: p.cover,
         quality: Math.round(p.quality || 50),
         trackCount: p.songs.length,
-        hasCollab: p.songs.some(s => s.collabId && s.collabId !== 'none')
+        hasCollab: p.songs.some(s => s.collabId && s.collabId !== 'none'),
+        parentProjectId: undefined,
+        parentProjectTitle: undefined,
+        defaultRole: 'single' as ExtendedTrackRole
       }));
 
     return [...projects, ...singles];
@@ -136,13 +163,24 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
   const [releaseTarget, setReleaseTarget] = useState<string>(
     releaseItems.length > 0 ? releaseItems[0].key : ''
   );
+  const [singleRole, setSingleRole] = useState<ExtendedTrackRole>(
+    releaseItems.length > 0 ? releaseItems[0].defaultRole : 'single'
+  );
+  const [focusTrackId, setFocusTrackId] = useState<number | 'none'>('none');
   const [distributor, setDistributor] = useState<string>('indie');
   const [strategy, setStrategy] = useState<string>('indie');
   const [releaseDate, setReleaseDate] = useState<string>(todayStr);
 
   const selectedItem = releaseItems.find(item => item.key === releaseTarget);
+  const selectedProjectObj = useMemo(() => {
+    if (!selectedItem || selectedItem.kind !== 'project') return null;
+    return state.projects.find(p => p.id === selectedItem.id) || null;
+  }, [selectedItem, state.projects]);
+
   const activeDistro = DISTRIBUTORS.find(d => d.id === distributor) || DISTRIBUTORS[0];
   const activeCampaign = MARKETING_CAMPAIGNS.find(c => c.id === strategy) || MARKETING_CAMPAIGNS[0];
+  const activeSingleRoleMeta =
+    SINGLE_ROLE_OPTIONS.find(r => r.id === singleRole) || SINGLE_ROLE_OPTIONS[3];
 
   const totalCost = activeDistro.cost + activeCampaign.cost;
   const isImmediateRelease = releaseDate <= todayStr;
@@ -155,22 +193,26 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
         projectedHype: state.hype || 0,
         basePotential: 0,
         estFirstDayStreams: 0,
-        estFirstWeekPureSales: 0
+        estFirstWeekPureSales: 0,
+        estInitialPreSaves: 0
       };
     }
 
-    const rawHypeBoost = activeCampaign.baseHypeBoost * activeDistro.hypeMult;
+    const roleHypeExtra = selectedItem.kind === 'single' ? activeSingleRoleMeta.hypeBonus : 0;
+    const rawHypeBoost = activeCampaign.baseHypeBoost * activeDistro.hypeMult + roleHypeExtra;
     const projectedHype = Math.min(100, Number(((state.hype || 0) + rawHypeBoost).toFixed(1)));
     const hypeGain = Number((projectedHype - (state.hype || 0)).toFixed(1));
 
     const tierMultiplier = state.artist?.tier === 1 ? 1.4 : state.artist?.tier === 2 ? 1.7 : 1.0;
     const collabBonus = selectedItem.hasCollab ? 25 : 0;
+    const singleRoleMult = selectedItem.kind === 'single' ? activeSingleRoleMeta.streamMult : 1.0;
 
     const rawPot =
       selectedItem.kind === 'single'
         ? ((selectedItem.quality * 0.5) + ((state.popularity || 0) * 0.3) + (projectedHype * 0.2) + collabBonus) *
           tierMultiplier *
-          activeDistro.potMult
+          activeDistro.potMult *
+          singleRoleMult
         : ((selectedItem.quality * 0.5) + ((state.popularity || 0) * 0.4) + (projectedHype * 0.15)) *
           tierMultiplier *
           activeDistro.potMult;
@@ -189,17 +231,44 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
     const estFirstWeekPureSales = Math.round(
       (fanDemo.superfansStans * 0.42 + rawPot * 45) *
         fanDemo.pureSalesMultiplier *
-        (selectedItem.kind === 'project' ? 1.65 : 0.75)
+        (selectedItem.kind === 'project' ? 1.65 : 0.75 * activeSingleRoleMeta.salesMult)
     );
+
+    const estInitialPreSaves =
+      selectedItem.kind === 'project' && selectedProjectObj && !isImmediateRelease
+        ? calculateInitialProjectPreSaves(
+            selectedProjectObj,
+            state.popularity || 2,
+            projectedHype,
+            state.fans || 250,
+            distributor,
+            strategy
+          )
+        : 0;
 
     return {
       hypeGain,
       projectedHype,
       basePotential: Math.round(rawPot),
       estFirstDayStreams,
-      estFirstWeekPureSales
+      estFirstWeekPureSales,
+      estInitialPreSaves
     };
-  }, [selectedItem, activeCampaign, activeDistro, state.hype, state.popularity, state.fans, state.artist, state.skills]);
+  }, [
+    selectedItem,
+    selectedProjectObj,
+    activeCampaign,
+    activeDistro,
+    activeSingleRoleMeta,
+    isImmediateRelease,
+    distributor,
+    strategy,
+    state.hype,
+    state.popularity,
+    state.fans,
+    state.artist,
+    state.skills
+  ]);
 
   const handleSubmit = () => {
     if (!selectedItem) return;
@@ -222,19 +291,22 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
       if (releaseTarget.startsWith('song_')) {
         const id = parseInt(releaseTarget.split('_')[1]);
         let updatedSongPot = 0;
+        const chosenTrackType = singleRole;
+
         nextP.songs = nextP.songs.map(s => {
           if (s.id === id) {
             const collabBonus = s.collabId && s.collabId !== 'none' ? 25 : 0;
             const calcPot =
               ((s.quality * 0.5) + (state.popularity * 0.3) + (newHype * 0.2) + collabBonus) *
               tierMultiplier *
-              activeDistro.potMult;
+              activeDistro.potMult *
+              activeSingleRoleMeta.streamMult;
             updatedSongPot = Math.max(s.basePotential || 0, calcPot);
             return {
               ...s,
               status: targetStatus,
               releaseDate: s.status === 'released' ? (s.releaseDate || releaseDate) : releaseDate,
-              trackType: 'single' as const,
+              trackType: chosenTrackType,
               basePotential: updatedSongPot,
               momentum: Math.max(s.momentum || 1.0, 1.08)
             };
@@ -242,17 +314,23 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
           return s;
         });
 
-        // Also synchronize this song inside any parent project's songs list
+        // Also synchronize this song inside any parent project's songs list and boost parent project Pre-Saves!
         nextP.projects = nextP.projects.map(pr => {
           if (!pr.songs || !pr.songs.some(ps => ps.id === id)) return pr;
+          const preSaveBonus =
+            pr.status === 'scheduled'
+              ? Math.round((pr.preSaves || 250) * (activeSingleRoleMeta.preSaveBoost - 1) + 450)
+              : 0;
           return {
             ...pr,
+            preSaves: (pr.preSaves || 0) + preSaveBonus,
             songs: pr.songs.map(ps =>
               ps.id === id
                 ? {
                     ...ps,
                     status: targetStatus,
-                    trackType: 'single' as const,
+                    releaseDate: ps.status === 'released' ? (ps.releaseDate || releaseDate) : releaseDate,
+                    trackType: chosenTrackType,
                     basePotential: updatedSongPot || ps.basePotential
                   }
                 : ps
@@ -262,6 +340,18 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
       } else if (releaseTarget.startsWith('proj_')) {
         const id = parseInt(releaseTarget.split('_')[1]);
         let projBasePot = 0;
+        const project = state.projects.find(pr => pr.id === id);
+        const initialPreSaves =
+          project && !isImmediateRelease
+            ? calculateInitialProjectPreSaves(
+                project,
+                state.popularity || 2,
+                newHype,
+                state.fans || 250,
+                distributor,
+                strategy
+              )
+            : 0;
 
         nextP.projects = nextP.projects.map(pr => {
           if (pr.id === id) {
@@ -269,33 +359,64 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
               ((pr.quality * 0.5) + (state.popularity * 0.4) + (newHype * 0.15)) *
               tierMultiplier *
               activeDistro.potMult;
-            return { ...pr, status: targetStatus, releaseDate, basePotential: projBasePot };
+            return {
+              ...pr,
+              status: targetStatus,
+              releaseDate,
+              basePotential: projBasePot,
+              preSaves: initialPreSaves,
+              dailyPreSaves: Math.round(initialPreSaves * 0.18),
+              distributor,
+              marketingStrategy: strategy,
+              focusTrackId: focusTrackId !== 'none' ? focusTrackId : pr.focusTrackId
+            };
           }
           return pr;
         });
 
-        const project = state.projects.find(pr => pr.id === id);
         if (project) {
           const projSongIds = project.songs.map(s => s.id);
+          let hasAssignedLeadSingle = nextP.songs.some(
+            s => projSongIds.includes(s.id) && s.trackType === 'lead_single'
+          );
+
           nextP.songs = nextP.songs.map(s => {
             if (projSongIds.includes(s.id)) {
+              const isFocusTrack = focusTrackId !== 'none' && s.id === focusTrackId;
               if (s.status !== 'released') {
+                const resolvedTrackType: ExtendedTrackRole =
+                  project.type === 'single_pack'
+                    ? 'single'
+                    : isFocusTrack
+                    ? 'single'
+                    : (s.trackType && s.trackType !== 'b_side' ? s.trackType : 'b_side');
                 return {
                   ...s,
                   status: targetStatus,
                   releaseDate,
-                  trackType: project.type === 'single_pack' ? ('single' as const) : ('b_side' as const),
+                  trackType: resolvedTrackType,
                   basePotential:
                     projBasePot *
-                    (project.type === 'single_pack'
-                      ? 0.95
+                    (project.type === 'single_pack' || isFocusTrack
+                      ? 0.98
                       : 0.58 + (s.quality / 100) * 0.25 + (s.collabId !== 'none' ? 0.2 : 0.0)),
                   cover: project.cover
                 };
               } else {
+                // Preserve explicit single roles (lead_single, pre_release_single, promotional_single, single)
+                // Only assign lead_single to the first pre-released track if no trackType was explicitly chosen!
+                let preservedRole: ExtendedTrackRole = s.trackType || 'single';
+                if (!s.trackType || s.trackType === 'b_side') {
+                  if (!hasAssignedLeadSingle) {
+                    preservedRole = 'lead_single';
+                    hasAssignedLeadSingle = true;
+                  } else {
+                    preservedRole = 'pre_release_single';
+                  }
+                }
                 return {
                   ...s,
-                  trackType: 'lead_single' as const
+                  trackType: preservedRole
                 };
               }
             }
@@ -306,12 +427,20 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
             if (pr.id === id) {
               return {
                 ...pr,
-                songs: pr.songs.map(ps => ({
-                  ...ps,
-                  status: targetStatus === 'released' || ps.status === 'released' ? 'released' : 'scheduled',
-                  basePotential: ps.status !== 'released' ? projBasePot * 0.75 : ps.basePotential,
-                  cover: pr.cover
-                }))
+                songs: pr.songs.map(ps => {
+                  const updatedGlobalSong = nextP.songs.find(gs => gs.id === ps.id);
+                  return {
+                    ...ps,
+                    status:
+                      targetStatus === 'released' || ps.status === 'released'
+                        ? 'released'
+                        : 'scheduled',
+                    trackType: updatedGlobalSong?.trackType || ps.trackType,
+                    basePotential:
+                      ps.status !== 'released' ? projBasePot * 0.75 : ps.basePotential,
+                    cover: pr.cover
+                  };
+                })
               };
             }
             return pr;
@@ -360,8 +489,18 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
       }
     } else {
       setInfoModal({
-        title: 'Global Release Scheduled',
-        desc: `"${selectedItem.title}" is locked in for ${releaseDate} via ${activeDistro.name}. Pre-release Hype surged to ${newHype.toFixed(1)}% (+${forecast.hypeGain}%).`
+        title:
+          selectedItem.kind === 'project'
+            ? 'Spotify Release Countdown Live!'
+            : 'Global Single Release Scheduled',
+        desc:
+          selectedItem.kind === 'project'
+            ? `"${selectedItem.title}" is scheduled for ${releaseDate} with ${formatNumFull(
+                forecast.estInitialPreSaves
+              )} initial Spotify Pre-Saves! Visit your Artist Profile on Spotify to view the live Upcoming Release Countdown and drop Pre-Release Singles anytime before launch.`
+            : `"${selectedItem.title}" (${activeSingleRoleMeta.label}) is locked in for ${releaseDate} via ${activeDistro.name}. Pre-release Hype surged to ${newHype.toFixed(
+                1
+              )}% (+${forecast.hypeGain}%).`
       });
     }
 
@@ -462,7 +601,11 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                         return (
                           <div
                             key={item.key}
-                            onClick={() => setReleaseTarget(item.key)}
+                            onClick={() => {
+                              setReleaseTarget(item.key);
+                              setSingleRole(item.defaultRole);
+                              setFocusTrackId('none');
+                            }}
                             className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center gap-3.5 ${
                               isSelected
                                 ? 'bg-white border-neutral-900 ring-2 ring-neutral-900/10 shadow-sm'
@@ -505,13 +648,110 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                     </div>
                   </div>
 
-                  {/* Release Date Timing */}
+                  {/* Single Rollout Type Selector (Lead Single vs Pre-Release Single vs Promo Single vs Standalone Single) */}
+                  {selectedItem?.kind === 'single' && (
+                    <div className="p-4 bg-white rounded-xl border border-neutral-200/80 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-bold text-neutral-900">
+                            Single Rollout Classification
+                          </div>
+                          <div className="text-[11px] text-neutral-500">
+                            Choose how this track is billed on Spotify & album tracklists
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200">
+                          {activeSingleRoleMeta.shortBadge}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        {SINGLE_ROLE_OPTIONS.map(opt => {
+                          const isChosen = singleRole === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setSingleRole(opt.id)}
+                              className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                                isChosen
+                                  ? 'bg-neutral-900 text-white border-neutral-900 shadow-xs'
+                                  : 'bg-neutral-50 text-neutral-800 border-neutral-200 hover:border-neutral-300'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="text-xs font-bold">{opt.label}</span>
+                                <span
+                                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                    isChosen
+                                      ? 'bg-emerald-500/20 text-emerald-300'
+                                      : 'bg-neutral-200 text-neutral-700'
+                                  }`}
+                                >
+                                  +{opt.hypeBonus}% Hype
+                                </span>
+                              </div>
+                              <p
+                                className={`text-[10px] mt-1 leading-snug ${
+                                  isChosen ? 'text-neutral-300' : 'text-neutral-500'
+                                }`}
+                              >
+                                {opt.description}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Project Focus Single Selector (so an Album/EP can launch with an official Focus Single instead of only B-Sides) */}
+                  {selectedItem?.kind === 'project' &&
+                    selectedProjectObj &&
+                    selectedProjectObj.type !== 'single_pack' && (
+                      <div className="p-4 bg-white rounded-xl border border-neutral-200/80 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-xs font-bold text-neutral-900">
+                              Focus Single / Title Track on Release Day
+                            </div>
+                            <div className="text-[11px] text-neutral-500">
+                              Select an unreleased album track to push as an Official Single (not B-Side) when the project drops
+                            </div>
+                          </div>
+                        </div>
+                        <select
+                          value={focusTrackId}
+                          onChange={e =>
+                            setFocusTrackId(
+                              e.target.value === 'none' ? 'none' : Number(e.target.value)
+                            )
+                          }
+                          className="w-full bg-neutral-50 border border-neutral-300 text-neutral-900 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-neutral-900"
+                        >
+                          <option value="none">
+                            No Focus Single (Keep unreleased tracks as Album B-Sides)
+                          </option>
+                          {selectedProjectObj.songs
+                            .filter(s => s.status !== 'released')
+                            .map((s, idx) => (
+                              <option key={s.id} value={s.id}>
+                                Track #{idx + 1}: {s.title} (Quality {Math.round(s.quality)}/100) → Official Single
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    )}
+
+                  {/* Release Date Timing & Spotify Countdown Presets */}
                   <div className="p-4 bg-white rounded-xl border border-neutral-200/80 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-xs font-bold text-neutral-900">Release Schedule</div>
+                        <div className="text-xs font-bold text-neutral-900">
+                          Release Schedule & Spotify Pre-Release Countdown
+                        </div>
                         <div className="text-[11px] text-neutral-500">
-                          Drop immediately today or schedule a future launch date
+                          Schedule a future date to activate a Spotify Countdown & collect Pre-Saves
                         </div>
                       </div>
                       <span
@@ -521,28 +761,54 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                             : 'bg-blue-50 text-blue-700 border border-blue-200'
                         }`}
                       >
-                        {isImmediateRelease ? 'Immediate Drop' : `Scheduled: ${releaseDate}`}
+                        {isImmediateRelease ? 'Immediate Drop' : `Countdown: ${releaseDate}`}
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-4 gap-1.5">
                       <button
                         type="button"
                         onClick={() => setReleaseDate(todayStr)}
-                        className={`py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                        className={`py-2 px-2 rounded-xl border text-[11px] font-bold transition cursor-pointer ${
                           isImmediateRelease
                             ? 'bg-neutral-900 text-white border-neutral-900'
                             : 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:border-neutral-300'
                         }`}
                       >
-                        Drop Today ({todayStr})
+                        Today
                       </button>
+                      {[7, 14, 21].map(daysOffset => {
+                        const d = new Date(state.date);
+                        d.setDate(d.getDate() + daysOffset);
+                        const targetStr = d.toISOString().split('T')[0];
+                        const isMatch = releaseDate === targetStr;
+                        return (
+                          <button
+                            key={daysOffset}
+                            type="button"
+                            onClick={() => setReleaseDate(targetStr)}
+                            className={`py-2 px-2 rounded-xl border text-[11px] font-bold transition cursor-pointer ${
+                              isMatch
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:border-neutral-300'
+                            }`}
+                          >
+                            +{daysOffset}d Countdown
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="text-[11px] font-semibold text-neutral-500">
+                        Custom Release Date:
+                      </span>
                       <input
                         type="date"
                         value={releaseDate}
                         min={todayStr}
                         onChange={e => setReleaseDate(e.target.value || todayStr)}
-                        className="bg-neutral-50 border border-neutral-300 text-neutral-900 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-neutral-900"
+                        className="bg-neutral-50 border border-neutral-300 text-neutral-900 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-neutral-900"
                       />
                     </div>
                   </div>
@@ -626,6 +892,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                         </span>
                         <div className="text-xs text-neutral-300 mt-0.5">
                           {selectedItem?.title} · {activeDistro.name}
+                          {selectedItem?.kind === 'single' ? ` · ${activeSingleRoleMeta.label}` : ''}
                         </div>
                       </div>
                       <div className="text-right">
@@ -652,9 +919,13 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                         </div>
                       </div>
                       <div className="bg-neutral-800/70 rounded-lg p-2">
-                        <div className="text-[10px] text-neutral-400">Hit Potential</div>
+                        <div className="text-[10px] text-neutral-400">
+                          {forecast.estInitialPreSaves > 0 ? 'Initial Pre-Saves' : 'Hit Potential'}
+                        </div>
                         <div className="text-xs font-black text-amber-300 mt-0.5">
-                          {forecast.basePotential} Pts
+                          {forecast.estInitialPreSaves > 0
+                            ? `~${formatNumFull(forecast.estInitialPreSaves)}`
+                            : `${forecast.basePotential} Pts`}
                         </div>
                       </div>
                     </div>

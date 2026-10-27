@@ -8,7 +8,7 @@
 
 import { Song, Project } from '../types';
 
-export type TrackRole = 'lead_single' | 'single' | 'promotional_single' | 'b_side';
+export type TrackRole = 'lead_single' | 'pre_release_single' | 'single' | 'promotional_single' | 'b_side';
 
 export interface TrackPromotionProfile {
   role: TrackRole;
@@ -43,9 +43,13 @@ export function evaluateTrackRole(song: Song, allProjects: Project[]): TrackRole
       return 'single';
     }
     // If it's on an EP or Album:
-    // Was it released BEFORE the album? (Lead single)
+    // Was it released BEFORE the album?
     if (song.releaseDate && parentProject.releaseDate && song.releaseDate < parentProject.releaseDate) {
-      return 'lead_single';
+      return 'pre_release_single';
+    }
+    // If it is designated as the project's focus track
+    if (parentProject.focusTrackId === song.id) {
+      return 'single';
     }
     // If it was released with the album and has no MV / no playlist placement, it's a B-Side!
     return 'b_side';
@@ -98,6 +102,28 @@ export function getTrackPromotionProfile(
       radioEligibilityMultiplier: 1.25,
       pureSalesMultiplier: 1.20,
       decayAcceleration: 0.75 // Superior longevity
+    };
+  }
+
+  if (role === 'pre_release_single') {
+    return {
+      role: 'pre_release_single',
+      isSingle: true,
+      streamingMultiplier: 1.12,
+      radioEligibilityMultiplier: 1.05,
+      pureSalesMultiplier: 1.10,
+      decayAcceleration: 0.85
+    };
+  }
+
+  if (role === 'promotional_single') {
+    return {
+      role: 'promotional_single',
+      isSingle: true,
+      streamingMultiplier: daysSinceRelease <= 5 ? 1.10 : 0.88,
+      radioEligibilityMultiplier: 0.25,
+      pureSalesMultiplier: 1.15,
+      decayAcceleration: 1.12
     };
   }
 

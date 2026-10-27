@@ -27,11 +27,19 @@ import {
   SpotifyPlaylistPitchModal,
   SpotifyPlaylistAnalyticsHubModal
 } from './SpotifyPlaylistPitchingHub';
+import {
+  SpotifyArtistUpcomingReleaseBanner,
+  SpotifyReleaseCountdownPage,
+  buildPlayerUnifiedCountdown
+} from './SpotifyReleaseCountdownView';
+import { SpotifyAppearsOnSection } from './SpotifyAppearsOnSection';
+import { getTrackRoleBadgeMeta, SINGLE_ROLE_OPTIONS } from '../../data/preReleaseCountdownEngine';
 
 export default function SpotifyApp() {
   const { state, setState } = useGameContext();
   const [activeTab, setActiveTab] = useState<'home' | 'chart' | 'profile'>('home');
   const [selectedRelease, setSelectedRelease] = useState<any>(null);
+  const [selectedCountdownProjectId, setSelectedCountdownProjectId] = useState<number | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<any>(null);
   const [selectedNpc, setSelectedNpc] = useState<DetailedNPC | null>(null);
   const [pitchModal, setPitchModal] = useState<string | null>(null);
@@ -64,6 +72,84 @@ export default function SpotifyApp() {
     
     return [...singles, ...projs].sort((a,b) => new Date(b.releaseDate || state.date).getTime() - new Date(a.releaseDate || state.date).getTime());
   }, [state.songs, state.projects, state.date]);
+
+  const scheduledPlayerProjects = useMemo(() => {
+    const todayStr = state.date.split('T')[0];
+    return state.projects.filter(
+      p => p.status === 'scheduled' && (!p.releaseDate || p.releaseDate > todayStr)
+    );
+  }, [state.projects, state.date]);
+
+  const activePlayerCountdown = useMemo(() => {
+    if (selectedCountdownProjectId === null) return null;
+    const proj = state.projects.find(
+      p => p.id === selectedCountdownProjectId && p.status === 'scheduled'
+    );
+    if (!proj) return null;
+    return buildPlayerUnifiedCountdown(proj, state);
+  }, [selectedCountdownProjectId, state]);
+
+  const handleEarlyReleaseFromCountdown = (
+    projectId: number,
+    songId: number,
+    role: 'lead_single' | 'pre_release_single' | 'promotional_single' | 'single'
+  ) => {
+    const todayStr = state.date.split('T')[0];
+    const roleMeta = SINGLE_ROLE_OPTIONS.find(r => r.id === role) || SINGLE_ROLE_OPTIONS[1];
+    const tierMult = state.artist?.tier === 1 ? 1.4 : state.artist?.tier === 2 ? 1.7 : 1.0;
+
+    setState(prev => {
+      const newHype = Math.min(100, Number(((prev.hype || 0) + roleMeta.hypeBonus).toFixed(1)));
+      let updatedPot = 0;
+
+      const updatedSongs = prev.songs.map(s => {
+        if (s.id === songId) {
+          const collabBonus = s.collabId && s.collabId !== 'none' ? 25 : 0;
+          const calcPot =
+            ((s.quality * 0.5) + ((prev.popularity || 0) * 0.3) + (newHype * 0.2) + collabBonus) *
+            tierMult *
+            roleMeta.streamMult;
+          updatedPot = Math.max(s.basePotential || 0, calcPot);
+          return {
+            ...s,
+            status: 'released' as const,
+            releaseDate: todayStr,
+            trackType: role,
+            basePotential: updatedPot,
+            momentum: 1.08
+          };
+        }
+        return s;
+      });
+
+      const updatedProjects = prev.projects.map(pr => {
+        if (pr.id !== projectId) return pr;
+        const preSaveBonus = Math.round((pr.preSaves || 300) * (roleMeta.preSaveBoost - 1) + 500);
+        return {
+          ...pr,
+          preSaves: (pr.preSaves || 0) + preSaveBonus,
+          songs: (pr.songs || []).map(ps =>
+            ps.id === songId
+              ? {
+                  ...ps,
+                  status: 'released' as const,
+                  releaseDate: todayStr,
+                  trackType: role,
+                  basePotential: updatedPot || ps.basePotential
+                }
+              : ps
+          )
+        };
+      });
+
+      return {
+        ...prev,
+        hype: newHype,
+        songs: updatedSongs,
+        projects: updatedProjects
+      };
+    });
+  };
 
   const chartData = useMemo(() => {
       const key = `${chartType}_${chartRegion === 'global' ? 'global' : chartRegion}`;
@@ -347,9 +433,9 @@ export default function SpotifyApp() {
                                    if (matchingSong) handleExitPlaylist(matchingSong.id, pl.id);
                                 }}
                                 className="text-[10px] font-bold text-red-300 hover:text-white bg-red-950/40 hover:bg-red-600 px-2 py-1 rounded border border-red-500/30 transition cursor-pointer"
-                                title="Keluar dari playlist"
+                                title="Leave playlist"
                              >
-                                Keluar
+                                Leave
                              </button>
                           ) : (
                              <i className="ph ph-dots-three-vertical text-lg text-[#A7A7A7]"></i>
@@ -727,6 +813,7 @@ export default function SpotifyApp() {
                 <i className="ph-fill ph-play text-2xl translate-x-[2px]"></i>
              </button>
           </div>
+
           <h3 className="text-xl font-bold text-white mb-4">Popular</h3>
           <div className="space-y-1 mb-10">
             {topSongs.length > 0 ? topSongs.map((s, i) => (
@@ -764,6 +851,23 @@ export default function SpotifyApp() {
               <p className="text-sm text-gray-500 py-4 text-center">No releases yet.</p>
             )}
           </div>
+
+          {scheduledPlayerProjects.length > 0 && (
+            <div className="space-y-4 mb-8">
+              {scheduledPlayerProjects.map(schedProj => {
+                const unifiedCountdown = buildPlayerUnifiedCountdown(schedProj, state);
+                return (
+                  <SpotifyArtistUpcomingReleaseBanner
+                    key={schedProj.id}
+                    countdownRelease={unifiedCountdown}
+                    currentDateStr={state.date}
+                    onOpenCountdownPage={() => setSelectedCountdownProjectId(schedProj.id)}
+                  />
+                );
+              })}
+            </div>
+          )}
+
           <h3 className="text-xl font-bold text-white mb-4">Discography</h3>
           <div className="flex overflow-x-auto space-x-4 hide-scrollbar pb-4 -mx-4 px-4">
             {allReleases.length > 0 ? allReleases.map((p: any) => (
@@ -783,6 +887,21 @@ export default function SpotifyApp() {
               <p className="text-sm text-gray-500 py-3 text-center w-full">No releases yet.</p>
             )}
           </div>
+
+          <SpotifyAppearsOnSection
+            isPlayer={true}
+            artistName={state.artist?.name || 'Artist'}
+            artistAvatar={state.artist?.image}
+            state={state}
+            onSelectPlaylist={pl => setSelectedPlaylist(pl)}
+            onSelectRelease={rel => setSelectedRelease(rel)}
+            onSelectCollaboratorArtist={(artName, isPl) => {
+              if (!isPl) {
+                const npcObj = getDetailedNPC(artName);
+                if (npcObj) setSelectedNpc(npcObj);
+              }
+            }}
+          />
           
           <h3 className="text-xl font-bold text-white mb-4 mt-8">About</h3>
           <div className="bg-[#282828] rounded-xl hover:bg-[#333] transition cursor-pointer relative overflow-hidden mb-8 h-80 group">
@@ -889,13 +1008,16 @@ export default function SpotifyApp() {
                  <div className="flex flex-col min-w-0 flex-1">
                    <div className="flex items-center space-x-2 mb-0.5">
                      <h4 className="text-white font-medium text-base leading-tight truncate">{s.title}</h4>
-                     {s.trackType === 'b_side' ? (
-                       <span className="text-[8px] bg-purple-900/50 text-purple-300 px-1.5 py-0.5 rounded border border-purple-700/40 uppercase font-bold shrink-0">B-Side</span>
-                     ) : s.trackType === 'lead_single' ? (
-                       <span className="text-[8px] bg-amber-900/50 text-amber-300 px-1.5 py-0.5 rounded border border-amber-700/40 uppercase font-bold shrink-0">Lead Single</span>
-                     ) : (
-                       <span className="text-[8px] bg-emerald-900/50 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-700/40 uppercase font-bold shrink-0">Single</span>
-                     )}
+                     {(() => {
+                       const roleBadge = getTrackRoleBadgeMeta(s.trackType);
+                       return (
+                         <span
+                           className={`text-[8px] px-1.5 py-0.5 rounded border uppercase font-bold shrink-0 ${roleBadge.className}`}
+                         >
+                           {roleBadge.label}
+                         </span>
+                       );
+                     })()}
                      {s.collabId && s.collabId !== 'none' && s.collabRoyaltyPercent ? (
                        <span className="text-[8px] bg-indigo-900/50 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-700/40 font-bold shrink-0">
                          {s.collabRoyaltyPercent}% Collab Split
@@ -1102,7 +1224,30 @@ export default function SpotifyApp() {
           </>
       )}
 
-      {selectedNpc && <SpotifyNpcArtistProfileView npc={selectedNpc} onClose={() => setSelectedNpc(null)} />}
+      {selectedNpc && (
+        <SpotifyNpcArtistProfileView
+          npc={selectedNpc}
+          onClose={() => setSelectedNpc(null)}
+          onSelectPlaylist={pl => {
+            setSelectedNpc(null);
+            setSelectedPlaylist(pl);
+          }}
+        />
+      )}
+      {activePlayerCountdown && (
+        <SpotifyReleaseCountdownPage
+          countdownRelease={activePlayerCountdown}
+          currentDateStr={state.date}
+          onBack={() => setSelectedCountdownProjectId(null)}
+          onSelectTrack={trk => {
+            if (trk.rawSong) {
+              setSelectedCountdownProjectId(null);
+              setSelectedRelease({ ...trk.rawSong, type: 'single' });
+            }
+          }}
+          onEarlyReleaseTrack={handleEarlyReleaseFromCountdown}
+        />
+      )}
       {pitchModal && (
         <SpotifyPlaylistPitchModal
           playlistId={pitchModal}

@@ -101,11 +101,54 @@ function hashString(input: string): number {
   return Math.abs(h >>> 0);
 }
 
+import {
+  REAL_WORLD_ALBUM_TRACKLISTS
+} from './npcAnnualReleaseCycleAndTracklistEngine';
+import { COMPLETE_REAL_WORLD_ALBUM_TRACKLISTS } from './completeAlbumTracklistRegistry';
+import {
+  getVerifiedOfficialReleaseCover,
+  getVerifiedSpotifyNpcPortrait
+} from './spotifyOfficialNpcPortraitsAndCovers';
+
+function formatAlbumKeyTitle(rawAlbumTitle: string): string {
+  return rawAlbumTitle
+    .split(' ')
+    .map(w => (w.length > 0 ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(' ');
+}
+
 function ensureMasterCatalogSnapshotCaptured() {
   if (masterNpcCatalogMap.size > 0) return;
 
+  const combinedTracklistKeys = [
+    ...Object.keys(REAL_WORLD_ALBUM_TRACKLISTS),
+    ...Object.keys(COMPLETE_REAL_WORLD_ALBUM_TRACKLISTS)
+  ];
+
   REAL_WORLD_NPCS.forEach(npc => {
     let orderedAlbums = [...(npc.albums || [])];
+    const seenAlbumLower = new Set(orderedAlbums.map(a => a.title.toLowerCase().trim()));
+    const prefix = `${npc.name.toLowerCase().trim()}::`;
+
+    combinedTracklistKeys.forEach(fullKey => {
+      if (fullKey.startsWith(prefix)) {
+        const rawAlbTitle = fullKey.slice(prefix.length).trim();
+        if (rawAlbTitle && !seenAlbumLower.has(rawAlbTitle)) {
+          seenAlbumLower.add(rawAlbTitle);
+          const cleanAlbTitle = formatAlbumKeyTitle(rawAlbTitle);
+          const cover =
+            getVerifiedOfficialReleaseCover(npc.name, cleanAlbTitle, true) ||
+            resolveRealWorldCoverArt(npc.name, cleanAlbTitle, true);
+          orderedAlbums.push({
+            title: cleanAlbTitle,
+            cover,
+            sales: 450000,
+            year: 2025
+          });
+        }
+      }
+    });
+
     if (npc.name === 'Taylor Swift') {
       const folkloreIdx = orderedAlbums.findIndex(
         a => a.title.toLowerCase() === 'folklore'
@@ -116,7 +159,7 @@ function ensureMasterCatalogSnapshotCaptured() {
       }
     }
 
-    masterNpcCatalogMap.set(npc.id, {
+    const snapshot: NpcMasterCatalogSnapshot = {
       id: npc.id,
       name: npc.name,
       pop: npc.pop || 80,
@@ -124,8 +167,23 @@ function ensureMasterCatalogSnapshotCaptured() {
       tier: npc.tier || 1,
       masterAlbums: orderedAlbums.map(a => ({ ...a })),
       masterSongs: (npc.songs || []).map(s => ({ ...s }))
-    });
+    };
+
+    masterNpcCatalogMap.set(npc.id, snapshot);
+    masterNpcCatalogMap.set(npc.name.toLowerCase().trim(), snapshot);
   });
+}
+
+export function getMasterNpcCatalogSnapshot(
+  npcNameOrId: string
+): NpcMasterCatalogSnapshot | null {
+  ensureMasterCatalogSnapshotCaptured();
+  const clean = normalizeRealArtistName(npcNameOrId || '').toLowerCase().trim();
+  return (
+    masterNpcCatalogMap.get(npcNameOrId) ||
+    masterNpcCatalogMap.get(clean) ||
+    null
+  );
 }
 
 function getDayOfYearZeroIndexed(date: Date): number {
@@ -139,7 +197,7 @@ function getDayOfYearZeroIndexed(date: Date): number {
 
 /**
  * Computes realistic daily streams for a single day `d` (1-indexed day since track release)
- * so that every track starts at 0 on day 0 and grows authentically day by day.
+ * with strong Lead Single, Single, and B-Side streaming velocity.
  */
 function computeDailyStreamsForDay(
   npcPop: number,
@@ -161,8 +219,8 @@ function computeDailyStreamsForDay(
   } else if (trackType === 'single') {
     roleWeight = trackIdx <= 2 ? 0.88 : 0.74;
   } else {
-    const bSideDecay = Math.pow(0.91, Math.max(0, trackIdx - 2));
-    roleWeight = Math.max(0.14, 0.36 * bSideDecay);
+    const bSideDecay = Math.pow(0.92, Math.max(0, trackIdx - 2));
+    roleWeight = Math.max(0.20, 0.42 * bSideDecay);
   }
 
   const viralRoll = trackSeed % 100;
@@ -181,20 +239,20 @@ function computeDailyStreamsForDay(
   } else if (daySinceRelease <= 7) {
     lifecycleMult =
       trackType === 'b_side'
-        ? Math.max(0.55, 1.15 - (daySinceRelease - 1) * 0.08)
+        ? Math.max(0.62, 1.15 - (daySinceRelease - 1) * 0.065)
         : 1.12 + Math.sin((daySinceRelease / 7) * Math.PI) * 0.16;
   } else if (daySinceRelease <= 28) {
     lifecycleMult =
       trackType === 'b_side'
-        ? Math.max(0.26, 0.58 * Math.pow(0.95, daySinceRelease - 7))
-        : Math.max(0.74, 1.18 * Math.pow(0.985, daySinceRelease - 7));
+        ? Math.max(0.36, 0.62 * Math.pow(0.972, daySinceRelease - 7))
+        : Math.max(0.76, 1.18 * Math.pow(0.988, daySinceRelease - 7));
   } else if (daySinceRelease <= 90) {
     lifecycleMult =
       trackType === 'b_side'
-        ? Math.max(0.14, 0.28 * Math.pow(0.988, daySinceRelease - 28))
-        : Math.max(0.42, 0.85 * Math.pow(0.99, daySinceRelease - 28));
+        ? Math.max(0.22, 0.36 * Math.pow(0.992, daySinceRelease - 28))
+        : Math.max(0.46, 0.85 * Math.pow(0.992, daySinceRelease - 28));
   } else {
-    lifecycleMult = trackType === 'b_side' ? 0.12 : 0.32;
+    lifecycleMult = trackType === 'b_side' ? 0.18 : 0.36;
   }
 
   const dailyWave = 0.94 + (((trackSeed + daySinceRelease * 37) % 13) / 100);
@@ -204,11 +262,6 @@ function computeDailyStreamsForDay(
     Math.floor(basePeakDaily * roleWeight * viralMult * lifecycleMult * dailyWave)
   );
 }
-
-import {
-  getVerifiedOfficialReleaseCover,
-  getVerifiedSpotifyNpcPortrait
-} from './spotifyOfficialNpcPortraitsAndCovers';
 
 function isIntroOrInterludeTitle(title: string): boolean {
   const norm = title.toLowerCase().trim();

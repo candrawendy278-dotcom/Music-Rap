@@ -56,7 +56,7 @@ export interface Song {
   weeklyViews: number;
   weeklyPureSales: number;
   weeklyRadioPlays: number;
-  trackType?: 'lead_single' | 'single' | 'promotional_single' | 'b_side';
+  trackType?: 'lead_single' | 'pre_release_single' | 'single' | 'promotional_single' | 'b_side';
   daysSinceRelease?: number;
   prevDailyStreams?: number;
   dailyChange?: number;
@@ -92,6 +92,12 @@ export interface Project {
   dailyChange?: number;
   dailyChangePercent?: number;
   totalStreams?: number;
+  preSaves?: number;
+  dailyPreSaves?: number;
+  distributor?: string;
+  marketingStrategy?: string;
+  recordLabel?: string;
+  focusTrackId?: number;
 }
 
 export interface ChartItem {
