@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { useGameContext } from '../GameContext';
 import { formatDate, formatMoney } from '../constants';
 import { compressImageFile } from '../utils/imageOptimizer';
+import ThemeToggleWidget from './Common/ThemeToggleWidget';
 
 export default function TopHeader() {
   const { state, setState } = useGameContext();
@@ -29,7 +30,7 @@ export default function TopHeader() {
   };
 
   return (
-    <header className="pt-12 pb-4 px-6 bg-[#F2F2F7] sticky top-0 z-10 flex justify-between items-end border-b border-gray-200/90 shadow-sm">
+    <header className="pt-12 pb-4 px-6 bg-apple-bg/95 backdrop-blur-md sticky top-0 z-10 flex justify-between items-end border-b border-apple-border/60 shadow-sm transition-colors">
       <div className="flex items-center space-x-3">
         <input 
           type="file" 
@@ -54,12 +55,15 @@ export default function TopHeader() {
         </button>
         <div>
           <p className="text-[10px] font-bold text-apple-subtext uppercase tracking-widest mb-0.5">{formatDate(state.date)}</p>
-          <h2 className="text-xl font-black text-apple-text truncate max-w-[150px] leading-none">{state.artist?.name}</h2>
+          <h2 className="text-xl font-black text-apple-text truncate max-w-[140px] leading-none">{state.artist?.name}</h2>
         </div>
       </div>
-      <div className="text-right">
-        <p className="text-[10px] font-bold text-apple-subtext uppercase tracking-widest mb-0.5">FUNDS</p>
-        <p className="text-lg font-black text-emerald-500 tracking-tight leading-none">{formatMoney(state.money)}</p>
+      <div className="flex items-center gap-3">
+        <ThemeToggleWidget variant="compact" />
+        <div className="text-right">
+          <p className="text-[10px] font-bold text-apple-subtext uppercase tracking-widest mb-0.5">FUNDS</p>
+          <p className="text-lg font-black text-emerald-500 tracking-tight leading-none">{formatMoney(state.money)}</p>
+        </div>
       </div>
     </header>
   );

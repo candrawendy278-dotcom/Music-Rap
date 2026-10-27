@@ -11,6 +11,7 @@ import {
   simulateAwardSeason,
   purchaseAwardCampaignTier,
   setPlayerPreferredSubmission,
+  isReleaseEligibleForAwardSeason,
   AwardSeasonRecord
 } from '../../data/awardsFormulaAndSimulationEngine';
 import { OfficialArtworkImg } from '../Common/OfficialArtworkImg';
@@ -64,16 +65,44 @@ export default function GrammyAwardsApp() {
     return grammyArchive[0] || null;
   }, [grammyArchive, selectedArchiveId]);
 
+  const priorNominatedWorks = useMemo(() => {
+    const set = new Set<string>();
+    grammyArchive.forEach(h => {
+      if (h.editionYear < targetCeremonyYear) {
+        h.categories.forEach(cat => {
+          if (cat.subjectType !== 'artist') {
+            cat.nominees.forEach(n => {
+              if (n.workTitle) set.add(n.workTitle.trim().toLowerCase());
+            });
+          }
+        });
+      }
+    });
+    return set;
+  }, [grammyArchive, targetCeremonyYear]);
+
   const releasedSongs = useMemo(
-    () => (state.songs || []).filter(s => s && s.status === 'released'),
-    [state.songs]
+    () =>
+      (state.songs || []).filter(
+        s =>
+          s &&
+          s.status === 'released' &&
+          !priorNominatedWorks.has((s.title || '').trim().toLowerCase()) &&
+          isReleaseEligibleForAwardSeason(s.releaseDate, 'grammys', targetCeremonyYear)
+      ),
+    [state.songs, priorNominatedWorks, targetCeremonyYear]
   );
   const releasedProjects = useMemo(
     () =>
       (state.projects || []).filter(
-        p => p && p.status === 'released' && (p.type === 'album' || p.type === 'ep')
+        p =>
+          p &&
+          p.status === 'released' &&
+          (p.type === 'album' || p.type === 'ep') &&
+          !priorNominatedWorks.has((p.title || '').trim().toLowerCase()) &&
+          isReleaseEligibleForAwardSeason(p.releaseDate, 'grammys', targetCeremonyYear)
       ),
-    [state.projects]
+    [state.projects, priorNominatedWorks, targetCeremonyYear]
   );
   const releasedVideos = useMemo(
     () => releasedSongs.filter(s => s.hasMV),

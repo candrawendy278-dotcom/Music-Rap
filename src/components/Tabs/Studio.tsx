@@ -8,8 +8,10 @@ import EnhancedWritingWizard from '../Modals/EnhancedWritingWizard';
 import EnhancedRecordingStudio from '../Modals/EnhancedRecordingStudio';
 import EnhancedProjectCreatorModal from '../Modals/EnhancedProjectCreatorModal';
 import EnhancedReleaseModal from '../Modals/EnhancedReleaseModal';
+import YouTubeVisualFormatModal from '../Modals/YouTubeVisualFormatModal';
 import HiatusStudioLockView from './HiatusStudioLockView';
 import { getEnsuredSkillState, calculateMasteryRank } from '../../data/skillSystemEngine';
+import { Song } from '../../types';
 
 export default function Studio() {
   const { state, setState } = useGameContext();
@@ -18,6 +20,8 @@ export default function Studio() {
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'albums' | 'singles'>('all');
   const [selectedSnapshotItem, setSelectedSnapshotItem] = useState<any>(null);
   const [showSkillModal, setShowSkillModal] = useState(false);
+  const [visualFormatSong, setVisualFormatSong] = useState<Song | null>(null);
+  const [showVisualPicker, setShowVisualPicker] = useState(false);
 
   const skills = getEnsuredSkillState(state.skills);
   const masteryRank = calculateMasteryRank(skills);
@@ -122,11 +126,11 @@ export default function Studio() {
         <div className="grid grid-cols-2 gap-4">
           <button onClick={() => setModalType('write')} className="bg-apple-card rounded-3xl p-5 shadow-ios border border-apple-border/50 active:scale-95 transition-transform flex flex-col items-center text-center gap-2.5 cursor-pointer relative">
             {studioCounts.writingCount > 0 && (
-              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-300">
                 {studioCounts.writingCount} Writing
               </span>
             )}
-            <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center text-purple-600 text-2xl shadow-sm">
+            <div className="w-14 h-14 bg-purple-100 dark:bg-purple-500/15 rounded-2xl flex items-center justify-center text-purple-600 dark:text-purple-400 text-2xl shadow-sm">
               <i className="ph-fill ph-pencil-simple"></i>
             </div>
             <div>
@@ -137,11 +141,11 @@ export default function Studio() {
 
           <button onClick={() => setModalType('record')} className="bg-apple-card rounded-3xl p-5 shadow-ios border border-apple-border/50 active:scale-95 transition-transform flex flex-col items-center text-center gap-2.5 cursor-pointer relative">
             {studioCounts.writtenReadyToRecord > 0 && (
-              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-600">
+              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-300">
                 {studioCounts.writtenReadyToRecord} Ready
               </span>
             )}
-            <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-500 text-2xl shadow-sm">
+            <div className="w-14 h-14 bg-rose-100 dark:bg-rose-500/15 rounded-2xl flex items-center justify-center text-rose-500 dark:text-rose-400 text-2xl shadow-sm">
               <i className="ph-fill ph-microphone-stage"></i>
             </div>
             <div>
@@ -152,11 +156,11 @@ export default function Studio() {
 
           <button onClick={() => setModalType('project')} className="bg-apple-card rounded-3xl p-5 shadow-ios border border-apple-border/50 active:scale-95 transition-transform flex flex-col items-center text-center gap-2.5 cursor-pointer relative">
             {studioCounts.recordedReady > 0 && (
-              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-600">
+              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-300">
                 {studioCounts.recordedReady} Masters
               </span>
             )}
-            <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-500 text-2xl shadow-sm">
+            <div className="w-14 h-14 bg-blue-100 dark:bg-blue-500/15 rounded-2xl flex items-center justify-center text-blue-500 dark:text-blue-400 text-2xl shadow-sm">
               <i className="ph-fill ph-folders"></i>
             </div>
             <div>
@@ -166,19 +170,44 @@ export default function Studio() {
           </button>
 
           <button onClick={() => setModalType('release')} className="bg-apple-card rounded-3xl p-5 shadow-ios border border-apple-border/50 active:scale-95 transition-transform flex flex-col items-center text-center gap-2.5 relative overflow-hidden cursor-pointer">
-            <div className="absolute inset-0 bg-emerald-50 opacity-50"></div>
+            <div className="absolute inset-0 bg-emerald-50 dark:bg-emerald-500/5 opacity-50"></div>
             {studioCounts.readyToReleaseTotal > 0 && (
-              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 z-10">
+              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 z-10">
                 {studioCounts.readyToReleaseTotal} Ready
               </span>
             )}
-            <div className="w-14 h-14 bg-emerald-100 rounded-2xl flex items-center justify-center text-emerald-500 text-2xl shadow-sm relative z-10">
+            <div className="w-14 h-14 bg-emerald-100 dark:bg-emerald-500/15 rounded-2xl flex items-center justify-center text-emerald-500 dark:text-emerald-400 text-2xl shadow-sm relative z-10">
               <i className="ph-fill ph-rocket-launch"></i>
             </div>
             <div className="relative z-10">
               <h4 className="font-bold text-apple-text text-sm">Release</h4>
               <p className="text-[11px] text-apple-subtext mt-0.5">Distro, promo & rollout</p>
             </div>
+          </button>
+
+          <button
+            onClick={() => setShowVisualPicker(true)}
+            className="col-span-2 bg-apple-card rounded-3xl p-4 shadow-ios border border-apple-border/50 active:scale-[0.99] transition-transform flex items-center justify-between gap-3 cursor-pointer"
+          >
+            <div className="flex items-center gap-3.5 text-left">
+              <div className="w-12 h-12 bg-[#FF0000]/15 rounded-2xl flex items-center justify-center text-[#FF0000] text-2xl shrink-0">
+                <i className="ph-fill ph-youtube-logo"></i>
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-red-500/10 text-red-500">
+                    YOUTUBE VIDEO STUDIO
+                  </span>
+                </div>
+                <h4 className="font-bold text-apple-text text-sm mt-0.5">
+                  Release MV, Lyric Video & Visualizer
+                </h4>
+                <p className="text-[11px] text-apple-subtext">
+                  Produce Official Music Video, Lyric Video, or Audio Visualizer in one place
+                </p>
+              </div>
+            </div>
+            <i className="ph-bold ph-caret-right text-apple-subtext"></i>
           </button>
         </div>
       )}
@@ -192,12 +221,12 @@ export default function Studio() {
 
           <div className="flex items-center gap-2">
             {/* Filter Pills */}
-            <div className="flex bg-neutral-100 dark:bg-neutral-800 p-1 rounded-xl text-xs font-bold">
+            <div className="flex bg-neutral-100 dark:bg-zinc-800/80 p-1 rounded-xl text-xs font-bold">
               <button
                 onClick={() => setCatalogFilter('all')}
                 className={`px-3 py-1 rounded-lg transition cursor-pointer ${
                   catalogFilter === 'all'
-                    ? 'bg-white dark:bg-neutral-700 text-apple-text shadow-xs'
+                    ? 'bg-white dark:bg-zinc-700 text-apple-text shadow-xs'
                     : 'text-apple-subtext hover:text-apple-text'
                 }`}
               >
@@ -207,7 +236,7 @@ export default function Studio() {
                 onClick={() => setCatalogFilter('albums')}
                 className={`px-3 py-1 rounded-lg transition cursor-pointer ${
                   catalogFilter === 'albums'
-                    ? 'bg-white dark:bg-neutral-700 text-apple-text shadow-xs'
+                    ? 'bg-white dark:bg-zinc-700 text-apple-text shadow-xs'
                     : 'text-apple-subtext hover:text-apple-text'
                 }`}
               >
@@ -217,7 +246,7 @@ export default function Studio() {
                 onClick={() => setCatalogFilter('singles')}
                 className={`px-3 py-1 rounded-lg transition cursor-pointer ${
                   catalogFilter === 'singles'
-                    ? 'bg-white dark:bg-neutral-700 text-apple-text shadow-xs'
+                    ? 'bg-white dark:bg-zinc-700 text-apple-text shadow-xs'
                     : 'text-apple-subtext hover:text-apple-text'
                 }`}
               >
@@ -266,6 +295,16 @@ export default function Studio() {
           item={selectedSnapshotItem}
           state={state}
           onClose={() => setSelectedSnapshotItem(null)}
+        />
+      )}
+
+      {(showVisualPicker || visualFormatSong) && (
+        <YouTubeVisualFormatModal
+          song={visualFormatSong}
+          onClose={() => {
+            setShowVisualPicker(false);
+            setVisualFormatSong(null);
+          }}
         />
       )}
     </div>

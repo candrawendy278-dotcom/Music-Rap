@@ -55,7 +55,7 @@ export default function RadioAirplayChartApp({
   const handleServiceSongToRadio = (songId: number) => {
     const campaignCost = 2500;
     if (state.money < campaignCost) {
-      setServiceNotice('Dana tidak cukup ($2,500 diperlukan untuk Radio Impact Servicing).');
+      setServiceNotice('Insufficient funds ($2,500 required for Radio Impact Servicing).');
       return;
     }
 
@@ -84,7 +84,7 @@ export default function RadioAirplayChartApp({
     }));
 
     setServiceNotice(
-      `"${targetSong.title}" berhasil dikirim ke ${formatMeta.panelSize} stasiun radio (${formatMeta.shortName})! +${addedDailySpins.toLocaleString()} daily spins ditambahkan.`
+      `"${targetSong.title}" has been serviced to ${formatMeta.panelSize} radio stations (${formatMeta.shortName})! +${addedDailySpins.toLocaleString()} daily spins added.`
     );
   };
 
@@ -657,7 +657,7 @@ export default function RadioAirplayChartApp({
                   <span>Official Radio Add Day Servicing</span>
                   <span className="tabular-nums text-white">Budget: {formatNumFull(state.money)}</span>
                 </div>
-                Kirimkan single resmi ke direktur program di {formatMeta.panelSize} stasiun radio ({formatMeta.flagshipStations.slice(0, 2).join(', ')}) untuk menambah rotasi spins harian dan Audience Impressions.
+                Service your official single to program directors across {formatMeta.panelSize} monitored stations ({formatMeta.flagshipStations.slice(0, 2).join(', ')}) to boost daily spin rotation and Audience Impressions.
               </div>
 
               {serviceNotice && (
@@ -668,7 +668,7 @@ export default function RadioAirplayChartApp({
 
               {releasedPlayerSongs.length === 0 ? (
                 <p className="text-center text-xs text-slate-500 py-10">
-                  Belum ada single yang dirilis untuk dikirim ke radio.
+                  No released singles available for radio servicing yet.
                 </p>
               ) : (
                 releasedPlayerSongs.map(song => (

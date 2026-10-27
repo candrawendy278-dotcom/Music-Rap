@@ -11,6 +11,7 @@ import {
   compactSaveState
 } from '../../utils/saveStateOptimizer';
 import { rehydrateFullGameStateOnLoad } from '../../utils/smartStorageEngine';
+import ThemeToggleWidget from '../Common/ThemeToggleWidget';
 
 export default function SettingsTab() {
   const { state, setState, setInfoModal } = useGameContext();
@@ -100,6 +101,9 @@ export default function SettingsTab() {
         <h2 className="text-3xl font-black text-apple-text tracking-tight">Settings</h2>
       </div>
 
+      {/* Appearance & Dark Mode Toggle Card */}
+      <ThemeToggleWidget variant="card" />
+
       {/* Artist Profile Card & Edit Profile Picture */}
       <div className="bg-apple-card rounded-3xl p-6 shadow-ios border border-apple-border/50 flex items-center justify-between">
         <div className="flex items-center space-x-4">
@@ -124,7 +128,7 @@ export default function SettingsTab() {
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2.5 bg-black text-white rounded-2xl text-xs font-bold active:scale-95 transition-transform flex items-center gap-1.5 shadow-sm cursor-pointer hover:bg-neutral-800"
+            className="px-4 py-2.5 bg-black dark:bg-white/10 dark:border dark:border-white/15 text-white rounded-2xl text-xs font-bold active:scale-95 transition-transform flex items-center gap-1.5 shadow-sm cursor-pointer hover:bg-neutral-800 dark:hover:bg-white/20"
           >
             <i className="ph-fill ph-camera text-sm"></i>
             <span>Edit Photo</span>
@@ -142,7 +146,7 @@ export default function SettingsTab() {
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-apple-text text-lg">Strategic Hiatus Mode</h3>
                 {state.isHiatus && (
-                  <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/15 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-500/30">
                     Active · Day {hiatusSummary.hiatusDays}
                   </span>
                 )}
@@ -153,28 +157,28 @@ export default function SettingsTab() {
             </div>
             <button 
               onClick={toggleHiatus}
-              className={`w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer ${state.isHiatus ? 'bg-neutral-900' : 'bg-gray-300'}`}
+              className={`w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer ${state.isHiatus ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-zinc-700'}`}
             >
               <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform ${state.isHiatus ? 'translate-x-6' : 'translate-x-0.5'}`}></div>
             </button>
           </div>
 
           <div className="grid grid-cols-3 gap-2 pt-1 text-center">
-            <div className="bg-apple-bg rounded-xl p-2.5">
+            <div className="bg-apple-bg rounded-xl p-2.5 border border-apple-border/40">
               <div className="text-[10px] text-apple-subtext font-medium">Daily Overhead</div>
               <div className="text-xs font-black text-apple-text mt-0.5">
                 {state.isHiatus ? '$30/day (-80%)' : '$150/day'}
               </div>
             </div>
-            <div className="bg-apple-bg rounded-xl p-2.5">
+            <div className="bg-apple-bg rounded-xl p-2.5 border border-apple-border/40">
               <div className="text-[10px] text-apple-subtext font-medium">Skill Training</div>
               <div className="text-xs font-black text-apple-text mt-0.5">
                 {state.isHiatus ? '2x Faster' : '1x Normal'}
               </div>
             </div>
-            <div className="bg-apple-bg rounded-xl p-2.5">
+            <div className="bg-apple-bg rounded-xl p-2.5 border border-apple-border/40">
               <div className="text-[10px] text-apple-subtext font-medium">Comeback Buzz</div>
-              <div className="text-xs font-black text-emerald-600 mt-0.5">
+              <div className="text-xs font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
                 +{hiatusSummary.comebackHypeBonus}% Hype
               </div>
             </div>
@@ -184,7 +188,7 @@ export default function SettingsTab() {
             <button
               type="button"
               onClick={toggleHiatus}
-              className="w-full py-2.5 px-4 bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+              className="w-full py-2.5 px-4 bg-neutral-900 dark:bg-indigo-600 hover:bg-neutral-800 dark:hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition cursor-pointer"
             >
               End Hiatus & Claim +{hiatusSummary.comebackHypeBonus}% Comeback Hype
             </button>
@@ -203,7 +207,7 @@ export default function SettingsTab() {
            </div>
            <button 
               onClick={toggleRealTimeMode}
-              className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${state.gameMode === 'realtime' ? 'bg-neutral-900' : 'bg-gray-300'}`}
+              className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${state.gameMode === 'realtime' ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-zinc-700'}`}
            >
               <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform ${state.gameMode === 'realtime' ? 'translate-x-6' : 'translate-x-0.5'}`}></div>
            </button>
@@ -214,13 +218,13 @@ export default function SettingsTab() {
       <div className="bg-apple-card rounded-3xl p-5 shadow-ios border border-apple-border/50 mt-6 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold text-sm">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm">
               <i className="ph-fill ph-hard-drives text-base"></i>
             </div>
             <div>
               <h4 className="font-bold text-apple-text text-sm">Storage & Memory Size</h4>
               <p className="text-xs text-apple-subtext">
-                Current Save: <span className="font-mono font-bold text-emerald-600">{currentSaveSizeKB > 1024 ? `${(currentSaveSizeKB / 1024).toFixed(1)} MB` : `${currentSaveSizeKB} KB`}</span>
+                Current Save: <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{currentSaveSizeKB > 1024 ? `${(currentSaveSizeKB / 1024).toFixed(1)} MB` : `${currentSaveSizeKB} KB`}</span>
                 <span className="ml-1 text-[11px] text-zinc-400 font-medium">(Local Auto-Save Active)</span>
               </p>
             </div>
@@ -236,8 +240,8 @@ export default function SettingsTab() {
         </div>
 
         {optimizedNotice && (
-          <div className="text-xs bg-emerald-50 text-emerald-700 p-2.5 rounded-xl border border-emerald-200/80 font-medium animate-in fade-in flex items-center space-x-1.5">
-            <i className="ph-fill ph-check-circle text-emerald-600 text-sm"></i>
+          <div className="text-xs bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 p-2.5 rounded-xl border border-emerald-200/80 dark:border-emerald-500/30 font-medium animate-in fade-in flex items-center space-x-1.5">
+            <i className="ph-fill ph-check-circle text-emerald-600 dark:text-emerald-400 text-sm"></i>
             <span>{optimizedNotice}</span>
           </div>
         )}
@@ -260,7 +264,7 @@ export default function SettingsTab() {
               window.location.reload();
             }
           }} 
-          className="w-full bg-rose-100 text-rose-600 font-bold py-4 rounded-2xl active:scale-95 transition-transform cursor-pointer"
+          className="w-full bg-rose-100 dark:bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-transparent dark:border-rose-500/30 font-bold py-4 rounded-2xl active:scale-95 transition-transform cursor-pointer"
         >
           End Game & Reset Career
         </button>

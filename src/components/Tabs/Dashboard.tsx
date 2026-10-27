@@ -51,7 +51,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-4 pb-4 animate-in fade-in">
       {/* Primary Time Control Hero */}
-      <div className="rounded-[28px] bg-[#0F0F12] text-white shadow-[0_14px_34px_-12px_rgba(0,0,0,0.35)] border border-white/10 overflow-hidden">
+      <div className="rounded-[28px] bg-[#0F0F12] dark:bg-[#161620] text-white shadow-[0_14px_34px_-12px_rgba(0,0,0,0.35)] border border-white/10 overflow-hidden">
         {state.gameMode === 'realtime' ? (
           <div className="p-5 flex items-center justify-between">
             <div>
@@ -115,87 +115,87 @@ export default function Dashboard() {
 
       {/* Primary Telemetry Strip: Daily Income & Streams */}
       <div className="grid grid-cols-2 gap-3.5">
-        <div className="bg-white rounded-[24px] p-4.5 border border-neutral-200/80 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.04)] flex flex-col justify-between">
+        <div className="bg-apple-card rounded-[24px] p-4.5 border border-apple-border/60 shadow-ios flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.14em]">Daily Revenue</span>
-            <div className="w-7 h-7 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
+            <span className="text-[10px] font-bold text-apple-subtext uppercase tracking-[0.14em]">Daily Revenue</span>
+            <div className="w-7 h-7 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
               <i className="ph-bold ph-trend-up text-xs"></i>
             </div>
           </div>
-          <p className="text-xl font-black text-neutral-950 tracking-tight tabular-nums">
+          <p className="text-xl font-black text-apple-text tracking-tight tabular-nums">
             +{formatMoney(state.dailyIncome)}
           </p>
-          <p className="text-[11px] text-neutral-400 font-medium mt-1">
+          <p className="text-[11px] text-apple-subtext font-medium mt-1">
             Royalties & catalog payout
           </p>
         </div>
 
-        <div className="bg-white rounded-[24px] p-4.5 border border-neutral-200/80 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.04)] flex flex-col justify-between">
+        <div className="bg-apple-card rounded-[24px] p-4.5 border border-apple-border/60 shadow-ios flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.14em]">
+            <span className="text-[10px] font-bold text-apple-subtext uppercase tracking-[0.14em]">
               {state.gameMode === 'realtime' ? 'Streams / Sec' : 'Daily Streams'}
             </span>
-            <div className="w-7 h-7 rounded-xl bg-neutral-900/5 text-neutral-800 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-xl bg-neutral-900/5 dark:bg-white/10 text-neutral-800 dark:text-zinc-200 flex items-center justify-center">
               <i className="ph-fill ph-Waveform text-xs ph-headphones"></i>
             </div>
           </div>
-          <p className="text-xl font-black text-neutral-950 tracking-tight tabular-nums">
+          <p className="text-xl font-black text-apple-text tracking-tight tabular-nums">
             {state.gameMode === 'realtime'
               ? `+${formatNumFull(state.currentStreamRate || 0)}`
               : formatNumFull(state.dailyStreamsTotal)}
           </p>
-          <p className="text-[11px] text-neutral-400 font-medium mt-1">
+          <p className="text-[11px] text-apple-subtext font-medium mt-1">
             Global platform plays
           </p>
         </div>
       </div>
 
       {/* Stature & Viral Momentum Ledger */}
-      <div className="bg-white rounded-[28px] border border-neutral-200/80 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] overflow-hidden">
-        <div className="px-5 pt-5 pb-4 flex items-center justify-between border-b border-neutral-100">
+      <div className="bg-apple-card rounded-[28px] border border-apple-border/60 shadow-ios overflow-hidden">
+        <div className="px-5 pt-5 pb-4 flex items-center justify-between border-b border-apple-border/40">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-400">Artist Stature</p>
-            <h3 className="text-base font-black text-neutral-950 tracking-tight mt-0.5">Popularity & Viral Hype</h3>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-apple-subtext">Artist Stature</p>
+            <h3 className="text-base font-black text-apple-text tracking-tight mt-0.5">Popularity & Viral Hype</h3>
           </div>
           <div className="text-right">
-            <span className="text-[11px] font-black text-neutral-900 uppercase tracking-wider bg-neutral-100 px-3 py-1 rounded-lg border border-neutral-200/70">
+            <span className="text-[11px] font-black text-apple-text uppercase tracking-wider bg-neutral-100 dark:bg-white/10 px-3 py-1 rounded-lg border border-apple-border/50">
               {popInfo.tierName}
             </span>
           </div>
         </div>
 
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-apple-border/40">
           {/* Popularity Row */}
           <div className="p-5 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-black text-neutral-950">Popularity Index</span>
+                  <span className="text-sm font-black text-apple-text">Popularity Index</span>
                   {state.popDelta !== undefined && Math.abs(state.popDelta) > 0.001 && (
                     <span className={`text-[11px] font-bold tabular-nums ${
-                      state.popDelta > 0 ? 'text-emerald-600' : 'text-rose-500'
+                      state.popDelta > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'
                     }`}>
                       {state.popDelta > 0 ? `+${state.popDelta.toFixed(2)}%` : `${state.popDelta.toFixed(2)}%`}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-neutral-500 mt-0.5">{popInfo.perkDescription}</p>
+                <p className="text-xs text-apple-subtext mt-0.5">{popInfo.perkDescription}</p>
               </div>
               <div className="text-right shrink-0">
-                <div className="text-lg font-black text-neutral-950 tabular-nums leading-none">
+                <div className="text-lg font-black text-apple-text tabular-nums leading-none">
                   {(state.popularity || 0).toFixed(1)}%
                 </div>
                 {popInfo.nextTierAt < 100 && (
-                  <div className="text-[10px] text-neutral-400 font-semibold mt-1 tabular-nums">
+                  <div className="text-[10px] text-apple-subtext font-semibold mt-1 tabular-nums">
                     Next tier at {popInfo.nextTierAt}%
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="w-full bg-neutral-100 rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-neutral-100 dark:bg-white/10 rounded-full h-2 overflow-hidden">
               <div
-                className="bg-neutral-950 h-full rounded-full transition-all duration-700 ease-out"
+                className="bg-neutral-950 dark:bg-indigo-400 h-full rounded-full transition-all duration-700 ease-out"
                 style={{ width: `${Math.min(100, state.popularity || 0)}%` }}
               />
             </div>
@@ -206,34 +206,34 @@ export default function Dashboard() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-black text-neutral-950">Hype & Virality</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md">
+                  <span className="text-sm font-black text-apple-text">Hype & Virality</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/15 px-2 py-0.5 rounded-md">
                     {hypeInfo.statusLabel}
                   </span>
                   {state.hypeDelta !== undefined && Math.abs(state.hypeDelta) > 0.001 && (
                     <span className={`text-[11px] font-bold tabular-nums ${
-                      state.hypeDelta > 0 ? 'text-emerald-600' : 'text-rose-500'
+                      state.hypeDelta > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'
                     }`}>
                       {state.hypeDelta > 0 ? `+${state.hypeDelta.toFixed(2)}%` : `${state.hypeDelta.toFixed(2)}%`}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-neutral-500 mt-0.5">
-                  Stream Surge <strong className="text-neutral-900 font-bold tabular-nums">{hypeInfo.streamMultiplier.toFixed(2)}x</strong>
-                  {' · '}Pop Conversion <strong className="text-emerald-600 font-bold">{hypeInfo.conversionPotential}</strong>
+                <p className="text-xs text-apple-subtext mt-0.5">
+                  Stream Surge <strong className="text-apple-text font-bold tabular-nums">{hypeInfo.streamMultiplier.toFixed(2)}x</strong>
+                  {' · '}Pop Conversion <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{hypeInfo.conversionPotential}</strong>
                 </p>
               </div>
               <div className="text-right shrink-0">
                 <div className="text-lg font-black text-orange-500 tabular-nums leading-none">
                   {(state.hype || 0).toFixed(1)}%
                 </div>
-                <div className="text-[10px] text-neutral-400 font-semibold mt-1">
+                <div className="text-[10px] text-apple-subtext font-semibold mt-1">
                   {state.isHiatus ? 'Protected on Hiatus' : hypeInfo.decayRateLabel}
                 </div>
               </div>
             </div>
 
-            <div className="w-full bg-neutral-100 rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-neutral-100 dark:bg-white/10 rounded-full h-2 overflow-hidden">
               <div
                 className="bg-gradient-to-r from-amber-500 to-orange-500 h-full rounded-full transition-all duration-700 ease-out"
                 style={{ width: `${Math.min(100, state.hype || 0)}%` }}
@@ -244,33 +244,33 @@ export default function Dashboard() {
       </div>
 
       {/* Dedicated Fans Ecosystem Card */}
-      <div className="bg-white rounded-[28px] border border-neutral-200/80 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] overflow-hidden">
+      <div className="bg-apple-card rounded-[28px] border border-apple-border/60 shadow-ios overflow-hidden">
         <div className="p-5 pb-4 flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-400">Audience Architecture</p>
-              <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-apple-subtext">Audience Architecture</p>
+              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/15 px-2 py-0.5 rounded-md">
                 {fanDemographics.fanbaseTierName}
               </span>
             </div>
-            <h3 className="text-base font-black text-neutral-950 tracking-tight mt-0.5">Dedicated Fans</h3>
-            <p className="text-xs text-neutral-500 mt-0.5">
-              Loyalty Index <strong className="text-neutral-900 font-bold tabular-nums">{fanDemographics.loyaltyScore}%</strong>
+            <h3 className="text-base font-black text-apple-text tracking-tight mt-0.5">Dedicated Fans</h3>
+            <p className="text-xs text-apple-subtext mt-0.5">
+              Loyalty Index <strong className="text-apple-text font-bold tabular-nums">{fanDemographics.loyaltyScore}%</strong>
             </p>
           </div>
 
           <div className="text-right">
             <div className="flex items-center justify-end gap-1.5">
-              <span className="text-xl font-black text-neutral-950 tabular-nums leading-none">
+              <span className="text-xl font-black text-apple-text tabular-nums leading-none">
                 {formatNumFull(fanDemographics.totalFans)}
               </span>
             </div>
             {state.fansDelta !== undefined && state.fansDelta > 0 ? (
-              <div className="text-[11px] font-bold text-emerald-600 mt-1 tabular-nums">
+              <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 mt-1 tabular-nums">
                 +{formatNumFull(state.fansDelta)} today
               </div>
             ) : (
-              <div className="text-[10px] font-semibold text-neutral-400 mt-1">
+              <div className="text-[10px] font-semibold text-apple-subtext mt-1">
                 Total Active Listeners
               </div>
             )}
@@ -279,7 +279,7 @@ export default function Dashboard() {
 
         {/* Clean 3-Segment Composition Bar */}
         <div className="px-5 pb-4">
-          <div className="w-full h-2.5 rounded-full overflow-hidden flex bg-neutral-100 gap-0.5">
+          <div className="w-full h-2.5 rounded-full overflow-hidden flex bg-neutral-100 dark:bg-white/10 gap-0.5">
             <div
               className="bg-sky-500 h-full transition-all duration-500"
               style={{ width: `${fanDemographics.casualPct}%` }}
@@ -299,58 +299,58 @@ export default function Dashboard() {
         </div>
 
         {/* Hairline 3-Column Cohort Breakdown */}
-        <div className="grid grid-cols-3 divide-x divide-neutral-100 border-t border-neutral-100">
+        <div className="grid grid-cols-3 divide-x divide-apple-border/40 border-t border-apple-border/40">
           <div className="p-4">
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-apple-subtext">
               <span className="w-2 h-2 rounded-full bg-sky-500"></span>
               <span>Casual · {fanDemographics.casualPct}%</span>
             </div>
-            <div className="text-sm font-black text-neutral-950 tabular-nums mt-1">
+            <div className="text-sm font-black text-apple-text tabular-nums mt-1">
               {formatNumFull(fanDemographics.casualListeners)}
             </div>
-            <div className="text-[10px] text-neutral-400 font-medium mt-0.5">Playlist & radio</div>
+            <div className="text-[10px] text-apple-subtext font-medium mt-0.5">Playlist & radio</div>
           </div>
 
           <div className="p-4">
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-apple-subtext">
               <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
               <span>Core · {fanDemographics.corePct}%</span>
             </div>
-            <div className="text-sm font-black text-neutral-950 tabular-nums mt-1">
+            <div className="text-sm font-black text-apple-text tabular-nums mt-1">
               {formatNumFull(fanDemographics.coreSupporters)}
             </div>
-            <div className="text-[10px] text-neutral-400 font-medium mt-0.5">Daily stream base</div>
+            <div className="text-[10px] text-apple-subtext font-medium mt-0.5">Daily stream base</div>
           </div>
 
           <div className="p-4">
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-apple-subtext">
               <span className="w-2 h-2 rounded-full bg-rose-500"></span>
               <span>Stans · {fanDemographics.stanPct}%</span>
             </div>
-            <div className="text-sm font-black text-neutral-950 tabular-nums mt-1">
+            <div className="text-sm font-black text-apple-text tabular-nums mt-1">
               {formatNumFull(fanDemographics.superfansStans)}
             </div>
-            <div className="text-[10px] text-neutral-400 font-medium mt-0.5">First-week buyers</div>
+            <div className="text-[10px] text-apple-subtext font-medium mt-0.5">First-week buyers</div>
           </div>
         </div>
 
         {/* Bottom Market Impact Strip */}
-        <div className="px-5 py-3 bg-neutral-50/80 border-t border-neutral-100 grid grid-cols-3 gap-2 text-center">
+        <div className="px-5 py-3 bg-neutral-50/80 dark:bg-white/[0.03] border-t border-apple-border/40 grid grid-cols-3 gap-2 text-center">
           <div>
-            <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">Stream Floor</div>
-            <div className="text-xs font-black text-neutral-900 tabular-nums mt-0.5">
+            <div className="text-[10px] font-semibold text-apple-subtext uppercase tracking-wider">Stream Floor</div>
+            <div className="text-xs font-black text-apple-text tabular-nums mt-0.5">
               +{formatNumFull(fanDemographics.dailyStreamingFloor)}/d
             </div>
           </div>
           <div>
-            <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">Pure Sales</div>
-            <div className="text-xs font-black text-emerald-600 tabular-nums mt-0.5">
+            <div className="text-[10px] font-semibold text-apple-subtext uppercase tracking-wider">Pure Sales</div>
+            <div className="text-xs font-black text-emerald-600 dark:text-emerald-400 tabular-nums mt-0.5">
               {fanDemographics.pureSalesMultiplier.toFixed(2)}x
             </div>
           </div>
           <div>
-            <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">Decay Shield</div>
-            <div className="text-xs font-black text-indigo-600 tabular-nums mt-0.5">
+            <div className="text-[10px] font-semibold text-apple-subtext uppercase tracking-wider">Decay Shield</div>
+            <div className="text-xs font-black text-indigo-600 dark:text-indigo-400 tabular-nums mt-0.5">
               +{Math.round((fanDemographics.retentionShield - 1) * 100)}%
             </div>
           </div>
@@ -358,47 +358,47 @@ export default function Dashboard() {
       </div>
 
       {/* Craft Mastery & Studio Academy Card */}
-      <div className="bg-white rounded-[28px] border border-neutral-200/80 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] overflow-hidden">
+      <div className="bg-apple-card rounded-[28px] border border-apple-border/60 shadow-ios overflow-hidden">
         <div
           onClick={() => setState(p => ({ ...p, activeApp: 'skills' }))}
-          className="p-5 flex items-center justify-between cursor-pointer hover:bg-neutral-50/70 transition-colors group"
+          className="p-5 flex items-center justify-between cursor-pointer hover:bg-neutral-50/70 dark:hover:bg-white/[0.03] transition-colors group"
         >
           <div>
             <div className="flex items-center gap-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-400">Craft & Artistry</p>
-              <span className="text-[10px] font-bold text-neutral-700 bg-neutral-100 px-2 py-0.5 rounded-md tabular-nums">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-apple-subtext">Craft & Artistry</p>
+              <span className="text-[10px] font-bold text-apple-text bg-neutral-100 dark:bg-white/10 px-2 py-0.5 rounded-md tabular-nums">
                 {masteryRank.title} · {masteryRank.score}/{masteryRank.maxScore}
               </span>
             </div>
-            <h3 className="text-base font-black text-neutral-950 tracking-tight mt-0.5 group-hover:text-black">
+            <h3 className="text-base font-black text-apple-text tracking-tight mt-0.5">
               Mastery Academy
             </h3>
-            <p className="text-xs text-neutral-500 mt-0.5">
+            <p className="text-xs text-apple-subtext mt-0.5">
               Train songwriting, vocal execution & studio engineering
             </p>
           </div>
-          <div className="w-10 h-10 rounded-2xl bg-neutral-950 text-white flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+          <div className="w-10 h-10 rounded-2xl bg-neutral-950 dark:bg-indigo-600 text-white flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
             <i className="ph-bold ph-arrow-up-right text-sm"></i>
           </div>
         </div>
 
         {/* 3-Discipline Summary Grid */}
-        <div className="grid grid-cols-3 divide-x divide-neutral-100 border-t border-neutral-100 bg-neutral-50/40">
+        <div className="grid grid-cols-3 divide-x divide-apple-border/40 border-t border-apple-border/40 bg-neutral-50/40 dark:bg-white/[0.02]">
           <div className="p-3.5 text-center">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Songwriting</div>
-            <div className="text-sm font-black text-neutral-950 tabular-nums mt-0.5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-apple-subtext">Songwriting</div>
+            <div className="text-sm font-black text-apple-text tabular-nums mt-0.5">
               Lv. {masteryRank.averages.songwriting}
             </div>
           </div>
           <div className="p-3.5 text-center">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Vocals</div>
-            <div className="text-sm font-black text-neutral-950 tabular-nums mt-0.5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-apple-subtext">Vocals</div>
+            <div className="text-sm font-black text-apple-text tabular-nums mt-0.5">
               Lv. {masteryRank.averages.recording}
             </div>
           </div>
           <div className="p-3.5 text-center">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Production</div>
-            <div className="text-sm font-black text-neutral-950 tabular-nums mt-0.5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-apple-subtext">Production</div>
+            <div className="text-sm font-black text-apple-text tabular-nums mt-0.5">
               Lv. {masteryRank.averages.production}
             </div>
           </div>
@@ -443,10 +443,10 @@ export default function Dashboard() {
       </div>
 
       {/* Industry Rival & Chart Beef Command Card */}
-      <div className="bg-white rounded-[28px] border border-neutral-200/80 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.04)] overflow-hidden">
+      <div className="bg-apple-card rounded-[28px] border border-apple-border/60 shadow-ios overflow-hidden">
         <div
           onClick={() => setShowRivalModal(true)}
-          className="p-5 flex items-center justify-between cursor-pointer hover:bg-neutral-50/70 transition-colors group"
+          className="p-5 flex items-center justify-between cursor-pointer hover:bg-neutral-50/70 dark:hover:bg-white/[0.03] transition-colors group"
         >
           {rivalState.hasActiveRival ? (
             <div className="flex items-center gap-3.5 min-w-0">
@@ -458,17 +458,17 @@ export default function Dashboard() {
               />
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-600">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-600 dark:text-rose-400">
                     Arch-Rival · {rivalState.beefStatusLabel}
                   </p>
-                  <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md tabular-nums">
+                  <span className="text-[10px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/15 px-2 py-0.5 rounded-md tabular-nums">
                     {rivalState.beefHeat}% Heat
                   </span>
                 </div>
-                <h3 className="text-base font-black text-neutral-950 tracking-tight mt-0.5 truncate">
+                <h3 className="text-base font-black text-apple-text tracking-tight mt-0.5 truncate">
                   vs. {rivalState.rivalName}
                 </h3>
-                <p className="text-xs text-neutral-500 mt-0.5 truncate">
+                <p className="text-xs text-apple-subtext mt-0.5 truncate">
                   {rivalState.activeCounterRelease
                     ? `🚨 Blocking attempt: "${rivalState.activeCounterRelease.title}" (${formatNumFull(rivalState.activeCounterRelease.dailyStreams)}/d)`
                     : rivalState.rivalryOriginReason ||
@@ -478,19 +478,19 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-12 h-12 rounded-full bg-neutral-100 border border-neutral-200 text-neutral-500 flex items-center justify-center shrink-0">
+              <div className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-white/10 border border-apple-border/60 text-apple-subtext flex items-center justify-center shrink-0">
                 <i className="ph-bold ph-shield-check text-lg"></i>
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-500">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-apple-subtext">
                     Industry Feud Radar · Peaceful
                   </p>
                 </div>
-                <h3 className="text-base font-black text-neutral-950 tracking-tight mt-0.5 truncate">
+                <h3 className="text-base font-black text-apple-text tracking-tight mt-0.5 truncate">
                   No Active Industry Rival
                 </h3>
-                <p className="text-xs text-neutral-500 mt-0.5 truncate">
+                <p className="text-xs text-apple-subtext mt-0.5 truncate">
                   Rivalries ignite from chart clashes, same-day release collisions, or public callouts on X.
                 </p>
               </div>
@@ -500,7 +500,7 @@ export default function Dashboard() {
             className={`w-10 h-10 rounded-2xl flex items-center justify-center group-hover:scale-105 transition-transform shrink-0 ${
               rivalState.hasActiveRival
                 ? 'bg-rose-600 text-white'
-                : 'bg-neutral-900 text-white'
+                : 'bg-neutral-900 dark:bg-white/10 text-white'
             }`}
           >
             <i className={`ph-bold ${rivalState.hasActiveRival ? 'ph-fire' : 'ph-lightning'} text-sm`}></i>
@@ -553,4 +553,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

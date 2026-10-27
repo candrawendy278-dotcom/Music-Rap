@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useGameContext } from './GameContext';
 import TopHeader from './components/TopHeader';
 import BottomNav from './components/BottomNav';
@@ -19,9 +20,16 @@ import PitchforkApp from './components/Apps/PitchforkApp';
 import MetacriticApp from './components/Apps/MetacriticApp';
 import RadioAirplayChartApp from './components/Apps/RadioAirplayChartApp';
 import AwardCeremonyLiveModal from './components/Modals/AwardCeremonyLiveModal';
+import { resolveCurrentTheme, applyThemeToDocument } from './data/themeSystemEngine';
 
 export default function MainApp() {
   const { state, setState } = useGameContext();
+  const currentTheme = resolveCurrentTheme(state);
+
+  useEffect(() => {
+    applyThemeToDocument(currentTheme);
+  }, [currentTheme]);
+
   const pendingCeremony = (state as any).awardsState?.pendingLiveCeremony || null;
   const pendingNominations = (state as any).awardsState?.pendingNominationsAnnouncement || null;
   const activeModalSeason = pendingCeremony || pendingNominations;
@@ -38,7 +46,7 @@ export default function MainApp() {
   };
 
   return (
-    <div className="w-full max-w-md mx-auto min-h-screen bg-apple-bg flex flex-col relative pb-24 overflow-y-auto overflow-x-hidden">
+    <div className="w-full max-w-md mx-auto min-h-screen bg-apple-bg text-apple-text flex flex-col relative pb-24 overflow-y-auto overflow-x-hidden transition-colors">
       <TopHeader />
       <main className="flex-1 px-4 py-4 w-full">
         {state.activeTab === 'dashboard' && <Dashboard />}

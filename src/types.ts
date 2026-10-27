@@ -32,6 +32,20 @@ export interface Song {
   mvDistributor?: 'indie' | 'vevo';
   mvThumbnail?: string;
   customVideoUrl?: string;
+  hasVisualizer?: boolean;
+  visualizerStyle?: string;
+  visualizerThumbnail?: string;
+  visualizerViews?: number;
+  dailyVisualizerViews?: number;
+  visualizerLikes?: number;
+  visualizerReleaseDate?: string;
+  hasLyricVideo?: boolean;
+  lyricVideoStyle?: string;
+  lyricVideoThumbnail?: string;
+  lyricVideoViews?: number;
+  dailyLyricVideoViews?: number;
+  lyricVideoLikes?: number;
+  lyricVideoReleaseDate?: string;
   playlistPlacements?: string[];
   dailyStreams?: number;
   dailyViews?: number;
@@ -198,6 +212,7 @@ export interface GameState {
   isHiatus?: boolean;
   hiatusDays?: number;
   cheatUnlocked?: boolean;
+  theme?: 'light' | 'dark';
   rivalState?: any;
   jobsState?: any;
   awardsState?: any;

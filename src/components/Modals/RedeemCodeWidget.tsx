@@ -130,7 +130,7 @@ export default function RedeemCodeWidget() {
             Have a promotional or event gift code? Enter it below to claim your exclusive in-game rewards.
           </p>
         </div>
-        <div className="w-9 h-9 rounded-2xl bg-neutral-100 flex items-center justify-center text-neutral-700 shrink-0">
+        <div className="w-9 h-9 rounded-2xl bg-neutral-100 dark:bg-white/10 flex items-center justify-center text-neutral-700 dark:text-zinc-200 shrink-0">
           <i className="ph-fill ph-ticket text-lg"></i>
         </div>
       </div>
@@ -143,11 +143,11 @@ export default function RedeemCodeWidget() {
           placeholder="Enter promo code..."
           autoComplete="off"
           spellCheck={false}
-          className="flex-1 bg-apple-bg border border-apple-border/60 rounded-2xl px-4 py-3 text-sm font-bold text-apple-text placeholder:font-normal placeholder:text-apple-subtext focus:outline-none focus:border-neutral-900 uppercase tracking-wider"
+          className="flex-1 bg-apple-bg border border-apple-border/60 rounded-2xl px-4 py-3 text-sm font-bold text-apple-text placeholder:font-normal placeholder:text-apple-subtext focus:outline-none focus:border-neutral-900 dark:focus:border-indigo-500 uppercase tracking-wider"
         />
         <button
           type="submit"
-          className="px-5 py-3 bg-neutral-900 hover:bg-neutral-800 text-white font-bold text-xs rounded-2xl active:scale-95 transition cursor-pointer shrink-0"
+          className="px-5 py-3 bg-neutral-900 dark:bg-indigo-600 hover:bg-neutral-800 dark:hover:bg-indigo-500 text-white font-bold text-xs rounded-2xl active:scale-95 transition cursor-pointer shrink-0"
         >
           Redeem
         </button>
@@ -157,8 +157,8 @@ export default function RedeemCodeWidget() {
         <div
           className={`text-xs p-3 rounded-2xl border font-medium flex items-center justify-between gap-2 ${
             statusMessage.type === 'success'
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              : 'bg-rose-50 text-rose-700 border-rose-200'
+              ? 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+              : 'bg-rose-50 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/30'
           }`}
         >
           <span>{statusMessage.text}</span>

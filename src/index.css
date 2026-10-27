@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-apple-blue: #007AFF;
   --color-apple-bg: #F2F2F7;
@@ -48,4 +50,42 @@ body {
   color: var(--color-apple-text);
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Dark Theme Variable & Surface Overrides */
+html.dark {
+  --color-apple-bg: #09090D;
+  --color-apple-card: #14141B;
+  --color-apple-text: #F4F4F6;
+  --color-apple-subtext: #9CA3AF;
+  --color-apple-border: #272732;
+  --color-apple-gray: #3F3F4E;
+  --shadow-ios: 0 4px 24px rgba(0, 0, 0, 0.45);
+  --shadow-ios-heavy: 0 10px 40px rgba(0, 0, 0, 0.65);
+  color-scheme: dark;
+}
+
+html.dark .bg-apple-card {
+  background-color: #14141B;
+}
+
+html.dark .bg-apple-bg {
+  background-color: #09090D;
+}
+
+html.dark .text-apple-text {
+  color: #F4F4F6;
+}
+
+html.dark .text-apple-subtext {
+  color: #9CA3AF;
+}
+
+html.dark .border-apple-border,
+html.dark .border-apple-border\/60,
+html.dark .border-apple-border\/50,
+html.dark .border-apple-border\/40,
+html.dark .border-apple-border\/30 {
+  border-color: rgba(255, 255, 255, 0.09);
 }

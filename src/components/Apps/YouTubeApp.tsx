@@ -16,6 +16,7 @@ import YouTubeArtistProfileView, {
   YouTubeChannelTarget,
   resolveNpcMvReleaseDate
 } from './YouTubeArtistProfileView';
+import YouTubeVisualFormatModal from '../Modals/YouTubeVisualFormatModal';
 
 function getTimeAgo(releaseDate: string | undefined, currentDate: string): string {
   if (!releaseDate) return 'Just now';
@@ -38,6 +39,8 @@ export default function YouTubeApp() {
   const { state, setState } = useGameContext();
   const [modalType, setModalType] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<Song | null>(null);
+  const [visualFormatSong, setVisualFormatSong] = useState<Song | null>(null);
+  const [showVisualSongPicker, setShowVisualSongPicker] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'chart' | 'profile'>('home');
   const [chartRegion, setChartRegion] = useState<string>('global');
   const [channelTarget, setChannelTarget] = useState<YouTubeChannelTarget>({
@@ -56,8 +59,43 @@ export default function YouTubeApp() {
     setActiveTab('profile');
   };
 
+  // Combine Official Music Videos, Official Lyric Videos, and Official Audio Visualizers
+  // each with their own separate view count, daily views, and likes!
   const videos = useMemo(() => {
-    return [...state.songs].filter(s => s.hasMV).sort((a, b) => (b.views || 0) - (a.views || 0));
+    const allVisualUploads: Song[] = [];
+    (state.songs || []).forEach(s => {
+      if (!s || s.status !== 'released') return;
+      if (s.hasMV) {
+        allVisualUploads.push(s);
+      }
+      if (s.hasLyricVideo) {
+        allVisualUploads.push({
+          ...s,
+          id: s.id * 10000 + 1,
+          title: `${s.title} (Official Lyric Video)`,
+          views: s.lyricVideoViews || 0,
+          dailyViews: s.dailyLyricVideoViews || 0,
+          mvLikes: s.lyricVideoLikes || 0,
+          releaseDate: s.lyricVideoReleaseDate || s.releaseDate,
+          mvThumbnail: s.lyricVideoThumbnail || s.cover,
+          hasMV: true
+        });
+      }
+      if (s.hasVisualizer) {
+        allVisualUploads.push({
+          ...s,
+          id: s.id * 10000 + 2,
+          title: `${s.title} (Official Visualizer)`,
+          views: s.visualizerViews || 0,
+          dailyViews: s.dailyVisualizerViews || 0,
+          mvLikes: s.visualizerLikes || 0,
+          releaseDate: s.visualizerReleaseDate || s.releaseDate,
+          mvThumbnail: s.visualizerThumbnail || s.cover,
+          hasMV: true
+        });
+      }
+    });
+    return allVisualUploads.sort((a, b) => (b.views || 0) - (a.views || 0));
   }, [state.songs]);
 
   const liveChart = state.youtube.charts?.[`daily_${chartRegion}`];
@@ -291,8 +329,8 @@ export default function YouTubeApp() {
             onClick={() => setModalType('create_mv')}
             className="bg-[#272727] hover:bg-[#3F3F3F] px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
           >
-            <i className="ph-bold ph-plus text-sm text-[#FF0000]"></i>
-            <span>Create MV</span>
+            <i className="ph-bold ph-plus text-xs text-[#FF0000]"></i>
+            <span>Create MV / Video</span>
           </button>
           <button
             onClick={() => handleOpenChannel(state.artist?.name || 'Artist', true)}
@@ -381,7 +419,7 @@ export default function YouTubeApp() {
           className="flex flex-col items-center text-[#AAAAAA] hover:text-white transition cursor-pointer"
         >
           <i className="ph ph-plus-circle text-xl"></i>
-          <span className="text-[10px] mt-0.5 font-medium">Produce MV</span>
+          <span className="text-[10px] mt-0.5 font-medium">Produce Video</span>
         </button>
 
         <button
@@ -395,7 +433,19 @@ export default function YouTubeApp() {
         </button>
       </nav>
 
-      {modalType && <ActionModal type={modalType} onClose={() => setModalType(null)} />}
+      {modalType === 'create_mv' && (
+        <YouTubeVisualFormatModal
+          song={visualFormatSong}
+          onClose={() => {
+            setModalType(null);
+            setVisualFormatSong(null);
+          }}
+        />
+      )}
+
+      {modalType && modalType !== 'create_mv' && (
+        <ActionModal type={modalType} onClose={() => setModalType(null)} />
+      )}
     </div>
   );
 }

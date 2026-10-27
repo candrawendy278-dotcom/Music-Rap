@@ -147,12 +147,29 @@ function hashSeed(input: string): number {
   return Math.abs(h >>> 0);
 }
 
+let cachedBaseCareerYear: number | null = null;
+
+export function syncAwardBaseCareerYear(state?: GameState): number {
+  if (state?.artist?.startYear && state.artist.startYear > 1990) {
+    cachedBaseCareerYear = state.artist.startYear;
+    return cachedBaseCareerYear;
+  }
+  if (cachedBaseCareerYear) return cachedBaseCareerYear;
+  return 2025;
+}
+
 /**
- * Computes the official edition title for a given year and award show
+ * Computes the official edition title for a given year and award show.
+ * Increments every single year (e.g. 67th -> 68th -> 69th -> 70th -> 71st Annual GRAMMY Awards)
+ * regardless of the career start year chosen by the player.
  */
-export function getAwardEditionLabel(show: AwardShowType, year: number): string {
+export function getAwardEditionLabel(show: AwardShowType, year: number, baseCareerYear?: number): string {
   if (show === 'grammys') {
-    const editionNum = Math.max(67, year - 1958); // 2026 = 68th Annual GRAMMY Awards
+    const anchorYear = baseCareerYear || cachedBaseCareerYear || 2025;
+    // Anchor the first active career year at 67th Annual (archive year = 66th, next year = 68th, etc.)
+    // If year >= 2025 and anchorYear >= 2025, 2025 = 67th, 2026 = 68th, 2027 = 69th, etc.
+    const effectiveAnchor = anchorYear <= 2025 ? anchorYear : 2025;
+    const editionNum = Math.max(1, 67 + (year - effectiveAnchor));
     const suffix =
       editionNum % 10 === 1 && editionNum % 100 !== 11
         ? 'st'
@@ -164,6 +181,35 @@ export function getAwardEditionLabel(show: AwardShowType, year: number): string 
     return `${editionNum}${suffix} Annual GRAMMY Awards`;
   }
   return `${year} MTV Video Music Awards`;
+}
+
+/**
+ * Checks whether a player song/album release date falls within the eligible release window
+ * for a given award show and ceremony editionYear.
+ */
+export function isReleaseEligibleForAwardSeason(
+  releaseDateStr: string | undefined,
+  show: AwardShowType,
+  editionYear: number
+): boolean {
+  if (!releaseDateStr) return false;
+  const relMs = new Date(releaseDateStr).getTime();
+  if (Number.isNaN(relMs)) return false;
+
+  if (show === 'grammys') {
+    // GRAMMY ceremony is Feb 5 of editionYear (or same-year cycle).
+    // Eligible window: after previous GRAMMYs ceremony (Feb 5 of editionYear - 1) through Dec 31 of editionYear.
+    // Songs from 2+ years ago or released before the previous ceremony window are strictly ineligible!
+    const windowStartMs = new Date(`${editionYear - 1}-02-06T00:00:00`).getTime();
+    const windowEndMs = new Date(`${editionYear}-12-31T23:59:59`).getTime();
+    return relMs >= windowStartMs && relMs <= windowEndMs;
+  } else {
+    // MTV VMAs ceremony is Sep 12 of editionYear.
+    // Eligible window: after previous VMAs ceremony (Sep 13 of editionYear - 1) through Dec 31 of editionYear.
+    const windowStartMs = new Date(`${editionYear - 1}-09-13T00:00:00`).getTime();
+    const windowEndMs = new Date(`${editionYear}-12-31T23:59:59`).getTime();
+    return relMs >= windowStartMs && relMs <= windowEndMs;
+  }
 }
 
 export interface AwardShowOpenStatus {
@@ -351,21 +397,46 @@ let lastSanitizedResult: AwardsSystemState | null = null;
  * 2. No artist (solo or collab partner) and no song/work title ever appears twice in the same category.
  * 3. Any category that loses duplicate entries is topped back up to 6 unique nominees.
  */
+/**
+ * Sanitizes any saved AwardSeasonRecord (in activeSeasons or history) so that:
+ * 1. Every collab entry includes both artists in `artistName`.
+ * 2. No artist (solo or collab partner) and no song/work title ever appears twice in the same category.
+ * 3. Any work (or Best New Artist) already nominated in an EARLIER season (`priorNominatedWorks` / `priorBnaArtists`)
+ *    or released outside the season's eligibility window is removed and replaced so a song can NEVER be nominated 4 times across 4 years!
+ * 4. Updates `editionLabel` so GRAMMYs increment properly (`67th`, `68th`, `69th`, `70th`...).
+ */
 function sanitizeAwardSeasonRecord(
   season: AwardSeasonRecord,
-  state: GameState
+  state: GameState,
+  priorNominatedWorks?: Set<string>,
+  priorBnaArtists?: Set<string>
 ): AwardSeasonRecord {
   if (!season || !Array.isArray(season.categories)) return season;
 
+  syncAwardBaseCareerYear(state);
   const show = season.show;
   const editionYear = season.editionYear;
   const maxNominees = AWARD_CALENDAR_CONFIG[show]?.nomineesPerCategory || 6;
   const catDefs = getCategoriesForShow(show);
+  const playerNameLower = (state.artist?.name || 'Player').trim().toLowerCase();
+
+  // Map player song/album titles to their release dates for strict eligibility validation
+  const playerWorkReleaseMap = new Map<string, string>();
+  (state.songs || []).forEach(s => {
+    if (s && s.title && s.releaseDate) {
+      playerWorkReleaseMap.set(s.title.trim().toLowerCase(), s.releaseDate);
+    }
+  });
+  (state.projects || []).forEach(p => {
+    if (p && p.title && p.releaseDate) {
+      playerWorkReleaseMap.set(p.title.trim().toLowerCase(), p.releaseDate);
+    }
+  });
 
   let lazyCandidates: UnifiedAwardCandidate[] | null = null;
   const getCandidates = () => {
     if (!lazyCandidates) {
-      lazyCandidates = collectUnifiedCandidates(state, show, editionYear);
+      lazyCandidates = collectUnifiedCandidates(state, show, editionYear, priorNominatedWorks, priorBnaArtists);
     }
     return lazyCandidates;
   };
@@ -399,9 +470,14 @@ function sanitizeAwardSeasonRecord(
     tallyMap.set(key, existing);
   };
 
+  const worksNominatedInThisSeason = new Set<string>();
+  const bnaNominatedInThisSeason = new Set<string>();
+
   const sanitizedCategories: AwardCategoryResult[] = season.categories.map(cat => {
     const isSoloCat = cat.categoryId.includes('solo');
     const isCollabCat = cat.subjectType === 'collab';
+    const isBnaCat = cat.categoryId.endsWith('_bna');
+    const isArtistCat = cat.subjectType === 'artist';
 
     // Normalize collab credits first
     const normalizedExisting = (cat.nominees || []).map(normalizeNomineeCollabCredit);
@@ -445,8 +521,34 @@ function sanitizeAwardSeasonRecord(
       if (usedWorksInCat.has(workKey)) return false;
       if (artistKeys.some(k => usedArtistsInCat.has(k))) return false;
 
+      const involvesPlayer = cleanNom.isPlayer || artistKeys.includes(playerNameLower);
+
+      // 1. Strict Prior-Season Nomination Lock:
+      // Any song/album/video already nominated in a previous ceremony year can NEVER be nominated again!
+      if (!isArtistCat && priorNominatedWorks && priorNominatedWorks.has(workKey)) {
+        return false;
+      }
+      // Best New Artist can only ever be nominated ONCE in an artist's career!
+      if (isBnaCat && priorBnaArtists && artistKeys.some(k => priorBnaArtists.has(k))) {
+        return false;
+      }
+
+      // 2. Strict Player Release-Year Eligibility Check:
+      if (involvesPlayer && !isArtistCat) {
+        const relDate = playerWorkReleaseMap.get(workKey);
+        if (relDate && !isReleaseEligibleForAwardSeason(relDate, show, editionYear)) {
+          return false;
+        }
+      }
+
       usedWorksInCat.add(workKey);
       artistKeys.forEach(k => usedArtistsInCat.add(k));
+      if (!isArtistCat) {
+        worksNominatedInThisSeason.add(workKey);
+      }
+      if (isBnaCat) {
+        artistKeys.forEach(k => bnaNominatedInThisSeason.add(k));
+      }
       uniqueNominees.push({ ...cleanNom, isWinner: false });
       return true;
     };
@@ -455,7 +557,7 @@ function sanitizeAwardSeasonRecord(
       tryAddNominee(nom);
     });
 
-    // If deduplication removed duplicates and left fewer than 6 nominees, top up from candidate pool
+    // If deduplication or eligibility lock removed entries and left fewer than 6 nominees, top up from candidate pool
     if (uniqueNominees.length < maxNominees) {
       const catDef =
         catDefs.find(d => d.id === cat.categoryId) ||
@@ -499,7 +601,8 @@ function sanitizeAwardSeasonRecord(
     }
 
     if (uniqueNominees.length === 0 && normalizedExisting.length > 0) {
-      uniqueNominees.push({ ...normalizedExisting[0], isWinner: true });
+      const nonPlayerFallback = normalizedExisting.find(n => !n.isPlayer) || normalizedExisting[0];
+      uniqueNominees.push({ ...nonPlayerFallback, isWinner: true });
     }
 
     // Re-rank by score to pick the single official winner
@@ -527,6 +630,13 @@ function sanitizeAwardSeasonRecord(
     };
   });
 
+  if (priorNominatedWorks) {
+    worksNominatedInThisSeason.forEach(w => priorNominatedWorks.add(w));
+  }
+  if (priorBnaArtists) {
+    bnaNominatedInThisSeason.forEach(a => priorBnaArtists.add(a));
+  }
+
   const artistTallies = Array.from(tallyMap.values()).sort((a, b) => {
     if (b.wins !== a.wins) return b.wins - a.wins;
     if (b.majorWins !== a.majorWins) return b.majorWins - a.majorWins;
@@ -540,6 +650,7 @@ function sanitizeAwardSeasonRecord(
 
   return {
     ...season,
+    editionLabel: getAwardEditionLabel(show, editionYear, state.artist?.startYear),
     categories: sanitizedCategories,
     artistTallies,
     biggestWinner: artistTallies[0] || null,
@@ -550,34 +661,84 @@ function sanitizeAwardSeasonRecord(
 /**
  * Ensures the AwardsSystemState exists on GameState and caches fallback initialization
  * so UI components never trigger redundant simulations on re-render.
- * Also sanitizes any already-saved seasons in `activeSeasons` and `history` to eliminate duplicate artist/collab entries!
+ * Also sanitizes any already-saved seasons chronologically from oldest to newest so no song/album
+ * is ever nominated across multiple years and every GRAMMY edition increments (67th, 68th, 69th...).
  */
 export function getEnsuredAwardsState(state: GameState): AwardsSystemState {
+  syncAwardBaseCareerYear(state);
   const existing = (state as any).awardsState as AwardsSystemState | undefined;
   if (existing && existing.initialized) {
     if (lastSanitizedAwardsRef === existing && lastSanitizedResult) {
       return lastSanitizedResult;
     }
 
+    const priorWorksByShow: Record<AwardShowType, Set<string>> = {
+      grammys: new Set<string>(),
+      vmas: new Set<string>()
+    };
+    const priorBnaByShow: Record<AwardShowType, Set<string>> = {
+      grammys: new Set<string>(),
+      vmas: new Set<string>()
+    };
+
+    // Sort history chronologically (oldest editionYear first) to enforce the one-time nomination lock
+    const chronologicalHistory = [...(existing.history || [])].sort(
+      (a, b) => a.editionYear - b.editionYear
+    );
+    const sanitizedChronological = chronologicalHistory.map(season =>
+      sanitizeAwardSeasonRecord(
+        season,
+        state,
+        priorWorksByShow[season.show],
+        priorBnaByShow[season.show]
+      )
+    );
+    // Restore newest-first display order for history
+    const sanitizedHistory = [...sanitizedChronological].sort(
+      (a, b) => b.editionYear - a.editionYear
+    );
+
+    const sanitizeActiveOrPending = (season: AwardSeasonRecord | null | undefined): AwardSeasonRecord | null => {
+      if (!season) return null;
+      // If this season is already in history, return the sanitized history record directly
+      const matchingInHistory = sanitizedHistory.find(
+        h => h.show === season.show && h.editionYear === season.editionYear
+      );
+      if (matchingInHistory && season.phase === 'ceremony_completed') {
+        return matchingInHistory;
+      }
+      // Otherwise collect all works nominated strictly BEFORE this season's editionYear
+      const worksBefore = new Set<string>();
+      const bnaBefore = new Set<string>();
+      sanitizedChronological.forEach(h => {
+        if (h.show === season.show && h.editionYear < season.editionYear) {
+          h.categories.forEach(cat => {
+            const isBna = cat.categoryId.endsWith('_bna');
+            const isArtist = cat.subjectType === 'artist';
+            cat.nominees.forEach(nom => {
+              const wk = (nom.workTitle || '').trim().toLowerCase();
+              if (!isArtist && wk) worksBefore.add(wk);
+              if (isBna) {
+                extractIndividualArtistsFromNominee(nom.artistName, nom.secondaryLabel).forEach(k =>
+                  bnaBefore.add(k)
+                );
+              }
+            });
+          });
+        }
+      });
+      return sanitizeAwardSeasonRecord(season, state, worksBefore, bnaBefore);
+    };
+
     const sanitized: AwardsSystemState = {
       ...existing,
       activeSeasons: {
-        grammys: existing.activeSeasons?.grammys
-          ? sanitizeAwardSeasonRecord(existing.activeSeasons.grammys, state)
-          : null,
-        vmas: existing.activeSeasons?.vmas
-          ? sanitizeAwardSeasonRecord(existing.activeSeasons.vmas, state)
-          : null
+        grammys: sanitizeActiveOrPending(existing.activeSeasons?.grammys),
+        vmas: sanitizeActiveOrPending(existing.activeSeasons?.vmas)
       },
-      history: (existing.history || []).map(season =>
-        sanitizeAwardSeasonRecord(season, state)
-      ),
-      pendingLiveCeremony: existing.pendingLiveCeremony
-        ? sanitizeAwardSeasonRecord(existing.pendingLiveCeremony, state)
-        : null,
-      pendingNominationsAnnouncement: existing.pendingNominationsAnnouncement
-        ? sanitizeAwardSeasonRecord(existing.pendingNominationsAnnouncement, state)
-        : null
+      history: sanitizedHistory,
+      pendingLiveCeremony: sanitizeActiveOrPending(existing.pendingLiveCeremony),
+      pendingNominationsAnnouncement: sanitizeActiveOrPending(existing.pendingNominationsAnnouncement)
     };
 
     lastSanitizedAwardsRef = existing;
@@ -660,17 +821,38 @@ interface UnifiedAwardCandidate {
   fans: number;
   tier: number;
   isPreferredByPlayer?: boolean;
+  alreadyNominatedBna?: boolean;
 }
+
+const NPC_SEASONAL_SINGLE_TITLES = [
+  'Midnight Frequencies', 'Velvet Horizon', 'Afterglow In Paris', 'Neon Cathedral',
+  'Shattered Glass', 'Diamonds In The Rain', 'Gold Rush Fever', 'Static On The Line',
+  'Tokyo Driftwood', 'Euphoria Protocol', 'Silver Lining', 'Echoes Of Us',
+  'Runaway Satellite', 'Phantom Heartbeat', 'Solar Eclipse', 'Wicked Games',
+  'Electric Mirage', 'Fever Dreaming', 'Glass House', 'Starlight Boulevard'
+];
+
+const NPC_SEASONAL_ALBUM_TITLES = [
+  'CHROMA // DELUXE', 'MIDNIGHT CONFESSIONS', 'THE VELVET ARCHIVE', 'AFTER HOURS ODYSSEY',
+  'SOLARIS', 'PARADISE LOST & FOUND', 'HYPERNOVA', 'AESTHETICA',
+  'NOCTURNAL SYMPHONY', 'GOLDEN ERA', 'METAMORPHOSIS', 'RENAISSANCE ACT III'
+];
 
 /**
  * Collects all eligible candidates (Songs, Albums, Videos, Collabs, Artists)
  * from both the Player and the living NPC ecosystem.
+ * Enforces:
+ * 1. Release-year window eligibility (only works released in that season's window are eligible).
+ * 2. One-time nomination lock (any song/album/video or BNA artist nominated in a prior year can NEVER be nominated again).
  */
 function collectUnifiedCandidates(
   state: GameState,
   show: AwardShowType,
-  year: number
+  year: number,
+  externalPriorWorks?: Set<string>,
+  externalPriorBna?: Set<string>
 ): UnifiedAwardCandidate[] {
+  syncAwardBaseCareerYear(state);
   const candidates: UnifiedAwardCandidate[] = [];
   const playerName = state.artist?.name || 'Player';
   const playerAvatar =
@@ -689,6 +871,29 @@ function collectUnifiedCandidates(
   const awardsState = (state as any).awardsState as AwardsSystemState | undefined;
   const campaignState =
     show === 'grammys' ? awardsState?.grammysCampaign : awardsState?.vmasCampaign;
+
+  // Build sets of works and BNA artists already nominated in prior seasons (< year)
+  const priorNominatedWorks = new Set<string>(externalPriorWorks || []);
+  const priorBnaArtists = new Set<string>(externalPriorBna || []);
+  (awardsState?.history || []).forEach(h => {
+    if (h && h.show === show && h.editionYear < year && Array.isArray(h.categories)) {
+      h.categories.forEach(cat => {
+        const isBna = cat.categoryId.endsWith('_bna');
+        const isArtist = cat.subjectType === 'artist';
+        (cat.nominees || []).forEach(nom => {
+          const wk = (nom.workTitle || '').trim().toLowerCase();
+          if (!isArtist && wk) {
+            priorNominatedWorks.add(wk);
+          }
+          if (isBna) {
+            extractIndividualArtistsFromNominee(nom.artistName, nom.secondaryLabel).forEach(k =>
+              priorBnaArtists.add(k)
+            );
+          }
+        });
+      });
+    }
+  });
 
   // Lookup map for chart peaks from Billboard Hot 100, Global 200 & Albums 200
   const songPeakMap = new Map<string, { peak: number; weeks: number }>();
@@ -730,9 +935,16 @@ function collectUnifiedCandidates(
     });
   }
 
-  // 1. ADD PLAYER SONGS, VIDEOS & COLLABS
-  const releasedPlayerSongs = (state.songs || []).filter(s => s && s.status === 'released');
-  releasedPlayerSongs.forEach(song => {
+  // 1. ADD ELIGIBLE PLAYER SONGS, VIDEOS & COLLABS (Must be released in this season's window AND never nominated in prior years!)
+  const eligiblePlayerSongs = (state.songs || []).filter(s => {
+    if (!s || s.status !== 'released') return false;
+    const workKey = (s.title || '').trim().toLowerCase();
+    if (!workKey) return false;
+    if (priorNominatedWorks.has(workKey)) return false;
+    return isReleaseEligibleForAwardSeason(s.releaseDate, show, year);
+  });
+
+  eligiblePlayerSongs.forEach(song => {
     const songTitle = song.title || 'Untitled';
     const key = `${playerName.toLowerCase()}::${songTitle.toLowerCase()}`;
     const chartInfo = songPeakMap.get(key);
@@ -842,11 +1054,16 @@ function collectUnifiedCandidates(
     }
   });
 
-  // 2. ADD PLAYER ALBUMS / PROJECTS
-  const releasedPlayerProjects = (state.projects || []).filter(
-    p => p && p.status === 'released' && (p.type === 'album' || p.type === 'ep')
-  );
-  releasedPlayerProjects.forEach(proj => {
+  // 2. ADD ELIGIBLE PLAYER ALBUMS / PROJECTS (Must be released in this season's window AND never nominated in prior years!)
+  const eligiblePlayerProjects = (state.projects || []).filter(p => {
+    if (!p || p.status !== 'released' || (p.type !== 'album' && p.type !== 'ep')) return false;
+    const workKey = (p.title || '').trim().toLowerCase();
+    if (!workKey) return false;
+    if (priorNominatedWorks.has(workKey)) return false;
+    return isReleaseEligibleForAwardSeason(p.releaseDate, show, year);
+  });
+
+  eligiblePlayerProjects.forEach(proj => {
     const projTitle = proj.title || 'Untitled Project';
     const key = `${playerName.toLowerCase()}::${projTitle.toLowerCase()}`;
     const chartInfo = albumPeakMap.get(key);
@@ -884,15 +1101,18 @@ function collectUnifiedCandidates(
     });
   });
 
-  // 3. ADD PLAYER ARTIST CANDIDATE
-  if (releasedPlayerSongs.length > 0) {
-    const totalPlayerStreams = releasedPlayerSongs.reduce((acc, s) => acc + (s.streams || 0), 0);
-    const totalPlayerViews = releasedPlayerSongs.reduce((acc, s) => acc + (s.views || 0), 0);
+  // 3. ADD PLAYER ARTIST CANDIDATE (Only if the player has at least 1 eligible song or album in this award season!)
+  if (eligiblePlayerSongs.length > 0 || eligiblePlayerProjects.length > 0) {
+    const totalPlayerStreams = eligiblePlayerSongs.reduce((acc, s) => acc + (s.streams || 0), 0);
+    const totalPlayerViews = eligiblePlayerSongs.reduce((acc, s) => acc + (s.views || 0), 0);
     const totalPlayerSales =
-      releasedPlayerSongs.reduce((acc, s) => acc + (s.pureSales || 0), 0) +
-      releasedPlayerProjects.reduce((acc, p) => acc + (p.pureSales || 0), 0);
-    const bestSongQuality = Math.max(...releasedPlayerSongs.map(s => s.quality || 70));
-    const bestChartPeak = releasedPlayerSongs.reduce<number | null>((best, s) => {
+      eligiblePlayerSongs.reduce((acc, s) => acc + (s.pureSales || 0), 0) +
+      eligiblePlayerProjects.reduce((acc, p) => acc + (p.pureSales || 0), 0);
+    const bestSongQuality =
+      eligiblePlayerSongs.length > 0
+        ? Math.max(...eligiblePlayerSongs.map(s => s.quality || 70))
+        : Math.max(...eligiblePlayerProjects.map(p => p.quality || 70));
+    const bestChartPeak = eligiblePlayerSongs.reduce<number | null>((best, s) => {
       const k = `${playerName.toLowerCase()}::${(s.title || '').toLowerCase()}`;
       const pk = songPeakMap.get(k)?.peak || null;
       if (pk === null) return best;
@@ -905,12 +1125,12 @@ function collectUnifiedCandidates(
       isPlayer: true,
       avatar: playerAvatar,
       workTitle: playerName,
-      secondaryLabel: `${releasedPlayerSongs[0]?.genre || 'Pop'} · ${releasedPlayerSongs.length} Releases`,
+      secondaryLabel: `${eligiblePlayerSongs[0]?.genre || 'Pop'} · ${eligiblePlayerSongs.length + eligiblePlayerProjects.length} Active Season Releases`,
       coverArt: playerAvatar,
-      genre: releasedPlayerSongs[0]?.genre || 'Pop',
+      genre: eligiblePlayerSongs[0]?.genre || 'Pop',
       subjectType: 'artist',
       isCollab: false,
-      hasMV: releasedPlayerSongs.some(s => s.hasMV),
+      hasMV: eligiblePlayerSongs.some(s => s.hasMV),
       qualityScore: clamp100(bestSongQuality),
       craftMasteryScore: playerCraftScore,
       streams: totalPlayerStreams,
@@ -922,7 +1142,8 @@ function collectUnifiedCandidates(
       hype: state.hype || 15,
       fans: state.fans || 250,
       tier: state.artist?.tier || 3,
-      isPreferredByPlayer: true
+      isPreferredByPlayer: true,
+      alreadyNominatedBna: priorBnaArtists.has(playerName.trim().toLowerCase())
     });
   }
 
@@ -947,12 +1168,27 @@ function collectUnifiedCandidates(
       `https://placehold.co/400x400/18181B/FFFFFF?text=${encodeURIComponent(npc.name.charAt(0))}`;
     const npcGenre = npc.genre || 'Pop';
 
-    const npcSongs = (npc.songs || []).slice(0, 3);
+    const allNpcTracks = [
+      ...(npc.songs || []),
+      ...((npc.albums || [])[0]?.tracks || [])
+    ];
+    const npcSongs = allNpcTracks.slice(0, 5);
     npcSongs.forEach((song, sIdx) => {
       if (!song || !song.title) return;
-      const sKey = `${npc.name.toLowerCase()}::${song.title.toLowerCase()}`;
+      const songSeed = hashSeed(`${npc.id}_${song.title}_${year}_${sIdx}`);
+
+      // If this NPC song was already nominated in a previous year, rotate to a fresh seasonal release title!
+      let effectiveSongTitle = song.title;
+      if (priorNominatedWorks.has(effectiveSongTitle.trim().toLowerCase())) {
+        const seasonalBase = NPC_SEASONAL_SINGLE_TITLES[(npcIdx * 3 + sIdx + year) % NPC_SEASONAL_SINGLE_TITLES.length];
+        effectiveSongTitle = `${seasonalBase}`;
+        if (priorNominatedWorks.has(effectiveSongTitle.toLowerCase())) {
+          effectiveSongTitle = `${seasonalBase} (${year})`;
+        }
+      }
+
+      const sKey = `${npc.name.toLowerCase()}::${effectiveSongTitle.toLowerCase()}`;
       const chartData = songPeakMap.get(sKey);
-      const songSeed = hashSeed(`${npc.id}_${song.title}_${year}`);
 
       const estimatedPeak =
         chartData?.peak ||
@@ -980,7 +1216,7 @@ function collectUnifiedCandidates(
       );
 
       const cover = song.cover || npcAvatar;
-      const titleLower = song.title.toLowerCase();
+      const titleLower = effectiveSongTitle.toLowerCase();
       const isKnownRealCollab =
         titleLower === 'apt.' ||
         titleLower === 'die with a smile' ||
@@ -1020,7 +1256,7 @@ function collectUnifiedCandidates(
         artistName: fullNpcSongArtist,
         isPlayer: false,
         avatar: npcAvatar,
-        workTitle: song.title,
+        workTitle: effectiveSongTitle,
         secondaryLabel: isCollabTrack ? `Collaboration · ${npcGenre}` : npcGenre,
         coverArt: cover,
         genre: npcGenre,
@@ -1045,7 +1281,7 @@ function collectUnifiedCandidates(
         artistName: fullNpcSongArtist,
         isPlayer: false,
         avatar: npcAvatar,
-        workTitle: song.title,
+        workTitle: effectiveSongTitle,
         secondaryLabel: `Official Music Video · ${npcGenre}`,
         coverArt: cover,
         genre: npcGenre,
@@ -1071,7 +1307,7 @@ function collectUnifiedCandidates(
           artistName: fullNpcSongArtist,
           isPlayer: false,
           avatar: npcAvatar,
-          workTitle: song.title,
+          workTitle: effectiveSongTitle,
           secondaryLabel: `Collaboration · ${npcGenre}`,
           coverArt: cover,
           genre: npcGenre,
@@ -1095,9 +1331,18 @@ function collectUnifiedCandidates(
 
     const topAlbum = (npc.albums || [])[0];
     if (topAlbum && topAlbum.title) {
-      const aKey = `${npc.name.toLowerCase()}::${topAlbum.title.toLowerCase()}`;
+      let effectiveAlbumTitle = topAlbum.title;
+      if (priorNominatedWorks.has(effectiveAlbumTitle.trim().toLowerCase())) {
+        const seasonalAlb = NPC_SEASONAL_ALBUM_TITLES[(npcIdx + year) % NPC_SEASONAL_ALBUM_TITLES.length];
+        effectiveAlbumTitle = seasonalAlb;
+        if (priorNominatedWorks.has(effectiveAlbumTitle.toLowerCase())) {
+          effectiveAlbumTitle = `${seasonalAlb} (${year})`;
+        }
+      }
+
+      const aKey = `${npc.name.toLowerCase()}::${effectiveAlbumTitle.toLowerCase()}`;
       const albChart = albumPeakMap.get(aKey);
-      const albSeed = hashSeed(`${npc.id}_album_${topAlbum.title}_${year}`);
+      const albSeed = hashSeed(`${npc.id}_album_${effectiveAlbumTitle}_${year}`);
       const albPeak =
         albChart?.peak ||
         Math.max(1, Math.min(80, Math.round(98 - living.popularity * 0.9 + (albSeed % 14) - 5)));
@@ -1122,7 +1367,7 @@ function collectUnifiedCandidates(
         artistName: npc.name,
         isPlayer: false,
         avatar: npcAvatar,
-        workTitle: topAlbum.title,
+        workTitle: effectiveAlbumTitle,
         secondaryLabel: `Studio Album · ${npcGenre}`,
         coverArt: topAlbum.cover || npcAvatar,
         genre: npcGenre,
@@ -1165,7 +1410,8 @@ function collectUnifiedCandidates(
       popularity: living.popularity,
       hype: living.hype,
       fans: living.fans,
-      tier: living.tier
+      tier: living.tier,
+      alreadyNominatedBna: priorBnaArtists.has(npc.name.trim().toLowerCase())
     });
   });
 
@@ -1376,6 +1622,7 @@ export function simulateAwardSeason(
       if (c.subjectType !== cat.subjectType) return false;
       if (isSoloCategory && c.isCollab) return false;
       if (cat.id.endsWith('_bna')) {
+        if (c.alreadyNominatedBna) return false;
         return c.tier >= 2 || c.isPlayer || c.popularity <= 88;
       }
       return doesGenreMatchCategory(c.genre, cat);
@@ -1385,6 +1632,7 @@ export function simulateAwardSeason(
     const fallbackPool = allCandidates.filter(c => {
       if (isCollabCategory) return c.subjectType === 'collab';
       if (isSoloCategory && c.isCollab) return false;
+      if (cat.id.endsWith('_bna') && c.alreadyNominatedBna) return false;
       return c.subjectType === cat.subjectType;
     });
 
@@ -1496,7 +1744,7 @@ export function simulateAwardSeason(
     id: `${show}_${editionYear}`,
     show,
     editionYear,
-    editionLabel: getAwardEditionLabel(show, editionYear),
+    editionLabel: getAwardEditionLabel(show, editionYear, state.artist?.startYear),
     nominationsDate,
     ceremonyDate,
     phase,
@@ -1508,11 +1756,14 @@ export function simulateAwardSeason(
 }
 
 /**
- * Generates realistic 2025 inaugural seasons so the archive & NPC Trophy Rooms are immediately populated
+ * Generates realistic inaugural archive seasons based on the player's career startYear
  */
 function generateInauguralPastSeasons(state: GameState): AwardSeasonRecord[] {
-  const pastGrammys = simulateAwardSeason(state, 'grammys', 2025, 'ceremony_completed');
-  const pastVmas = simulateAwardSeason(state, 'vmas', 2025, 'ceremony_completed');
+  syncAwardBaseCareerYear(state);
+  const startYr = state.artist?.startYear || new Date(state.date || '2026-01-01').getFullYear();
+  const archiveYear = startYr - 1;
+  const pastGrammys = simulateAwardSeason(state, 'grammys', archiveYear, 'ceremony_completed');
+  const pastVmas = simulateAwardSeason(state, 'vmas', archiveYear, 'ceremony_completed');
   return [pastVmas, pastGrammys];
 }
 

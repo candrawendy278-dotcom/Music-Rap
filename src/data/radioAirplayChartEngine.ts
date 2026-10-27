@@ -176,34 +176,73 @@ export function generateRadioAirplayChart(
 
   releasedPlayerSongs.forEach(song => {
     const isBSide = song.trackType === 'b_side';
-    const rawRadio = song.weeklyRadioPlays || (song.dailyRadioPlays ? song.dailyRadioPlays * 7 : 0) || song.radioPlays || 0;
+    const currentDailyRadio = song.dailyRadioPlays || 0;
+    const rollingWeeklyRadio = currentDailyRadio > 0 ? currentDailyRadio * 7 : Math.min(8_000, song.weeklyRadioPlays || 0);
     const dailyStreams = song.dailyStreams || 0;
 
     // Unpromoted B-sides rarely get terrestrial radio spins unless massive viral crossover
-    if (isBSide && rawRadio < 250 && dailyStreams < 250_000) return;
+    if (isBSide && currentDailyRadio < 40 && dailyStreams < 250_000) return;
 
     const releaseMs = song.releaseDate ? new Date(song.releaseDate).getTime() : currentMs;
     const daysOut = Math.max(1, Math.floor((currentMs - releaseMs) / (1000 * 60 * 60 * 24)));
     const weeksOnChart = Math.max(1, Math.ceil(daysOut / 7));
 
+    // Mediabase / Billboard Radio Songs Recurrent Rule:
+    // Songs older than 20 weeks (140 days) or songs past 15 weeks (105 days) with low velocity
+    // move to Recurrent status and exit the active Radio Airplay Chart so songs don't stay in Top 10 forever.
+    if (daysOut > 140) return;
+    if (daysOut > 105 && currentDailyRadio < 320 && dailyStreams < 450_000) return;
+
     const affinity = getFormatAffinityMultiplier(format, song.genre || 'Pop');
 
-    // Convert game radioPlays & streaming velocity into realistic Mediabase Weekly Spins
-    // Top #1 songs on US Radio get ~15,000 - 19,500 weekly spins (~55M - 78M Audience)
-    const streamSpinSupport = Math.pow(Math.max(0, dailyStreams), 0.72) * 1.15;
+    // Realistic Radio Airplay Lifecycle & Listener Callout Burnout Multiplier:
+    // Weeks 1-3 (Days 1-21): Climbing panel adds (0.52 -> 0.88)
+    // Weeks 4-7 (Days 22-49): Peak Power Rotation window (0.92 -> 1.08)
+    // Weeks 8-11 (Days 50-77): Early callout burnout, step down from #1/Top 5 (1.02 -> 0.64)
+    // Weeks 12-16 (Days 78-112): Steep post-peak descent out of Top 10 (0.62 -> 0.26)
+    // Weeks 17-20 (Days 113-140): Final weeks before Recurrent exit (0.25 -> 0.11)
+    let radioAgeMultiplier = 1.0;
+    if (daysOut <= 21) {
+      radioAgeMultiplier = 0.52 + (daysOut / 21) * 0.36;
+    } else if (daysOut <= 49) {
+      radioAgeMultiplier = 0.88 + ((daysOut - 21) / 28) * 0.20;
+    } else if (daysOut <= 77) {
+      radioAgeMultiplier = 1.08 - ((daysOut - 49) / 28) * 0.44;
+    } else if (daysOut <= 112) {
+      radioAgeMultiplier = 0.64 - ((daysOut - 77) / 35) * 0.38;
+    } else {
+      radioAgeMultiplier = Math.max(0.10, 0.26 - ((daysOut - 112) / 28) * 0.15);
+    }
+
+    // Convert current daily radio & streaming velocity into realistic Mediabase Weekly Spins
+    // Top #1 songs on US Radio get ~15,000 - 18,500 weekly spins (~55M - 74M Audience)
+    const streamSpinSupport = Math.pow(Math.max(0, dailyStreams), 0.68) * 0.92;
+    const qualityAndPopBase = ((song.quality || 65) * 20 + (state.popularity || 15) * 32) * radioAgeMultiplier;
     const baseWeeklySpins = Math.round(
-      ((rawRadio * 0.42) + streamSpinSupport + (song.quality || 65) * 28 + (state.popularity || 15) * 45) *
+      (((rollingWeeklyRadio * 0.65) + streamSpinSupport) * radioAgeMultiplier + qualityAndPopBase) *
         affinity *
         (isBSide ? 0.25 : 1.0)
     );
 
-    const clampedWeeklySpins = Math.max(120, Math.min(22_500, baseWeeklySpins));
+    // If spins have decayed below chart entry threshold, song drops off the Top 50
+    if (baseWeeklySpins < 780 && daysOut > 42) return;
+
+    const clampedWeeklySpins = Math.max(120, Math.min(20_500, baseWeeklySpins));
     const dailySpins = Math.max(18, Math.round(clampedWeeklySpins / 7));
 
-    // Calculate Spin Bullet (+ or - spins vs last week)
+    // Calculate Spin Bullet (+ or - spins vs last week) reflecting climb vs burnout descent
     const momentum = song.momentum || 1.0;
-    const bulletFactor = daysOut <= 28 ? 0.14 * momentum : (momentum - 0.92) * 0.22;
-    const spinBullet = Math.round(clampedWeeklySpins * Math.max(-0.28, Math.min(0.35, bulletFactor)));
+    let bulletFactor: number;
+    if (daysOut <= 35) {
+      bulletFactor = 0.11 + Math.min(0.18, (momentum - 0.7) * 0.15);
+    } else if (daysOut <= 52) {
+      bulletFactor = (momentum - 0.95) * 0.12;
+    } else if (daysOut <= 84) {
+      bulletFactor = -0.09 - ((daysOut - 52) / 32) * 0.11;
+    } else {
+      bulletFactor = -0.20 - Math.min(0.12, ((daysOut - 84) / 56) * 0.10);
+    }
+    const spinBullet = Math.round(clampedWeeklySpins * Math.max(-0.32, Math.min(0.32, bulletFactor)));
 
     // Audience Impressions in Millions (1,000 spins ≈ 3.6M - 4.2M audience impressions on All-Format)
     const audPerSpin =
@@ -224,10 +263,10 @@ export function generateRadioAirplayChart(
       Math.min(formatMeta.panelSize, Math.round(formatMeta.panelSize * stationCoverageRatio))
     );
     const newStationAdds =
-      daysOut <= 21
-        ? Math.max(2, Math.min(68, Math.round(stationsOn * (daysOut <= 7 ? 0.45 : 0.18))))
-        : spinBullet > 300
-        ? Math.max(1, Math.min(24, Math.round(spinBullet / 95)))
+      daysOut <= 28
+        ? Math.max(2, Math.min(68, Math.round(stationsOn * (daysOut <= 10 ? 0.42 : 0.16))))
+        : spinBullet > 300 && daysOut <= 49
+        ? Math.max(1, Math.min(20, Math.round(spinBullet / 105)))
         : 0;
 
     let rotationTier: RadioChartEntry['rotationTier'] = 'ON THE VERGE';
@@ -285,17 +324,26 @@ export function generateRadioAirplayChart(
       seenKeys.add(key);
 
       const hash = deterministicHash(`${key}::${format}`);
-      const dailyWave = Math.sin((daySeed + (hash % 30)) * 0.22) * 0.08;
+      const weeksOnChart = 1 + ((hash + Math.floor(daySeed / 7)) % 20);
+      // NPC radio lifecycle wave based on weeksOnChart (peaks weeks 5-9, decays weeks 10-20)
+      const npcLifecycleMult =
+        weeksOnChart <= 4
+          ? 0.58 + weeksOnChart * 0.10
+          : weeksOnChart <= 9
+          ? 1.02 + Math.sin(weeksOnChart * 0.6) * 0.08
+          : Math.max(0.32, 1.05 - (weeksOnChart - 9) * 0.068);
+      const dailyWave = Math.sin((daySeed + (hash % 30)) * 0.22) * 0.07;
 
       // Base radio power from NPC song radio stat, streams, and artist popularity
       const rawNpcRadio = s.radio || Math.round((s.streams || 50_000_000) / 18_000);
       const popWeight = (npc.pop || 75) * 135;
-      const trackDecay = sIdx === 0 ? 1.0 : sIdx === 1 ? 0.76 : 0.58;
+      const trackDecay = sIdx === 0 ? 1.0 : sIdx === 1 ? 0.78 : 0.62;
 
       const baseSpins = Math.round(
-        ((rawNpcRadio * 1.45) + popWeight + ((hash % 2400) - 900)) *
+        ((rawNpcRadio * 1.48) + popWeight + ((hash % 2400) - 900)) *
           affinity *
           trackDecay *
+          npcLifecycleMult *
           (1 + dailyWave)
       );
 
@@ -303,8 +351,11 @@ export function generateRadioAirplayChart(
       const dailySpins = Math.max(135, Math.round(weeklySpins / 7));
 
       // Spin bullet
-      const bulletSwing = Math.sin((daySeed + (hash % 19)) * 0.35);
-      const spinBullet = Math.round(weeklySpins * (bulletSwing * 0.14));
+      const bulletSwing =
+        weeksOnChart <= 7
+          ? 0.06 + Math.abs(Math.sin((daySeed + (hash % 19)) * 0.35)) * 0.14
+          : -0.05 - Math.abs(Math.cos((daySeed + (hash % 17)) * 0.28)) * 0.14;
+      const spinBullet = Math.round(weeklySpins * bulletSwing);
 
       const audPerSpin =
         format === 'all'
@@ -321,7 +372,6 @@ export function generateRadioAirplayChart(
         Math.max(18, Math.round(formatMeta.panelSize * stationRatio))
       );
 
-      const weeksOnChart = 3 + ((hash + Math.floor(daySeed / 7)) % 26);
       const newStationAdds =
         weeksOnChart <= 4
           ? 14 + (hash % 38)

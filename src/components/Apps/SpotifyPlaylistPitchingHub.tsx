@@ -93,9 +93,9 @@ export const SpotifyPlaylistPitchModal: React.FC<SpotifyPlaylistPitchModalProps>
           {releasedSongs.length === 0 ? (
             <div className="text-center py-12 bg-white/[0.02] rounded-xl border border-white/5 p-6">
               <i className="ph ph-music-notes-Simple text-3xl text-zinc-500 mb-2 block"></i>
-              <p className="text-sm font-bold text-white">Belum Ada Lagu Rilis</p>
+              <p className="text-sm font-bold text-white">No Released Tracks Yet</p>
               <p className="text-xs text-zinc-400 mt-1">
-                Rilis lagu atau single terlebih dahulu di Studio untuk mengajukan pitch ke kurator Spotify.
+                Release a single or project in the Studio first to submit pitches to Spotify editorial curators.
               </p>
             </div>
           ) : (

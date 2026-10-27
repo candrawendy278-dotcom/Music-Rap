@@ -43,6 +43,7 @@ import {
   computeEnhancedYoutubeDailyViews,
   computeEnhancedProjectSales
 } from './enhancedMarketMetricsEngine';
+import { calculateDailyVisualizerAndLyricViews } from './youtubeVisualFormatsEngine';
 
 export interface MarketDailyUpdateResult {
   updatedSongs: Song[];
@@ -284,16 +285,37 @@ export function processDailyMarketStep(
         updatedMvLikes = eng.likes;
       }
 
+      // Separate Visualizer & Lyric Video daily views (distinct from Official MV views)
+      const extraVisualMetrics = calculateDailyVisualizerAndLyricViews({
+        song,
+        dailyStreams,
+        artistPopularity,
+        artistHype,
+        daysSinceRelease
+      });
+      const newVisualizerViews = (song.visualizerViews || 0) + extraVisualMetrics.dailyVisualizerViews;
+      const newLyricVideoViews = (song.lyricVideoViews || 0) + extraVisualMetrics.dailyLyricVideoViews;
+      const newVisualizerLikes = (song.visualizerLikes || 0) + extraVisualMetrics.newVisualizerLikes;
+      const newLyricVideoLikes = (song.lyricVideoLikes || 0) + extraVisualMetrics.newLyricVideoLikes;
+      const combinedExtraDailyViews =
+        extraVisualMetrics.dailyVisualizerViews + extraVisualMetrics.dailyLyricVideoViews;
+
       totalStreams += dailyStreams;
-      totalViews += dailyViews;
+      totalViews += dailyViews + combinedExtraDailyViews;
       totalSales += dailySales;
       // Authentic blended revenue: $0.0038/stream + $0.70/track download + $0.0022/YouTube view
-      totalRevenue += (dailyStreams * 0.0038) + (dailySales * 0.70) + (dailyViews * 0.0022);
+      totalRevenue +=
+        dailyStreams * 0.0038 +
+        dailySales * 0.70 +
+        (dailyViews + combinedExtraDailyViews) * 0.0022;
 
-      // Weekly accumulation (smooth, uninterrupted)
+      // Weekly accumulation (rolling 7-day window for radio so old songs don't accumulate forever!)
       const weeklyStreams = (song.weeklyStreams || 0) + dailyStreams;
       const weeklyViews = (song.weeklyViews || 0) + dailyViews;
-      const weeklyRadioPlays = (song.weeklyRadioPlays || 0) + dailyRadio;
+      const weeklyRadioPlays = Math.round(
+        ((song.weeklyRadioPlays ? Math.min(song.weeklyRadioPlays, dailyRadio * 8) : dailyRadio * 6) * 6) / 7 +
+          dailyRadio
+      );
       const weeklyPureSales = (song.weeklyPureSales || 0) + dailySales;
 
       const prevStreams = song.dailyStreams !== undefined 
@@ -310,6 +332,12 @@ export function processDailyMarketStep(
         views: newViews,
         mvLikes: updatedMvLikes,
         mvAdsDays: newMvAdsDays,
+        visualizerViews: newVisualizerViews,
+        dailyVisualizerViews: extraVisualMetrics.dailyVisualizerViews,
+        visualizerLikes: newVisualizerLikes,
+        lyricVideoViews: newLyricVideoViews,
+        dailyLyricVideoViews: extraVisualMetrics.dailyLyricVideoViews,
+        lyricVideoLikes: newLyricVideoLikes,
         radioPlays: newRadioPlays,
         pureSales: newPureSales,
         dailyStreams,

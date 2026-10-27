@@ -390,15 +390,26 @@ export function calculateOrganicRadioAirplay(params: {
   const compositeRadioPower = (pop * 0.40) + (hype * 0.18) + (quality * 0.22) + streamingProofScore + programmerSkillScore;
 
   let waveMultiplier: number;
-  if (daysSinceRelease <= 5) {
-    waveMultiplier = 0.18 + (daysSinceRelease * 0.08);
-  } else if (daysSinceRelease <= 25) {
-    waveMultiplier = 0.58 + ((daysSinceRelease - 5) * 0.028);
-  } else if (daysSinceRelease <= 75) {
-    waveMultiplier = 1.15;
+  if (daysSinceRelease <= 7) {
+    // Week 1: Initial impact & station adds
+    waveMultiplier = 0.22 + (daysSinceRelease * 0.065);
+  } else if (daysSinceRelease <= 35) {
+    // Weeks 2-5: Climbing Sub-Power to Heavy Rotation
+    waveMultiplier = 0.68 + ((daysSinceRelease - 7) * 0.016);
+  } else if (daysSinceRelease <= 56) {
+    // Weeks 6-8: Peak Power Rotation window
+    waveMultiplier = 1.12 - ((daysSinceRelease - 35) * 0.004);
+  } else if (daysSinceRelease <= 98) {
+    // Weeks 9-14: Callout burnout & rotation step-down (Power -> Heavy -> Medium)
+    const burnoutProgress = (daysSinceRelease - 56) / 42;
+    waveMultiplier = Math.max(0.26, 1.03 - (burnoutProgress * 0.77));
+  } else if (daysSinceRelease <= 133) {
+    // Weeks 15-19: Recurrent transition phase
+    const lateProgress = (daysSinceRelease - 98) / 35;
+    waveMultiplier = Math.max(0.07, 0.26 - (lateProgress * 0.19));
   } else {
-    const decaySpeed = quality >= 75 ? 0.005 : 0.011;
-    waveMultiplier = Math.max(0.20, 1.15 - ((daysSinceRelease - 75) * decaySpeed));
+    // Week 20+: Gold / Recurrent catalog airplay only
+    waveMultiplier = Math.max(0.025, 0.07 * Math.pow(0.975, daysSinceRelease - 133));
   }
 
   const eligibility = radioEligibilityMultiplier ?? 1.0;
