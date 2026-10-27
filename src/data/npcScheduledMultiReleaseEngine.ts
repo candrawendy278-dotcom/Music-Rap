@@ -726,7 +726,8 @@ export function buildStaggeredMultiReleaseForNpc(
   }
 
   // If Era 1 Album is still in its Upcoming Release countdown, include the NPC's previous real catalog album in Discography
-  if (activeAlbums.length === 0 && master.masterAlbums.length > 0) {
+  // only if the NPC actually has more than 1 distinct album in their master catalog.
+  if (activeAlbums.length === 0 && master.masterAlbums.length > 1) {
     const prevAlbIdx = (era1Idx + master.masterAlbums.length - 1) % master.masterAlbums.length;
     const prevAlb = master.masterAlbums[prevAlbIdx];
     const prevAlbCover =

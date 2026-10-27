@@ -187,7 +187,10 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
   const allReleases = useMemo<NpcReleaseItem[]>(() => {
     const releases: NpcReleaseItem[] = [];
     const songs = enrichedNpc.songs || [];
-    const albums = enrichedNpc.albums || [];
+    const upcomingTitleLower = npcUpcomingCountdown?.title?.toLowerCase().trim() || '';
+    const albums = (enrichedNpc.albums || []).filter(
+      alb => !upcomingTitleLower || alb.title.toLowerCase().trim() !== upcomingTitleLower
+    );
 
     albums.forEach((alb, idx) => {
       const albumTracks =

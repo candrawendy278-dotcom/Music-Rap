@@ -144,9 +144,6 @@ export const SpotifyArtistUpcomingReleaseBanner: React.FC<
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xl font-bold text-white">Upcoming release</h3>
-        <span className="text-[11px] font-bold uppercase tracking-wider text-[#1ED760] bg-[#1ED760]/10 px-2.5 py-0.5 rounded-full border border-[#1ED760]/30">
-          Countdown Active
-        </span>
       </div>
 
       <div
@@ -226,7 +223,7 @@ interface SpotifyReleaseCountdownPageProps {
  * - Large centered square artwork
  * - Dark rounded countdown card with mini cover + Days | Hours | Minutes | Seconds
  * - Project Title, Artist Avatar & Name, "EP/Album • Releases on Month Day, Year"
- * - Share button & green "Pre-save (+)" pill button
+ * - Share button, total Pre-Saves count, & green "Pre-save (+)" pill button
  * - "Tracklist preview" with bright playable pre-released singles & muted grey locked tracks
  * - Player-only Pre-Release Single launcher so players can drop pre-release singles during the countdown
  * - Copyright & Phonographic footer (© / ℗)
@@ -276,6 +273,8 @@ export const SpotifyReleaseCountdownPage: React.FC<SpotifyReleaseCountdownPagePr
     countdownRelease.distributor,
     countdownRelease.labelName
   );
+
+  const totalDisplayedPreSaves = countdownRelease.preSaves + (isPreSaved ? 1 : 0);
 
   return (
     <div
@@ -431,9 +430,9 @@ export const SpotifyReleaseCountdownPage: React.FC<SpotifyReleaseCountdownPagePr
           </p>
         </div>
 
-        {/* Share & Pre-save Action Bar */}
+        {/* Share, Total Pre-Saves & Pre-save Action Bar */}
         <div className="flex items-center justify-between mt-4 pt-1">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3.5">
             <button
               type="button"
               onClick={() => {
@@ -445,6 +444,12 @@ export const SpotifyReleaseCountdownPage: React.FC<SpotifyReleaseCountdownPagePr
             >
               <i className="ph ph-share-network text-2xl"></i>
             </button>
+
+            {totalDisplayedPreSaves > 0 && (
+              <div className="text-xs text-[#A7A7A7] font-medium">
+                <span className="text-white font-bold">{formatNumFull(totalDisplayedPreSaves)}</span> pre-saves
+              </div>
+            )}
           </div>
 
           <button
@@ -544,9 +549,6 @@ export const SpotifyReleaseCountdownPage: React.FC<SpotifyReleaseCountdownPagePr
                   <div className="shrink-0 flex items-center gap-2">
                     {isUnlocked ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold text-[#1ED760] bg-[#1ED760]/10 px-2 py-0.5 rounded-full">
-                          Out Now
-                        </span>
                         <i className="ph-fill ph-play-circle text-2xl text-[#1ED760]"></i>
                       </div>
                     ) : countdownRelease.isPlayer && onEarlyReleaseTrack ? (

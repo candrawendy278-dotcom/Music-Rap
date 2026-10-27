@@ -428,7 +428,12 @@ export function getNpcUpcomingReleaseCountdown(
   const workflow = getNpcWorkflowStatus(cleanName, currentDateStr);
   const master = getMasterNpcCatalogSnapshot(cleanName);
 
+  const activeAlbumTitlesLower = new Set(
+    (npc.albums || []).map(a => a.title.toLowerCase().trim())
+  );
+
   // Determine the upcoming real album from the NPC's authentic discography
+  // Must strictly be an UNRELEASED album (never an album already present in npc.albums)
   let chosenAlbumTitle = '';
   let chosenAlbumCover = '';
   let daysAhead = 12 + ((nameHash * 7 + now.getDate()) % 16);
@@ -440,7 +445,8 @@ export function getNpcUpcomingReleaseCountdown(
         st.isAlbumStep &&
         !st.isReleased &&
         st.daysRemaining > 0 &&
-        !st.title.toLowerCase().includes('(deluxe ep)')
+        !st.title.toLowerCase().includes('(deluxe ep)') &&
+        !activeAlbumTitlesLower.has(st.title.toLowerCase().trim())
     );
     if (upcomingAlbumStep) {
       chosenAlbumTitle = upcomingAlbumStep.title;
@@ -449,33 +455,22 @@ export function getNpcUpcomingReleaseCountdown(
     }
   }
 
-  // 2. Otherwise, pick the next authentic album from the NPC's real-world master discography
-  // that isn't currently the top active album in their Discography (or if they have multiple real albums)
+  // 2. Otherwise, pick an authentic album from the NPC's real-world master discography
+  // ONLY if it is NOT already released in their active Discography
   if (!chosenAlbumTitle && master && master.masterAlbums.length > 0) {
-    const activeAlbumTitlesLower = new Set(
-      (npc.albums || []).map(a => a.title.toLowerCase().trim())
-    );
     const unreleasedRealAlbum = master.masterAlbums.find(
       a =>
         !activeAlbumTitlesLower.has(a.title.toLowerCase().trim()) &&
         !a.title.toLowerCase().includes('(deluxe ep)')
     );
-    const fallbackRealAlbum =
-      unreleasedRealAlbum ||
-      master.masterAlbums[(now.getFullYear() + 1) % master.masterAlbums.length];
 
-    if (fallbackRealAlbum) {
-      chosenAlbumTitle = fallbackRealAlbum.title;
-      chosenAlbumCover = fallbackRealAlbum.cover || '';
+    if (unreleasedRealAlbum) {
+      chosenAlbumTitle = unreleasedRealAlbum.title;
+      chosenAlbumCover = unreleasedRealAlbum.cover || '';
     }
   }
 
-  // 3. Final fallback to NPC's own album list if needed
-  if (!chosenAlbumTitle && npc.albums && npc.albums.length > 0) {
-    chosenAlbumTitle = npc.albums[0].title;
-    chosenAlbumCover = npc.albums[0].cover || '';
-  }
-
+  // If all of the NPC's albums are already released in their Discography, do not show a Pre-Save countdown
   if (!chosenAlbumTitle) return null;
 
   // Resolve 100% official real-world album cover art
@@ -507,32 +502,45 @@ export function getNpcUpcomingReleaseCountdown(
   futureDate.setDate(futureDate.getDate() + daysAhead);
   const releaseDate = futureDate.toISOString().split('T')[0];
 
-  // Match any tracks on this upcoming album that have already dropped as Lead/Pre-Release Singles
-  const activeNpcSongsMap = new Map<string, { streams: number; trackType?: string }>();
+  // Match only official singles (never b_sides) that have already dropped ahead of this upcoming album
+  const activeNpcSinglesMap = new Map<string, { streams: number; trackType?: string }>();
   (npc.songs || []).forEach(s => {
-    activeNpcSongsMap.set(s.title.toLowerCase().trim(), {
-      streams: s.streams || 0,
-      trackType: (s as any).trackType
-    });
+    const tType = (s as any).trackType || 'single';
+    if (tType !== 'b_side') {
+      activeNpcSinglesMap.set(s.title.toLowerCase().trim(), {
+        streams: s.streams || 0,
+        trackType: tType
+      });
+    }
   });
 
+  let unlockedPreReleaseCount = 0;
+  const maxPreReleaseSingles = Math.min(2, Math.max(1, rawTracklist.length - 2));
+
   const tracks = rawTracklist.map((trk, idx) => {
-    const activeMatch = activeNpcSongsMap.get(trk.title.toLowerCase().trim());
-    const isLeadPreReleased = Boolean(activeMatch);
+    const activeMatch = activeNpcSinglesMap.get(trk.title.toLowerCase().trim());
+    const canUnlockAsPreRelease =
+      Boolean(activeMatch) && unlockedPreReleaseCount < maxPreReleaseSingles;
     const existingLeadSong = (npc.songs || [])[0];
     const defaultLeadStreams = Math.max(
       450_000,
       Math.floor((existingLeadSong?.streams || 2_200_000) * 0.85)
     );
 
-    if (isLeadPreReleased) {
+    if (canUnlockAsPreRelease) {
+      unlockedPreReleaseCount++;
       return {
         id: `npc_up_trk_${idx}`,
         title: trk.title,
         artistName: cleanName,
         isReleased: true,
-        trackType: (idx === 0 ? 'lead_single' : 'pre_release_single') as ExtendedTrackRole,
-        streams: activeMatch?.streams && activeMatch.streams > 0 ? activeMatch.streams : defaultLeadStreams,
+        trackType: (unlockedPreReleaseCount === 1
+          ? 'lead_single'
+          : 'pre_release_single') as ExtendedTrackRole,
+        streams:
+          activeMatch?.streams && activeMatch.streams > 0
+            ? activeMatch.streams
+            : defaultLeadStreams,
         isExplicit: (nameHash + idx) % 5 === 1
       };
     }
