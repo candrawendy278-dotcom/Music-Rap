@@ -15,10 +15,11 @@ import { ChartMovementBadge } from '../Common/ChartMovementBadge';
 import { resolveChartItemMovement } from '../../data/chartMovementAndReEntryEngine';
 import { resolveSongMetadataAndCollabCredits } from '../../data/spotifyTrackMetadataAndCollabEngine';
 import BillboardEntryBreakdownModal from './BillboardEntryBreakdownModal';
+import RadioAirplayChartApp from './RadioAirplayChartApp';
 
 export default function BillboardApp() {
   const { state, setState } = useGameContext();
-  const [tab, setTab] = useState<'singles' | 'albums' | 'history'>('singles');
+  const [tab, setTab] = useState<'singles' | 'albums' | 'radio' | 'history'>('singles');
   const [region, setRegion] = useState<string>('global');
   const [selectedChartItem, setSelectedChartItem] = useState<{item: ChartItem, currPos: number, prevPos: number | null} | null>(null);
 
@@ -69,19 +70,28 @@ export default function BillboardApp() {
       <div className="flex border-b border-gray-300 sticky top-[72px] bg-white z-20">
         <button 
            onClick={() => setTab('singles')} 
-           className={`flex-1 py-4 text-xs font-black uppercase tracking-wider border-b-4 transition-colors cursor-pointer ${tab === 'singles' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-black'}`}
+           className={`flex-1 py-3.5 text-[11px] font-black uppercase tracking-wider border-b-4 transition-colors cursor-pointer ${tab === 'singles' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-black'}`}
         >
           Singles
         </button>
         <button 
            onClick={() => setTab('albums')} 
-           className={`flex-1 py-4 text-xs font-black uppercase tracking-wider border-b-4 transition-colors cursor-pointer ${tab === 'albums' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-black'}`}
+           className={`flex-1 py-3.5 text-[11px] font-black uppercase tracking-wider border-b-4 transition-colors cursor-pointer ${tab === 'albums' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-black'}`}
         >
-          Billboard 200
+          Albums 200
+        </button>
+        <button 
+           onClick={() => setTab('radio')} 
+           className={`flex-1 py-3.5 text-[11px] font-black uppercase tracking-wider border-b-4 transition-colors cursor-pointer ${tab === 'radio' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-black'}`}
+        >
+          <span className="flex items-center justify-center space-x-1">
+            <i className="ph-fill ph-broadcast text-sky-500 text-xs"></i>
+            <span>Radio</span>
+          </span>
         </button>
         <button 
            onClick={() => setTab('history')} 
-           className={`flex-1 py-4 text-xs font-black uppercase tracking-wider border-b-4 transition-colors cursor-pointer ${tab === 'history' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-black'}`}
+           className={`flex-1 py-3.5 text-[11px] font-black uppercase tracking-wider border-b-4 transition-colors cursor-pointer ${tab === 'history' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-black'}`}
         >
           <span className="flex items-center justify-center space-x-1">
             <i className="ph ph-clock-counter-clockwise text-sm"></i>
@@ -90,7 +100,9 @@ export default function BillboardApp() {
         </button>
       </div>
 
-      {tab === 'history' ? (
+      {tab === 'radio' ? (
+        <RadioAirplayChartApp embedded={true} />
+      ) : tab === 'history' ? (
         <BillboardArtistHistory
           state={state}
           onSelectItem={(item, currPos, prevPos) => setSelectedChartItem({ item, currPos, prevPos })}

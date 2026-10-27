@@ -15,6 +15,9 @@ import XApp from './components/Apps/XApp';
 import JobsApp from './components/Apps/JobsApp';
 import GrammyAwardsApp from './components/Apps/GrammyAwardsApp';
 import MtvVmasApp from './components/Apps/MtvVmasApp';
+import PitchforkApp from './components/Apps/PitchforkApp';
+import MetacriticApp from './components/Apps/MetacriticApp';
+import RadioAirplayChartApp from './components/Apps/RadioAirplayChartApp';
 import AwardCeremonyLiveModal from './components/Modals/AwardCeremonyLiveModal';
 
 export default function MainApp() {
@@ -48,6 +51,7 @@ export default function MainApp() {
       {state.activeApp === 'spotify' && <SpotifyApp />}
       {state.activeApp === 'youtube' && <YouTubeApp />}
       {state.activeApp === 'billboard' && <BillboardApp />}
+      {state.activeApp === 'radio' && <RadioAirplayChartApp />}
       {state.activeApp === 'itunes' && <ITunesApp />}
       {state.activeApp === 'statistic' && <StatisticApp />}
       {state.activeApp === 'skills' && <SkillAcademyApp />}
@@ -55,6 +59,8 @@ export default function MainApp() {
       {state.activeApp === 'jobs' && <JobsApp />}
       {state.activeApp === 'grammys' && <GrammyAwardsApp />}
       {state.activeApp === 'vmas' && <MtvVmasApp />}
+      {state.activeApp === 'pitchfork' && <PitchforkApp />}
+      {state.activeApp === 'metacritic' && <MetacriticApp />}
 
       {activeModalSeason && (
         <AwardCeremonyLiveModal

@@ -33,13 +33,16 @@ function matchesPlaylistTheme(playlistId: string, genre: string, npcIdx: number,
   return true;
 }
 
+import { computePlayerTrackPlaylistRank } from './enhancedPlaylistCurationEngine';
+
 /**
  * Builds realistic, consistent Spotify playlists 100% from actual NPC releases (`npc.songs`)
- * and integrates pitched/placed player tracks at top positions with real player stats.
+ * and integrates pitched/placed player tracks at merit-based positions (#1 Cover Star to #48).
  */
 export function generateCuratedSpotifyPlaylists(
   playerSongs: Song[],
-  playerName: string
+  playerName: string,
+  artistPopularity: number = 30
 ): Record<string, PlaylistTrackItem[]> {
   syncPlayerNameNpcDeduplication(playerName);
   const result: Record<string, PlaylistTrackItem[]> = {};
@@ -52,31 +55,19 @@ export function generateCuratedSpotifyPlaylists(
   ];
 
   playlistIds.forEach((plId, plIdx) => {
-    const items: PlaylistTrackItem[] = [];
+    const npcItems: PlaylistTrackItem[] = [];
     const seenKeys = new Set<string>();
 
-    // 1. Insert player's placed songs into this playlist
     const placedPlayerSongs = playerSongs.filter(
       s => s.status === 'released' && s.playlistPlacements?.includes(plId)
     );
 
     placedPlayerSongs.forEach(song => {
-      const playerStreams = song.streams || 0;
       const key = `${(playerName || 'player').toLowerCase()}::${song.title.toLowerCase()}`;
       seenKeys.add(key);
-      items.push({
-        title: song.title,
-        artist: playerName || 'Player Artist',
-        points: playerStreams,
-        streams: playerStreams,
-        isPlayer: true,
-        cover: song.cover || resolveRealWorldCoverArt(playerName, song.title, false),
-        lastPosition: null,
-        duration: '3:15'
-      });
     });
 
-    // 2. Collect actual released NPC songs matching this playlist's vibe/theme
+    // Collect actual released NPC songs matching this playlist's vibe/theme
     REAL_WORLD_NPCS.forEach((npc, npcIdx) => {
       if (playerName && isNpcMatchingPlayerName(npc.name, playerName)) return;
 
@@ -90,7 +81,7 @@ export function generateCuratedSpotifyPlaylists(
         const sortWeight = actualStreams > 0 ? actualStreams : (npc.pop * 10000 + npc.hype * 100 - sIdx * 500);
         const cover = s.cover || resolveRealWorldCoverArt(npc.name, s.title, false);
 
-        items.push({
+        npcItems.push({
           title: s.title,
           artist: npc.name,
           points: sortWeight,
@@ -103,12 +94,37 @@ export function generateCuratedSpotifyPlaylists(
       });
     });
 
-    const playerItems = items.filter(i => i.isPlayer);
-    const npcItems = items
-      .filter(i => !i.isPlayer)
-      .sort((a, b) => (b.points || 0) - (a.points || 0));
+    npcItems.sort((a, b) => (b.points || 0) - (a.points || 0));
+    const finalRoster: PlaylistTrackItem[] = [...npcItems.slice(0, 50)];
+    const npcScores = finalRoster.map(item => item.points || 0);
 
-    result[plId] = [...playerItems, ...npcItems].slice(0, 50);
+    // Insert placed player songs at their merit-based editorial rank
+    placedPlayerSongs
+      .sort((a, b) => (b.dailyStreams || b.streams || 0) - (a.dailyStreams || a.streams || 0))
+      .forEach(song => {
+        const playerStreams = song.streams || 0;
+        const targetRank = computePlayerTrackPlaylistRank(song, plId, npcScores, artistPopularity);
+        const insertIdx = Math.max(0, Math.min(finalRoster.length, targetRank - 1));
+
+        const playerEntry: PlaylistTrackItem = {
+          id: song.id,
+          title: song.title,
+          artist: playerName || 'Player Artist',
+          points: playerStreams,
+          streams: playerStreams,
+          isPlayer: true,
+          cover: song.cover || resolveRealWorldCoverArt(playerName, song.title, false),
+          lastPosition: null,
+          duration: '3:15',
+          collabId: song.collabId,
+          hasMV: song.hasMV,
+          isExplicit: song.isExplicit
+        };
+
+        finalRoster.splice(insertIdx, 0, playerEntry);
+      });
+
+    result[plId] = finalRoster.slice(0, 50);
   });
 
   return result;

@@ -755,40 +755,64 @@ export function calculateSongwritingQuality({
   const selectedTheme = WRITING_THEMES.find(t => t.id === themeId) || WRITING_THEMES[0];
   const selectedMeaning = MEANING_FOCUS_OPTIONS.find(m => m.id === meaningId) || MEANING_FOCUS_OPTIONS[0];
 
-  const baseQuality = 20;
-  const daysBonus = Math.round(writingDays * 1.4 * 10) / 10;
-  const proBonus = writerType === 'pro' ? 9 : 0;
+  // Realistic Writing Stage Calibration:
+  // Even with all Songwriting skills at Lv.10 + Pro Co-Writer + Collab, a raw written composition
+  // (before vocal tracking, mixing, and mastering) lands in the 68 - 81 range (hard-capped at 82).
+  const baseQuality = 18;
+  const daysBonus = Math.round(writingDays * 1.15 * 10) / 10;
+  const proBonus = writerType === 'pro' ? 5.5 : 0;
+  const scaledCollabBonus = Math.min(6.5, Math.round(collabBonus * 0.48 * 10) / 10);
 
   const totalSkillRaw = 
-    ((sw.lyrics?.level || 1) * 0.54) +
-    ((sw.storytelling?.level || 1) * 0.52) +
-    ((sw.depth?.level || 1) * 0.50) +
-    ((sw.melodyHook?.level || 1) * 0.58) +
-    ((sw.themeConcept?.level || 1) * 0.48) +
-    ((sw.emotionalResonance?.level || 1) * 0.52) +
-    ((sw.wordplayPunchlines?.level || 1) * 0.44) +
-    ((sw.songStructure?.level || 1) * 0.48);
+    ((sw.lyrics?.level || 1) * 0.38) +
+    ((sw.storytelling?.level || 1) * 0.36) +
+    ((sw.depth?.level || 1) * 0.35) +
+    ((sw.melodyHook?.level || 1) * 0.42) +
+    ((sw.themeConcept?.level || 1) * 0.34) +
+    ((sw.emotionalResonance?.level || 1) * 0.36) +
+    ((sw.wordplayPunchlines?.level || 1) * 0.31) +
+    ((sw.songStructure?.level || 1) * 0.34);
 
   const themeKey = selectedTheme.bestFitSubSkill;
   const themeSkillLevel = sw[themeKey]?.level || 1;
-  const themeSynergyBonus = themeSkillLevel * 0.52 * selectedTheme.bonusMultiplier;
+  const themeSynergyBonus = themeSkillLevel * 0.35 * selectedTheme.bonusMultiplier;
 
   const meaningKey = selectedMeaning.subSkillBonus;
   const meaningSkillLevel = sw[meaningKey]?.level || 1;
-  const meaningBonus = meaningSkillLevel * 0.55 * (selectedMeaning.qualityWeight - 1.0) * 10;
+  const meaningBonus = meaningSkillLevel * 0.38 * (selectedMeaning.qualityWeight - 1.0) * 10;
 
-  const expectedCore = baseQuality + daysBonus + proBonus + totalSkillRaw + themeSynergyBonus + meaningBonus + collabBonus;
+  const expectedCore =
+    baseQuality +
+    daysBonus +
+    proBonus +
+    totalSkillRaw +
+    themeSynergyBonus +
+    meaningBonus +
+    scaledCollabBonus;
 
-  const avgSkillLevel = totalSkillRaw / 4.06;
-  const maxPossibleForCurrentSkills = Math.min(100, Math.round(42 + (avgSkillLevel * 6.2) + (writerType === 'pro' ? 8 : 0) + (collabBonus > 0 ? 6 : 0)));
+  const avgSkillLevel = totalSkillRaw / 2.86;
+  const maxPossibleForCurrentSkills = Math.min(
+    82,
+    Math.round(36 + avgSkillLevel * 3.8 + (writerType === 'pro' ? 4.5 : 0) + (scaledCollabBonus > 0 ? 3.5 : 0))
+  );
 
   const shouldRoll = deterministic !== undefined ? !deterministic : applySessionVariance;
-  const inspirationRoll = shouldRoll ? ((Math.random() * 12) - 5) : 0;
+  // Creative songwriting variance: -4.5 to +4.5 on normal rolls
+  const inspirationRoll = shouldRoll ? (Math.random() * 9.0 - 4.5) : 0;
   const calculatedQuality = expectedCore + inspirationRoll;
 
-  const finalQuality = Math.min(maxPossibleForCurrentSkills, Math.max(18, Math.round(calculatedQuality * 10) / 10));
-  const minProjected = Math.min(maxPossibleForCurrentSkills, Math.max(18, Math.round((expectedCore - 5) * 10) / 10));
-  const maxProjected = Math.min(maxPossibleForCurrentSkills, Math.max(18, Math.round((expectedCore + 7) * 10) / 10));
+  const finalQuality = Math.min(
+    maxPossibleForCurrentSkills,
+    Math.max(18, Math.round(calculatedQuality * 10) / 10)
+  );
+  const minProjected = Math.min(
+    maxPossibleForCurrentSkills,
+    Math.max(18, Math.round((expectedCore - 4.5) * 10) / 10)
+  );
+  const maxProjected = Math.min(
+    maxPossibleForCurrentSkills,
+    Math.max(18, Math.round((expectedCore + 4.5) * 10) / 10)
+  );
 
   return {
     finalQuality,
@@ -804,7 +828,7 @@ export function calculateSongwritingQuality({
       proBonus,
       writerBonus: proBonus,
       daysBonus,
-      collabBonus
+      collabBonus: scaledCollabBonus
     }
   };
 }
@@ -849,48 +873,89 @@ export function calculateRecordingQualityBoost({
   const selectedVocal = RECORDING_VOCAL_STYLES.find(v => v.id === vocalStyleId) || RECORDING_VOCAL_STYLES[0];
   const selectedAudio = AUDIO_ENGINEERING_OPTIONS.find(a => a.id === audioEngineeringId) || AUDIO_ENGINEERING_OPTIONS[0];
 
-  const studioBase = studioType === 'pro' ? 5.5 : 2.0;
-  const durationBoost = Math.round(recordingDays * (studioType === 'pro' ? 1.1 : 0.5) * 10) / 10;
+  const studioBase = studioType === 'pro' ? 3.8 : 1.2;
+  const durationBoost = Math.round(recordingDays * (studioType === 'pro' ? 0.75 : 0.35) * 10) / 10;
 
   const rcScore = 
-    ((rc.vocalDelivery?.level || 1) * 0.34) +
-    ((rc.flowCadence?.level || 1) * 0.30) +
-    ((rc.pitchControl?.level || 1) * 0.30) +
-    ((rc.vocalLayering?.level || 1) * 0.26) +
-    ((rc.adLibCraft?.level || 1) * 0.22) +
-    ((rc.breathControl?.level || 1) * 0.22) +
-    ((rc.melodicCadence?.level || 1) * 0.30) +
-    ((rc.timingPrecision?.level || 1) * 0.24);
+    ((rc.vocalDelivery?.level || 1) * 0.25) +
+    ((rc.flowCadence?.level || 1) * 0.22) +
+    ((rc.pitchControl?.level || 1) * 0.22) +
+    ((rc.vocalLayering?.level || 1) * 0.19) +
+    ((rc.adLibCraft?.level || 1) * 0.16) +
+    ((rc.breathControl?.level || 1) * 0.16) +
+    ((rc.melodicCadence?.level || 1) * 0.22) +
+    ((rc.timingPrecision?.level || 1) * 0.18);
 
   const prScore = 
-    ((pr.audioEngineering?.level || 1) * 0.28) +
-    ((pr.dynamicProcessing?.level || 1) * 0.24) +
-    ((pr.spatialAcoustics?.level || 1) * 0.22) +
-    ((pr.beatSelection?.level || 1) * 0.24) +
-    ((pr.vocalTuning?.level || 1) * 0.22) +
-    ((pr.masteringPolish?.level || 1) * 0.26);
+    ((pr.audioEngineering?.level || 1) * 0.22) +
+    ((pr.dynamicProcessing?.level || 1) * 0.19) +
+    ((pr.spatialAcoustics?.level || 1) * 0.18) +
+    ((pr.beatSelection?.level || 1) * 0.19) +
+    ((pr.vocalTuning?.level || 1) * 0.17) +
+    ((pr.masteringPolish?.level || 1) * 0.21);
 
-  const skillsBoost = (rcScore + prScore) * 0.48;
+  const skillsBoost = (rcScore + prScore) * 0.38;
 
   const vocalKey = selectedVocal.bestFitSubSkill;
   const vocalSkillLevel = rc[vocalKey]?.level || 1;
-  const vocalSynergy = vocalSkillLevel * 0.34 * selectedVocal.vocalBoost;
+  const vocalSynergy = vocalSkillLevel * 0.24 * selectedVocal.vocalBoost;
 
   const audioKey = selectedAudio.bestFitSubSkill;
   const audioSkillLevel = pr[audioKey]?.level || 1;
-  const audioSynergy = audioSkillLevel * 0.38 * selectedAudio.clarityMultiplier;
+  const audioSynergy = audioSkillLevel * 0.26 * selectedAudio.clarityMultiplier;
 
   const expectedBoost = studioBase + durationBoost + skillsBoost + vocalSynergy + audioSynergy;
   const shouldRoll = deterministic !== undefined ? !deterministic : applySessionVariance;
-  const sessionRoll = shouldRoll ? ((Math.random() * 6) - 2) : 0;
 
-  const totalBoost = expectedBoost + sessionRoll;
-  const roundedBoost = Math.max(2, Math.round(totalBoost * 10) / 10);
+  // Apply Masterpiece Soft-Cap Curve above 90 so 100/100 is genuinely rare even with all skills maxed:
+  // Normal max-skill sessions land between 86 and 95; 96-99 requires an inspired take;
+  // 100/100 requires a rare (~6%) "Lightning in a Bottle" studio magic roll!
+  const applyMasterpieceCurve = (rawTotal: number, isLiveSessionRoll: boolean): number => {
+    let curved = rawTotal;
+    if (curved > 90) {
+      const excess = curved - 90;
+      curved = 90 + excess * 0.46;
+    }
 
-  const maxRecordingMasterCap = Math.min(100, Math.round(currentSongQuality + 26));
-  const finalQuality = Math.min(maxRecordingMasterCap, Math.round((currentSongQuality + roundedBoost) * 10) / 10);
-  const minFinalQuality = Math.min(maxRecordingMasterCap, Math.round((currentSongQuality + Math.max(2, expectedBoost - 2)) * 10) / 10);
-  const maxFinalQuality = Math.min(maxRecordingMasterCap, Math.round((currentSongQuality + expectedBoost + 4) * 10) / 10);
+    if (!isLiveSessionRoll) {
+      return Math.min(98, Math.round(curved * 10) / 10);
+    }
+
+    // Live session variance: -3.8 to +3.4
+    const sessionVariance = (Math.random() * 7.2) - 3.8;
+    let rolled = curved + sessionVariance;
+
+    // Check if eligible for a rare Perfect 100 "Lightning in a Bottle" Masterpiece (~6% chance when maxed)
+    const avgRecProd = (rcScore / 1.6 + prScore / 1.16) / 2;
+    const eligibleForPerfect100 =
+      studioType === 'pro' &&
+      currentSongQuality >= 74 &&
+      avgRecProd >= 8.5 &&
+      rolled >= 94.5;
+
+    if (eligibleForPerfect100 && Math.random() < 0.06) {
+      return 100;
+    }
+
+    // Otherwise cap normal high rolls between 85 and 99 (preventing automatic 100s)
+    if (rolled >= 99.1) {
+      rolled = 97.5 + Math.random() * 1.4; // 97.5 - 98.9
+    }
+    return Math.min(99, Math.max(currentSongQuality + 2, Math.round(rolled * 10) / 10));
+  };
+
+  const rawCombined = currentSongQuality + expectedBoost;
+  const finalQuality = applyMasterpieceCurve(rawCombined, shouldRoll);
+  const roundedBoost = Math.max(2, Math.round((finalQuality - currentSongQuality) * 10) / 10);
+
+  const minFinalQuality = Math.min(
+    96,
+    Math.max(currentSongQuality + 2, Math.round((applyMasterpieceCurve(rawCombined, false) - 4.0) * 10) / 10)
+  );
+  const maxFinalQuality = Math.min(
+    99,
+    Math.max(minFinalQuality + 2, Math.round((applyMasterpieceCurve(rawCombined, false) + 3.2) * 10) / 10)
+  );
 
   return {
     qualityBoost: roundedBoost,
@@ -907,4 +972,5 @@ export function calculateRecordingQualityBoost({
     }
   };
 }
+
 

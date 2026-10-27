@@ -174,7 +174,57 @@ export default function RivalBeefModal({ onClose }: RivalBeefModalProps) {
         )}
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {activeSubTab === 'battle' && (
+          {activeSubTab === 'battle' && !rivalState.hasActiveRival && (
+            <div className="bg-white rounded-2xl p-5 border border-neutral-200/80 space-y-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-neutral-900 text-white flex items-center justify-center shrink-0">
+                  <i className="ph-bold ph-shield-check text-lg"></i>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400">
+                    Career Rivalry Status
+                  </span>
+                  <h4 className="text-base font-black text-neutral-950">
+                    No Active Industry Rival Yet
+                  </h4>
+                  <p className="text-xs text-neutral-600 leading-relaxed">
+                    You don&apos;t start your career with an arbitrary rival. In the music industry, a feud only begins when there is a real cause:
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2.5 text-xs">
+                <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200/70">
+                  <div className="font-black text-neutral-900">1. Organic Chart Clash</div>
+                  <div className="text-neutral-500 mt-0.5">
+                    When your released song climbs the daily charts and directly threatens or overtakes an established artist in your lane.
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200/70">
+                  <div className="font-black text-neutral-900">2. High-Stakes Release Day Collision</div>
+                  <div className="text-neutral-500 mt-0.5">
+                    Once you build real chart stature, dropping a major project can provoke a threatened peer to counter-drop on the same day.
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200/70">
+                  <div className="font-black text-neutral-900">3. Public Callout on X</div>
+                  <div className="text-neutral-500 mt-0.5">
+                    You can intentionally start a feud at any time by calling out an artist in the &ldquo;Challenge NPC Rival&rdquo; tab.
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('switch')}
+                className="w-full py-2.5 px-4 rounded-xl bg-neutral-950 hover:bg-neutral-800 text-white text-xs font-bold transition cursor-pointer"
+              >
+                Browse & Call Out an Artist to Start a Rivalry
+              </button>
+            </div>
+          )}
+
+          {activeSubTab === 'battle' && rivalState.hasActiveRival && (
             <>
               {/* VS Face-Off Banner */}
               <div className="bg-[#121216] text-white rounded-2xl p-4 border border-white/10 space-y-4">
@@ -226,6 +276,16 @@ export default function RivalBeefModal({ onClose }: RivalBeefModalProps) {
                   </div>
                 </div>
 
+                {/* Cause of Rivalry Badge */}
+                {rivalState.rivalryOriginReason && (
+                  <div className="px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-[11px] text-rose-200 leading-snug">
+                    <span className="font-black uppercase tracking-wider text-rose-400 mr-1.5">
+                      Cause of Rivalry:
+                    </span>
+                    {rivalState.rivalryOriginReason}
+                  </div>
+                )}
+
                 {/* Live Headline Ticker */}
                 <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-xs text-neutral-200 leading-relaxed">
                   {rivalState.lastBeefHeadline}
@@ -246,7 +306,7 @@ export default function RivalBeefModal({ onClose }: RivalBeefModalProps) {
                     />
                   </div>
                   <p className="text-[10px] text-neutral-400">
-                    Whenever you release a Single or Project, {rivalState.rivalName} will counter-drop to try and block you from #1 on Spotify, iTunes & Billboard!
+                    Whenever you release a Single or Project, {rivalState.rivalName} can counter-drop to try and block you from #1 on Spotify, iTunes & Billboard!
                   </p>
                 </div>
               </div>
@@ -499,20 +559,26 @@ export default function RivalBeefModal({ onClose }: RivalBeefModalProps) {
               <h4 className="text-xs font-black uppercase tracking-wider text-neutral-500">
                 Rivalry & Chart Blockade History
               </h4>
-              {(rivalState.beefHistoryLog || []).map(item => (
-                <div
-                  key={item.id}
-                  className="p-3.5 bg-white rounded-xl border border-neutral-200/80 space-y-1"
-                >
-                  <div className="flex items-center justify-between text-[10px] font-bold text-neutral-400">
-                    <span className="uppercase text-rose-600">{item.type.replace('_', ' ')}</span>
-                    <span>{item.date}</span>
-                  </div>
-                  <p className="text-xs font-medium text-neutral-800 leading-relaxed">
-                    {item.text}
-                  </p>
+              {(rivalState.beefHistoryLog || []).length === 0 ? (
+                <div className="p-4 bg-white rounded-xl border border-neutral-200/80 text-xs text-neutral-500 leading-relaxed">
+                  No industry feuds recorded yet. Once a rivalry begins from a chart clash, same-day release collision, or public callout, every inciting incident and chart block will be logged here.
                 </div>
-              ))}
+              ) : (
+                (rivalState.beefHistoryLog || []).map(item => (
+                  <div
+                    key={item.id}
+                    className="p-3.5 bg-white rounded-xl border border-neutral-200/80 space-y-1"
+                  >
+                    <div className="flex items-center justify-between text-[10px] font-bold text-neutral-400">
+                      <span className="uppercase text-rose-600">{item.type.replace('_', ' ')}</span>
+                      <span>{item.date}</span>
+                    </div>
+                    <p className="text-xs font-medium text-neutral-800 leading-relaxed">
+                      {item.text}
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
           )}
         </div>

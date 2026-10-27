@@ -319,7 +319,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
         }
       }
 
-      // Trigger Rival Chart-Block Counter-Release when player drops a Single or Project!
+      // Trigger Rival Chart-Block Counter-Release only if there is an active rivalry or a high-profile release collision!
       if (isImmediateRelease) {
         const rivalDrop = triggerRivalCounterReleaseOnPlayerDrop(
           nextP,
@@ -328,20 +328,36 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
           forecast.estFirstDayStreams
         );
         (nextP as any).rivalState = rivalDrop.updatedRivalState;
-        nextP.xPosts = [...rivalDrop.counterDropTweets, ...(nextP.xPosts || [])];
-        injectRivalCounterReleaseIntoNpcCatalog(nextP);
+        if (rivalDrop.didTriggerCounterDrop) {
+          nextP.xPosts = [...rivalDrop.counterDropTweets, ...(nextP.xPosts || [])];
+          injectRivalCounterReleaseIntoNpcCatalog(nextP);
+        }
       }
 
       return nextP;
     });
 
-    const activeRival = getEnsuredRivalState(state);
+    const previewDrop = isImmediateRelease
+      ? triggerRivalCounterReleaseOnPlayerDrop(
+          state,
+          selectedItem.title,
+          selectedItem.kind,
+          forecast.estFirstDayStreams
+        )
+      : null;
 
     if (isImmediateRelease) {
-      setInfoModal({
-        title: 'Worldwide Release Live & Rival Chart Alert!',
-        desc: `"${selectedItem.title}" is now out globally (+${forecast.hypeGain}% Hype)! 🚨 CHART BLOCK ALERT: Your rival ${activeRival.rivalName} just surprise-dropped on the exact same day to try and block you from #1 on the charts!`
-      });
+      if (previewDrop && previewDrop.didTriggerCounterDrop) {
+        setInfoModal({
+          title: 'Worldwide Release Live & Rival Chart Alert!',
+          desc: `"${selectedItem.title}" is now out globally (+${forecast.hypeGain}% Hype)! 🚨 CHART BLOCK ALERT: ${previewDrop.updatedRivalState.rivalName} just surprise-dropped on the exact same day to try and block you from #1 on the charts!`
+        });
+      } else {
+        setInfoModal({
+          title: 'Worldwide Release Live!',
+          desc: `"${selectedItem.title}" is now out globally via ${activeDistro.name} (+${forecast.hypeGain}% Hype)! Advance the day to track your debut streams and chart rankings.`
+        });
+      }
     } else {
       setInfoModal({
         title: 'Global Release Scheduled',

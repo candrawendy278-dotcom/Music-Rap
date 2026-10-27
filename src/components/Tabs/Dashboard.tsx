@@ -448,34 +448,62 @@ export default function Dashboard() {
           onClick={() => setShowRivalModal(true)}
           className="p-5 flex items-center justify-between cursor-pointer hover:bg-neutral-50/70 transition-colors group"
         >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <OfficialArtworkImg
-              artist={rivalState.rivalName}
-              explicitSrc={rivalState.rivalAvatar}
-              isArtistPortrait={true}
-              className="w-12 h-12 rounded-full object-cover border-2 border-rose-500 shrink-0"
-            />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-600">
-                  Arch-Rival · {rivalState.beefStatusLabel}
+          {rivalState.hasActiveRival ? (
+            <div className="flex items-center gap-3.5 min-w-0">
+              <OfficialArtworkImg
+                artist={rivalState.rivalName}
+                explicitSrc={rivalState.rivalAvatar}
+                isArtistPortrait={true}
+                className="w-12 h-12 rounded-full object-cover border-2 border-rose-500 shrink-0"
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-600">
+                    Arch-Rival · {rivalState.beefStatusLabel}
+                  </p>
+                  <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md tabular-nums">
+                    {rivalState.beefHeat}% Heat
+                  </span>
+                </div>
+                <h3 className="text-base font-black text-neutral-950 tracking-tight mt-0.5 truncate">
+                  vs. {rivalState.rivalName}
+                </h3>
+                <p className="text-xs text-neutral-500 mt-0.5 truncate">
+                  {rivalState.activeCounterRelease
+                    ? `🚨 Blocking attempt: "${rivalState.activeCounterRelease.title}" (${formatNumFull(rivalState.activeCounterRelease.dailyStreams)}/d)`
+                    : rivalState.rivalryOriginReason ||
+                      `Head-to-Head Chart War · ${rivalState.playerChartWins}W - ${rivalState.rivalChartWins}L`}
                 </p>
-                <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md tabular-nums">
-                  {rivalState.beefHeat}% Heat
-                </span>
               </div>
-              <h3 className="text-base font-black text-neutral-950 tracking-tight mt-0.5 truncate">
-                vs. {rivalState.rivalName}
-              </h3>
-              <p className="text-xs text-neutral-500 mt-0.5 truncate">
-                {rivalState.activeCounterRelease
-                  ? `🚨 Blocking attempt: "${rivalState.activeCounterRelease.title}" (${formatNumFull(rivalState.activeCounterRelease.dailyStreams)}/d)`
-                  : `Head-to-Head Chart War · ${rivalState.playerChartWins}W - ${rivalState.rivalChartWins}L`}
-              </p>
             </div>
-          </div>
-          <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
-            <i className="ph-bold ph-fire text-sm"></i>
+          ) : (
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-12 h-12 rounded-full bg-neutral-100 border border-neutral-200 text-neutral-500 flex items-center justify-center shrink-0">
+                <i className="ph-bold ph-shield-check text-lg"></i>
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-500">
+                    Industry Feud Radar · Peaceful
+                  </p>
+                </div>
+                <h3 className="text-base font-black text-neutral-950 tracking-tight mt-0.5 truncate">
+                  No Active Industry Rival
+                </h3>
+                <p className="text-xs text-neutral-500 mt-0.5 truncate">
+                  Rivalries ignite from chart clashes, same-day release collisions, or public callouts on X.
+                </p>
+              </div>
+            </div>
+          )}
+          <div
+            className={`w-10 h-10 rounded-2xl flex items-center justify-center group-hover:scale-105 transition-transform shrink-0 ${
+              rivalState.hasActiveRival
+                ? 'bg-rose-600 text-white'
+                : 'bg-neutral-900 text-white'
+            }`}
+          >
+            <i className={`ph-bold ${rivalState.hasActiveRival ? 'ph-fire' : 'ph-lightning'} text-sm`}></i>
           </div>
         </div>
       </div>

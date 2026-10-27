@@ -32,6 +32,7 @@ interface SpotifyHomeViewProps {
   onOpenPlayerProfile: () => void;
   onOpenCharts?: () => void;
   onSelectPlayerRelease?: (release: any) => void;
+  onOpenPlaylistHub?: () => void;
 }
 
 export const SpotifyHomeView: React.FC<SpotifyHomeViewProps> = ({
@@ -42,7 +43,8 @@ export const SpotifyHomeView: React.FC<SpotifyHomeViewProps> = ({
   onSelectNpc,
   onOpenPlayerProfile,
   onOpenCharts,
-  onSelectPlayerRelease
+  onSelectPlayerRelease,
+  onOpenPlaylistHub
 }) => {
   const topMonthlyArtists = useMemo(() => {
     return computeTop10MonthlyArtists(state);
@@ -54,8 +56,8 @@ export const SpotifyHomeView: React.FC<SpotifyHomeViewProps> = ({
 
   // Resolve live tracks per playlist so we can show the #1 cover artist on each playlist cover (just like real Spotify!)
   const curatedPlaylistsMap = useMemo(() => {
-    return generateCuratedSpotifyPlaylists(state.songs, state.artist?.name || '');
-  }, [state.songs, state.artist?.name]);
+    return generateCuratedSpotifyPlaylists(state.songs, state.artist?.name || '', state.popularity || 30);
+  }, [state.songs, state.artist?.name, state.popularity]);
 
   const getPlaylistLeadTrack = (playlistId: string, fallbackIndex: number) => {
     const stateTracks = state.spotify?.playlists?.[playlistId];
@@ -344,6 +346,16 @@ export const SpotifyHomeView: React.FC<SpotifyHomeViewProps> = ({
             <span>Top 50</span>
           </button>
         )}
+
+        {onOpenPlaylistHub && (
+          <button
+            onClick={onOpenPlaylistHub}
+            className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#1DB954]/20 border border-[#1DB954]/40 text-[#1DB954] hover:bg-[#1DB954] hover:text-black transition cursor-pointer shrink-0 flex items-center space-x-1"
+          >
+            <i className="ph-fill ph-playlist"></i>
+            <span>Pitch & Playlists</span>
+          </button>
+        )}
       </div>
 
       {/* 8-Grid Quick Access Shortcuts (Authentic Real Spotify 2x4 Compact Grid) */}
@@ -483,9 +495,19 @@ export const SpotifyHomeView: React.FC<SpotifyHomeViewProps> = ({
               </span>
             </div>
 
-            <p className="text-xs text-[#A7A7A7] leading-snug">
-              Your tracks are currently rotating across <strong className="text-white">{enhancedCuration.activePlayerPlacements.length} official Spotify playlists</strong>. Tap any placement to inspect the chart roster.
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-[#A7A7A7] leading-snug">
+                Your tracks are currently rotating across <strong className="text-white">{enhancedCuration.activePlayerPlacements.length} official Spotify playlists</strong>.
+              </p>
+              {onOpenPlaylistHub && (
+                <button
+                  onClick={onOpenPlaylistHub}
+                  className="text-[11px] font-black text-[#1DB954] hover:underline shrink-0 ml-2 cursor-pointer"
+                >
+                  Open Hub →
+                </button>
+              )}
+            </div>
 
             <div className="flex space-x-3 overflow-x-auto hide-scrollbar pt-1 pb-1">
               {enhancedCuration.activePlayerPlacements.slice(0, 8).map(pl => (

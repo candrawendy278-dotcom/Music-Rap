@@ -268,13 +268,321 @@ export function getAwardShowOpenStatus(
 }
 
 /**
+ * Extracts all individual participating artist keys (lowercased & trimmed) from an AwardNominee
+ * or candidate artist credit (splitting by '&', 'feat.', 'ft.', 'with', ',', and also inspecting
+ * any 'feat. ...' in secondaryLabel).
+ */
+export function extractIndividualArtistsFromNominee(
+  artistName: string,
+  secondaryLabel?: string
+): string[] {
+  const keys = new Set<string>();
+  const rawParts = (artistName || '')
+    .split(/\s*(?:&|\bfeat\.?|\bft\.?|\bwith\b|,)\s*/i)
+    .map(p => p.trim().toLowerCase())
+    .filter(Boolean);
+
+  rawParts.forEach(p => keys.add(p));
+
+  if (secondaryLabel) {
+    const featMatch = secondaryLabel.match(/feat\.\s*([^·•,]+)/i);
+    if (featMatch && featMatch[1]) {
+      const partner = featMatch[1].trim().toLowerCase();
+      if (partner) keys.add(partner);
+    }
+  }
+
+  return Array.from(keys);
+}
+
+/**
+ * Ensures that if a nominee has a "feat. Partner" credit in secondaryLabel (or is a known real-world
+ * collaboration like "APT." by ROSÉ & Bruno Mars), its artistName always displays the full duo credit
+ * ("Artist & Partner") so there is never an entry missing the collaborator's name.
+ */
+function normalizeNomineeCollabCredit(nom: AwardNominee): AwardNominee {
+  let artistName = (nom.artistName || '').trim();
+  const workLower = (nom.workTitle || '').trim().toLowerCase();
+
+  // Check if secondaryLabel contains "feat. <Partner>" that is missing from artistName
+  if (nom.secondaryLabel) {
+    const featMatch = nom.secondaryLabel.match(/feat\.\s*([^·•,]+)/i);
+    if (featMatch && featMatch[1]) {
+      const partner = featMatch[1].trim();
+      if (
+        partner &&
+        !artistName.toLowerCase().includes(partner.toLowerCase())
+      ) {
+        artistName = `${artistName} & ${partner}`;
+      }
+    }
+  }
+
+  // Known iconic real-world collab safeguard
+  if (workLower === 'apt.' && artistName.toLowerCase() === 'rosé') {
+    artistName = 'ROSÉ & Bruno Mars';
+  } else if (
+    workLower === 'die with a smile' &&
+    (artistName.toLowerCase() === 'lady gaga' || artistName.toLowerCase() === 'bruno mars')
+  ) {
+    artistName = 'Lady Gaga & Bruno Mars';
+  } else if (
+    workLower === 'luther' &&
+    (artistName.toLowerCase() === 'kendrick lamar' || artistName.toLowerCase() === 'sza')
+  ) {
+    artistName = 'Kendrick Lamar & SZA';
+  }
+
+  if (artistName !== nom.artistName) {
+    return {
+      ...nom,
+      artistName
+    };
+  }
+  return nom;
+}
+
+let lastSanitizedAwardsRef: AwardsSystemState | null = null;
+let lastSanitizedResult: AwardsSystemState | null = null;
+
+/**
+ * Sanitizes any saved AwardSeasonRecord (in activeSeasons or history) so that:
+ * 1. Every collab entry includes both artists in `artistName`.
+ * 2. No artist (solo or collab partner) and no song/work title ever appears twice in the same category.
+ * 3. Any category that loses duplicate entries is topped back up to 6 unique nominees.
+ */
+function sanitizeAwardSeasonRecord(
+  season: AwardSeasonRecord,
+  state: GameState
+): AwardSeasonRecord {
+  if (!season || !Array.isArray(season.categories)) return season;
+
+  const show = season.show;
+  const editionYear = season.editionYear;
+  const maxNominees = AWARD_CALENDAR_CONFIG[show]?.nomineesPerCategory || 6;
+  const catDefs = getCategoriesForShow(show);
+
+  let lazyCandidates: UnifiedAwardCandidate[] | null = null;
+  const getCandidates = () => {
+    if (!lazyCandidates) {
+      lazyCandidates = collectUnifiedCandidates(state, show, editionYear);
+    }
+    return lazyCandidates;
+  };
+
+  const tallyMap = new Map<string, ArtistAwardTally>();
+  const registerTally = (
+    nominee: AwardNominee,
+    isWin: boolean,
+    isMajor: boolean,
+    categoryName: string
+  ) => {
+    const primaryArtist = nominee.artistName.split(' & ')[0].split(' feat.')[0].trim();
+    const key = primaryArtist.toLowerCase();
+    const existing = tallyMap.get(key) || {
+      artistName: primaryArtist,
+      isPlayer: nominee.isPlayer,
+      avatar: nominee.coverArt,
+      nominations: 0,
+      wins: 0,
+      majorWins: 0,
+      nominatedCategories: [],
+      wonCategories: []
+    };
+    existing.nominations += 1;
+    existing.nominatedCategories.push(categoryName);
+    if (isWin) {
+      existing.wins += 1;
+      if (isMajor) existing.majorWins += 1;
+      existing.wonCategories.push(categoryName);
+    }
+    tallyMap.set(key, existing);
+  };
+
+  const sanitizedCategories: AwardCategoryResult[] = season.categories.map(cat => {
+    const isSoloCat = cat.categoryId.includes('solo');
+    const isCollabCat = cat.subjectType === 'collab';
+
+    // Normalize collab credits first
+    const normalizedExisting = (cat.nominees || []).map(normalizeNomineeCollabCredit);
+
+    // Sort by: (1) for collab categories, prefer full '&' collab credits first, (2) descending score
+    const sortedByScore = [...normalizedExisting].sort((a, b) => {
+      if (isCollabCat) {
+        const aHasAmp = a.artistName.includes('&') ? 1 : 0;
+        const bHasAmp = b.artistName.includes('&') ? 1 : 0;
+        if (bHasAmp !== aHasAmp) return bHasAmp - aHasAmp;
+      }
+      return (
+        (b.scoreBreakdown?.finalWeightedScore || 0) -
+        (a.scoreBreakdown?.finalWeightedScore || 0)
+      );
+    });
+
+    const uniqueNominees: AwardNominee[] = [];
+    const usedArtistsInCat = new Set<string>();
+    const usedWorksInCat = new Set<string>();
+
+    const tryAddNominee = (nom: AwardNominee): boolean => {
+      if (uniqueNominees.length >= maxNominees) return false;
+      const cleanNom = normalizeNomineeCollabCredit(nom);
+      // In Solo Performance categories, skip multi-artist collaborations
+      if (isSoloCat && cleanNom.artistName.includes(' & ')) {
+        return false;
+      }
+      // In Duo/Group Collab categories, require a collaboration credit
+      if (isCollabCat && !cleanNom.artistName.includes(' & ')) {
+        return false;
+      }
+
+      const workKey = (cleanNom.workTitle || '').trim().toLowerCase();
+      const artistKeys = extractIndividualArtistsFromNominee(
+        cleanNom.artistName,
+        cleanNom.secondaryLabel
+      );
+
+      if (!workKey || artistKeys.length === 0) return false;
+      if (usedWorksInCat.has(workKey)) return false;
+      if (artistKeys.some(k => usedArtistsInCat.has(k))) return false;
+
+      usedWorksInCat.add(workKey);
+      artistKeys.forEach(k => usedArtistsInCat.add(k));
+      uniqueNominees.push({ ...cleanNom, isWinner: false });
+      return true;
+    };
+
+    sortedByScore.forEach(nom => {
+      tryAddNominee(nom);
+    });
+
+    // If deduplication removed duplicates and left fewer than 6 nominees, top up from candidate pool
+    if (uniqueNominees.length < maxNominees) {
+      const catDef =
+        catDefs.find(d => d.id === cat.categoryId) ||
+        catDefs[0];
+      const allCands = getCandidates();
+      const replacementPool = allCands.filter(c => {
+        if (isCollabCat) return c.subjectType === 'collab';
+        if (isSoloCat && c.isCollab) return false;
+        return c.subjectType === cat.subjectType;
+      });
+
+      const scoredReplacements = replacementPool
+        .map(c => {
+          const breakdown = evaluateCandidateForCategory(c, catDef, 0, editionYear);
+          const nom: AwardNominee = {
+            id: `${cat.categoryId}_${c.id}`,
+            artistName: c.artistName,
+            isPlayer: c.isPlayer,
+            workTitle: c.workTitle,
+            secondaryLabel: c.secondaryLabel,
+            coverArt: c.coverArt,
+            genre: c.genre,
+            streams: c.streams,
+            views: c.views,
+            sales: c.sales,
+            chartPeak: c.chartPeak,
+            scoreBreakdown: breakdown,
+            isWinner: false
+          };
+          return nom;
+        })
+        .sort(
+          (a, b) =>
+            b.scoreBreakdown.finalWeightedScore - a.scoreBreakdown.finalWeightedScore
+        );
+
+      for (const rep of scoredReplacements) {
+        if (uniqueNominees.length >= maxNominees) break;
+        tryAddNominee(rep);
+      }
+    }
+
+    if (uniqueNominees.length === 0 && normalizedExisting.length > 0) {
+      uniqueNominees.push({ ...normalizedExisting[0], isWinner: true });
+    }
+
+    // Re-rank by score to pick the single official winner
+    uniqueNominees.sort(
+      (a, b) =>
+        (b.scoreBreakdown?.finalWeightedScore || 0) -
+        (a.scoreBreakdown?.finalWeightedScore || 0)
+    );
+
+    const winner = { ...uniqueNominees[0], isWinner: true };
+    uniqueNominees[0] = winner;
+
+    uniqueNominees.forEach((nom, idx) => {
+      registerTally(nom, idx === 0, cat.isMajor, cat.shortName);
+    });
+
+    const ballotOrderedNominees = [...uniqueNominees].sort((a, b) =>
+      a.workTitle.localeCompare(b.workTitle)
+    );
+
+    return {
+      ...cat,
+      nominees: ballotOrderedNominees,
+      winner
+    };
+  });
+
+  const artistTallies = Array.from(tallyMap.values()).sort((a, b) => {
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.majorWins !== a.majorWins) return b.majorWins - a.majorWins;
+    return b.nominations - a.nominations;
+  });
+
+  const mostNominatedList = [...artistTallies].sort((a, b) => {
+    if (b.nominations !== a.nominations) return b.nominations - a.nominations;
+    return b.wins - a.wins;
+  });
+
+  return {
+    ...season,
+    categories: sanitizedCategories,
+    artistTallies,
+    biggestWinner: artistTallies[0] || null,
+    mostNominated: mostNominatedList[0] || null
+  };
+}
+
+/**
  * Ensures the AwardsSystemState exists on GameState and caches fallback initialization
  * so UI components never trigger redundant simulations on re-render.
+ * Also sanitizes any already-saved seasons in `activeSeasons` and `history` to eliminate duplicate artist/collab entries!
  */
 export function getEnsuredAwardsState(state: GameState): AwardsSystemState {
   const existing = (state as any).awardsState as AwardsSystemState | undefined;
   if (existing && existing.initialized) {
-    return existing;
+    if (lastSanitizedAwardsRef === existing && lastSanitizedResult) {
+      return lastSanitizedResult;
+    }
+
+    const sanitized: AwardsSystemState = {
+      ...existing,
+      activeSeasons: {
+        grammys: existing.activeSeasons?.grammys
+          ? sanitizeAwardSeasonRecord(existing.activeSeasons.grammys, state)
+          : null,
+        vmas: existing.activeSeasons?.vmas
+          ? sanitizeAwardSeasonRecord(existing.activeSeasons.vmas, state)
+          : null
+      },
+      history: (existing.history || []).map(season =>
+        sanitizeAwardSeasonRecord(season, state)
+      ),
+      pendingLiveCeremony: existing.pendingLiveCeremony
+        ? sanitizeAwardSeasonRecord(existing.pendingLiveCeremony, state)
+        : null,
+      pendingNominationsAnnouncement: existing.pendingNominationsAnnouncement
+        ? sanitizeAwardSeasonRecord(existing.pendingNominationsAnnouncement, state)
+        : null
+    };
+
+    lastSanitizedAwardsRef = existing;
+    lastSanitizedResult = sanitized;
+    return sanitized;
   }
 
   const artistKey = `${state.artist?.name || 'Player'}_${(state.songs || []).length}`;
@@ -432,9 +740,20 @@ function collectUnifiedCandidates(
     const collabNpc = hasCollab
       ? REAL_WORLD_NPCS.find(n => n.id === song.collabId || n.name === song.collabId)
       : null;
+    const collabPartnerName = hasCollab
+      ? collabNpc
+        ? collabNpc.name
+        : String(song.collabId)
+      : '';
 
-    const secondaryLabel = collabNpc
-      ? `feat. ${collabNpc.name} · ${song.genre || 'Pop'}`
+    // Always include the collaborator in artistName for any collab track so it never splits into 2 entries!
+    const fullPlayerSongArtistName =
+      hasCollab && collabPartnerName
+        ? `${playerName} & ${collabPartnerName}`
+        : playerName;
+
+    const secondaryLabel = hasCollab
+      ? `Official Collaboration · ${song.genre || 'Pop'}`
       : `${song.genre || 'Pop'}`;
 
     const isPreferredSong = campaignState?.preferredSongId === song.id;
@@ -442,7 +761,7 @@ function collectUnifiedCandidates(
 
     candidates.push({
       id: `player_song_${song.id}`,
-      artistName: playerName,
+      artistName: fullPlayerSongArtistName,
       isPlayer: true,
       avatar: playerAvatar,
       workTitle: songTitle,
@@ -469,7 +788,7 @@ function collectUnifiedCandidates(
     if (hasCollab) {
       candidates.push({
         id: `player_collab_${song.id}`,
-        artistName: `${playerName} & ${collabNpc ? collabNpc.name : song.collabId}`,
+        artistName: fullPlayerSongArtistName,
         isPlayer: true,
         avatar: playerAvatar,
         workTitle: songTitle,
@@ -497,7 +816,7 @@ function collectUnifiedCandidates(
     if (song.hasMV) {
       candidates.push({
         id: `player_video_${song.id}`,
-        artistName: playerName,
+        artistName: fullPlayerSongArtistName,
         isPlayer: true,
         avatar: playerAvatar,
         workTitle: songTitle,
@@ -642,40 +961,67 @@ function collectUnifiedCandidates(
         chartData?.weeks || Math.max(2, Math.min(42, Math.round(living.popularity / 4) + (songSeed % 10)));
 
       const trackQuality = clamp100(
-        living.skills.overallMastery * 0.62 +
-          living.skills.songwriting * 0.22 +
-          ((songSeed % 16) + 4)
+        living.skills.overallMastery * 0.68 +
+          living.skills.songwriting * 0.24 +
+          ((songSeed % 14) + 5)
       );
 
       const totalStreams = Math.max(
-        song.streams || 15_000_000,
-        Math.round(living.fans * (12 + (songSeed % 18)) * living.streamSynergyMultiplier)
+        song.streams || 28_000_000,
+        Math.round(living.fans * (16 + (songSeed % 22)) * living.streamSynergyMultiplier)
       );
       const totalViews = Math.max(
-        Math.round(totalStreams * (0.42 + ((songSeed % 28) / 100)) * living.youtubeViewSynergyMultiplier),
-        5_000_000
+        Math.round(totalStreams * (0.45 + ((songSeed % 28) / 100)) * living.youtubeViewSynergyMultiplier),
+        8_000_000
       );
       const totalSales = Math.max(
-        song.sales || 45_000,
-        Math.round((totalStreams / 450) * living.salesSynergyMultiplier)
+        song.sales || 65_000,
+        Math.round((totalStreams / 380) * living.salesSynergyMultiplier)
       );
 
       const cover = song.cover || npcAvatar;
-      const isCollabTrack =
-        song.title.toLowerCase().includes('feat') ||
-        song.title.toLowerCase().includes('with') ||
-        (songSeed % 5 === 0 && sIdx === 1);
-      const collabPartner = isCollabTrack
-        ? REAL_WORLD_NPCS[(npcIdx + 3 + (songSeed % 7)) % REAL_WORLD_NPCS.length]?.name || 'Special Guest'
-        : '';
+      const titleLower = song.title.toLowerCase();
+      const isKnownRealCollab =
+        titleLower === 'apt.' ||
+        titleLower === 'die with a smile' ||
+        titleLower === 'luther' ||
+        titleLower.includes('feat') ||
+        titleLower.includes('with');
+
+      const isCollabTrack = isKnownRealCollab || (songSeed % 5 === 0 && sIdx === 1);
+
+      let collabPartner = '';
+      if (isCollabTrack) {
+        if (titleLower === 'apt.') {
+          collabPartner = 'Bruno Mars';
+        } else if (titleLower === 'die with a smile') {
+          collabPartner = npc.name.toLowerCase().includes('gaga') ? 'Bruno Mars' : 'Lady Gaga';
+        } else if (titleLower === 'luther') {
+          collabPartner = npc.name.toLowerCase().includes('kendrick') ? 'SZA' : 'Kendrick Lamar';
+        } else {
+          const candidatePartner =
+            REAL_WORLD_NPCS[(npcIdx + 3 + (songSeed % 7)) % REAL_WORLD_NPCS.length]?.name ||
+            'Bruno Mars';
+          collabPartner =
+            candidatePartner.toLowerCase() === npc.name.toLowerCase()
+              ? 'SZA'
+              : candidatePartner;
+        }
+      }
+
+      // Always use the full collaboration artist credit across song, video, and collab candidates!
+      const fullNpcSongArtist =
+        isCollabTrack && collabPartner && !npc.name.toLowerCase().includes(collabPartner.toLowerCase())
+          ? `${npc.name} & ${collabPartner}`
+          : npc.name;
 
       candidates.push({
         id: `npc_song_${npc.id}_${sIdx}`,
-        artistName: npc.name,
+        artistName: fullNpcSongArtist,
         isPlayer: false,
         avatar: npcAvatar,
         workTitle: song.title,
-        secondaryLabel: isCollabTrack ? `feat. ${collabPartner} · ${npcGenre}` : npcGenre,
+        secondaryLabel: isCollabTrack ? `Collaboration · ${npcGenre}` : npcGenre,
         coverArt: cover,
         genre: npcGenre,
         subjectType: 'song',
@@ -696,7 +1042,7 @@ function collectUnifiedCandidates(
 
       candidates.push({
         id: `npc_video_${npc.id}_${sIdx}`,
-        artistName: npc.name,
+        artistName: fullNpcSongArtist,
         isPlayer: false,
         avatar: npcAvatar,
         workTitle: song.title,
@@ -706,7 +1052,7 @@ function collectUnifiedCandidates(
         subjectType: 'video',
         isCollab: isCollabTrack,
         hasMV: true,
-        qualityScore: clamp100(trackQuality * 0.55 + living.skills.visuals * 0.45),
+        qualityScore: clamp100(trackQuality * 0.58 + living.skills.visuals * 0.42),
         craftMasteryScore: living.skills.visuals,
         streams: totalStreams,
         views: totalViews,
@@ -722,7 +1068,7 @@ function collectUnifiedCandidates(
       if (isCollabTrack) {
         candidates.push({
           id: `npc_collab_${npc.id}_${sIdx}`,
-          artistName: `${npc.name} & ${collabPartner}`,
+          artistName: fullNpcSongArtist,
           isPlayer: false,
           avatar: npcAvatar,
           workTitle: song.title,
@@ -758,17 +1104,17 @@ function collectUnifiedCandidates(
       const albWeeks = albChart?.weeks || Math.max(3, Math.min(48, Math.round(living.popularity / 3.5)));
 
       const albQuality = clamp100(
-        living.skills.overallMastery * 0.65 +
-          living.skills.production * 0.20 +
-          ((albSeed % 15) + 3)
+        living.skills.overallMastery * 0.70 +
+          living.skills.production * 0.22 +
+          ((albSeed % 14) + 5)
       );
       const albStreams = Math.max(
-        topAlbum.streams || 85_000_000,
-        Math.round(living.fans * (34 + (albSeed % 30)) * living.streamSynergyMultiplier)
+        topAlbum.streams || 125_000_000,
+        Math.round(living.fans * (42 + (albSeed % 34)) * living.streamSynergyMultiplier)
       );
       const albSales = Math.max(
-        topAlbum.sales || 120_000,
-        Math.round((albStreams / 320) * living.salesSynergyMultiplier)
+        topAlbum.sales || 165_000,
+        Math.round((albStreams / 290) * living.salesSynergyMultiplier)
       );
 
       candidates.push({
@@ -809,13 +1155,13 @@ function collectUnifiedCandidates(
       subjectType: 'artist',
       isCollab: false,
       hasMV: true,
-      qualityScore: clamp100(living.skills.overallMastery + ((seed % 11) - 4)),
+      qualityScore: clamp100(living.skills.overallMastery * 0.95 + ((seed % 9) - 2)),
       craftMasteryScore: living.skills.overallMastery,
-      streams: Math.round(living.fans * 48 * living.streamSynergyMultiplier),
-      views: Math.round(living.fans * 24 * living.youtubeViewSynergyMultiplier),
-      sales: Math.round(living.fans * 0.16 * living.salesSynergyMultiplier),
+      streams: Math.round(living.fans * 55 * living.streamSynergyMultiplier),
+      views: Math.round(living.fans * 28 * living.youtubeViewSynergyMultiplier),
+      sales: Math.round(living.fans * 0.20 * living.salesSynergyMultiplier),
       chartPeak: Math.max(1, Math.round(100 - living.popularity * 0.92)),
-      weeksOnChart: 18,
+      weeksOnChart: 20,
       popularity: living.popularity,
       hype: living.hype,
       fans: living.fans,
@@ -827,7 +1173,9 @@ function collectUnifiedCandidates(
 }
 
 /**
- * Evaluates a candidate's 0-100 sub-scores and weighted total for a specific category
+ * Evaluates a candidate's 0-100 sub-scores and weighted total for a specific category.
+ * Applies strict Recording Academy standards for GRAMMYs so nominations and wins
+ * require genuine critical excellence, chart longevity, and high commercial impact.
  */
 export function evaluateCandidateForCategory(
   candidate: UnifiedAwardCandidate,
@@ -835,60 +1183,116 @@ export function evaluateCandidateForCategory(
   playerCampaignBonus: number,
   editionYear: number
 ): NomineeScoreBreakdown {
-  const qualityAndCraft = clamp100(
-    candidate.qualityScore * 0.68 + candidate.craftMasteryScore * 0.32
-  );
+  const isGrammys = category.show === 'grammys';
 
-  let chartImpact = 32;
+  // 1. Quality & Craft Mastery:
+  // If a song/album has low intrinsic quality, high player skills cannot bail it out.
+  const effectiveCraft = Math.min(candidate.craftMasteryScore, candidate.qualityScore + 8);
+  let qualityAndCraft = clamp100(
+    candidate.qualityScore * 0.78 + effectiveCraft * 0.22
+  );
+  // Steep curve for GRAMMYs: Academy voters strongly favor 88+ acclaimed works
+  if (isGrammys) {
+    if (candidate.qualityScore >= 94) {
+      qualityAndCraft = clamp100(qualityAndCraft + 3.5);
+    } else if (candidate.qualityScore < 82) {
+      qualityAndCraft = clamp100(qualityAndCraft - (82 - candidate.qualityScore) * 0.85);
+    }
+  }
+
+  // 2. Chart Impact & Longevity:
+  // Strict penalty for non-charting releases so un-charted tracks can't easily sneak onto ballots.
+  let chartImpact = 18;
   if (candidate.chartPeak !== null && candidate.chartPeak > 0) {
     const peakPoints =
       candidate.chartPeak === 1
         ? 96
         : candidate.chartPeak <= 3
-        ? 91
+        ? 90
         : candidate.chartPeak <= 5
-        ? 86
+        ? 84
         : candidate.chartPeak <= 10
-        ? 80
-        : candidate.chartPeak <= 25
-        ? 68
-        : candidate.chartPeak <= 50
-        ? 55
-        : Math.max(35, 100 - candidate.chartPeak * 0.65);
-    const longevityBonus = Math.min(12, candidate.weeksOnChart * 0.45);
-    chartImpact = clamp100(peakPoints * 0.88 + longevityBonus);
+        ? 77
+        : candidate.chartPeak <= 20
+        ? 66
+        : candidate.chartPeak <= 40
+        ? 52
+        : Math.max(24, 90 - candidate.chartPeak * 0.72);
+    const longevityBonus = Math.min(15, candidate.weeksOnChart * 0.65);
+    chartImpact = clamp100(peakPoints * 0.85 + longevityBonus);
   } else {
-    const streamImplied = Math.min(72, Math.log10(Math.max(10_000, candidate.streams)) * 9.2);
+    // Never charted on Billboard: capped at 28 max even with streams
+    const streamImplied = Math.min(28, Math.log10(Math.max(10_000, candidate.streams)) * 3.8);
     chartImpact = clamp100(streamImplied);
   }
 
+  // 3. Commercial Volume (calibrated to real A-list industry milestones: 150M-300M+ streams)
   const streamLog = Math.log10(Math.max(1_000, candidate.streams));
   const salesLog = Math.log10(Math.max(100, candidate.sales));
-  const streamNorm = Math.min(100, Math.max(15, (streamLog - 4.2) * 18.5));
-  const salesNorm = Math.min(100, Math.max(15, (salesLog - 2.2) * 21.0));
+  const streamNorm = Math.min(100, Math.max(10, (streamLog - 5.0) * 26.5));
+  const salesNorm = Math.min(100, Math.max(10, (salesLog - 3.0) * 29.0));
   const commercialVolume = clamp100(streamNorm * 0.68 + salesNorm * 0.32);
 
+  // 4. Visual Velocity
   const viewsLog = Math.log10(Math.max(1_000, candidate.views));
   const visualVelocity = candidate.hasMV
-    ? clamp100(Math.min(100, Math.max(18, (viewsLog - 4.0) * 19.2)))
-    : clamp100(streamNorm * 0.45);
+    ? clamp100(Math.min(100, Math.max(12, (viewsLog - 4.8) * 25.5)))
+    : clamp100(streamNorm * 0.38);
 
+  // 5. Fanbase & Cultural Footprint
   const fanLog = Math.log10(Math.max(250, candidate.fans));
-  const fanNorm = Math.min(100, Math.max(18, (fanLog - 2.3) * 16.5));
+  const fanNorm = Math.min(100, Math.max(12, (fanLog - 3.0) * 20.5));
   const fanAndCulturalHype = clamp100(
-    candidate.popularity * 0.38 + candidate.hype * 0.34 + fanNorm * 0.28
+    candidate.popularity * 0.42 + candidate.hype * 0.30 + fanNorm * 0.28
   );
 
+  // 6. Balanced FYC / Voting Campaign Bonus:
+  // Money helps in tight races, but cannot buy a GRAMMY over superior A-list contenders
   let campaignBonus = 0;
   if (candidate.isPlayer) {
-    campaignBonus = playerCampaignBonus + (candidate.isPreferredByPlayer ? 1.8 : 0);
+    const rawCampaign = isGrammys ? playerCampaignBonus * 0.52 : playerCampaignBonus * 0.72;
+    const preferredBoost = candidate.isPreferredByPlayer ? (isGrammys ? 1.1 : 1.5) : 0;
+    campaignBonus = Math.min(isGrammys ? 5.2 : 6.8, rawCampaign + preferredBoost);
   } else {
     const npcSeed = hashSeed(`${candidate.id}_${category.id}_${editionYear}`);
-    campaignBonus = Number((((npcSeed % 38) / 10) * (candidate.popularity / 95)).toFixed(2));
+    const starBacking = candidate.tier === 1 ? 1.35 : candidate.tier === 2 ? 1.1 : 0.85;
+    campaignBonus = Number(
+      Math.min(6.2, (((npcSeed % 44) / 10) * (candidate.popularity / 88) * starBacking)).toFixed(2)
+    );
+  }
+
+  // 7. Recording Academy Screening Committee Strictness Penalty (for underperforming or low-craft submissions)
+  let screeningPenalty = 0;
+  if (isGrammys) {
+    if (category.isMajor) {
+      // Big Four (AOTY, ROTY, SOTY, BNA) require elite quality AND real commercial/chart footprint
+      if (candidate.qualityScore < 85) {
+        screeningPenalty += (85 - candidate.qualityScore) * 1.15;
+      }
+      if (candidate.streams < 18_000_000) {
+        screeningPenalty += 9.5;
+      }
+      if (candidate.chartPeak === null || candidate.chartPeak > 25) {
+        screeningPenalty += 6.5;
+      }
+    } else {
+      // Genre & Craft categories
+      if (candidate.qualityScore < 79) {
+        screeningPenalty += (79 - candidate.qualityScore) * 0.95;
+      }
+      if (candidate.streams < 4_500_000) {
+        screeningPenalty += 7.0;
+      }
+    }
+  } else {
+    // MTV VMAs require strong visual/streaming presence
+    if (candidate.views < 3_500_000 && candidate.streams < 6_000_000) {
+      screeningPenalty += 8.0;
+    }
   }
 
   const jurySeed = hashSeed(`${candidate.id}::${category.id}::${editionYear}`);
-  const juryVariance = ((jurySeed % 37) - 18) * 0.1;
+  const juryVariance = ((jurySeed % 45) - 22) * 0.12;
 
   const baseWeighted =
     qualityAndCraft * category.weights.qualityAndCraft +
@@ -898,7 +1302,7 @@ export function evaluateCandidateForCategory(
     fanAndCulturalHype * category.weights.fanAndCulturalHype;
 
   const finalWeightedScore = Number(
-    Math.max(15, baseWeighted + campaignBonus + juryVariance).toFixed(2)
+    Math.max(12, baseWeighted + campaignBonus + juryVariance - screeningPenalty).toFixed(2)
   );
 
   return {
@@ -914,8 +1318,10 @@ export function evaluateCandidateForCategory(
 
 /**
  * Generates a full season of Nominations & Winners for a given show and year.
- * IMPORTANT: Nominees are ordered alphabetically by title/artist on the ballot so
- * the winner's position is never spoiled before the envelope is opened!
+ * IMPORTANT:
+ * - Strict 1 entry per artist (including collaborators!) per category.
+ * - Nominees are ordered alphabetically by title/artist on the ballot so
+ *   the winner's position is never spoiled before the envelope is opened!
  */
 export function simulateAwardSeason(
   state: GameState,
@@ -957,25 +1363,51 @@ export function simulateAwardSeason(
     tallyMap.set(key, existing);
   };
 
+  const maxNomineesPerCat = AWARD_CALENDAR_CONFIG[show].nomineesPerCategory;
+
   categories.forEach(cat => {
+    const isSoloCategory = cat.id.includes('solo');
+    const isCollabCategory = cat.subjectType === 'collab';
+
     let pool = allCandidates.filter(c => {
-      if (cat.subjectType === 'collab') {
-        return c.subjectType === 'collab' || c.isCollab;
+      if (isCollabCategory) {
+        return c.subjectType === 'collab';
       }
       if (c.subjectType !== cat.subjectType) return false;
+      if (isSoloCategory && c.isCollab) return false;
       if (cat.id.endsWith('_bna')) {
         return c.tier >= 2 || c.isPlayer || c.popularity <= 88;
       }
       return doesGenreMatchCategory(c.genre, cat);
     });
 
-    if (pool.length < 6) {
-      pool = allCandidates.filter(c => c.subjectType === (cat.subjectType === 'collab' ? 'song' : cat.subjectType));
-    }
+    // Fallback pool if genre-specific pool has fewer than 12 candidates
+    const fallbackPool = allCandidates.filter(c => {
+      if (isCollabCategory) return c.subjectType === 'collab';
+      if (isSoloCategory && c.isCollab) return false;
+      return c.subjectType === cat.subjectType;
+    });
 
-    const scored = pool.map(c => {
+    const combinedCandidates = [...pool];
+    const seenCandidateIds = new Set(pool.map(c => c.id));
+    fallbackPool.forEach(c => {
+      if (!seenCandidateIds.has(c.id)) {
+        seenCandidateIds.add(c.id);
+        combinedCandidates.push(c);
+      }
+    });
+
+    const scored = combinedCandidates.map((c, idx) => {
       const breakdown = evaluateCandidateForCategory(c, cat, playerCampaign, editionYear);
-      const nominee: AwardNominee = {
+      // Slight priority to primary genre matches over fallback pool
+      const isPrimaryGenreMatch = idx < pool.length;
+      const adjustedBreakdown = isPrimaryGenreMatch
+        ? breakdown
+        : {
+            ...breakdown,
+            finalWeightedScore: Number(Math.max(10, breakdown.finalWeightedScore - 8).toFixed(2))
+          };
+      const nominee: AwardNominee = normalizeNomineeCollabCredit({
         id: `${cat.id}_${c.id}`,
         artistName: c.artistName,
         isPlayer: c.isPlayer,
@@ -987,26 +1419,34 @@ export function simulateAwardSeason(
         views: c.views,
         sales: c.sales,
         chartPeak: c.chartPeak,
-        scoreBreakdown: breakdown,
+        scoreBreakdown: adjustedBreakdown,
         isWinner: false
-      };
+      });
       return nominee;
     });
 
     scored.sort((a, b) => b.scoreBreakdown.finalWeightedScore - a.scoreBreakdown.finalWeightedScore);
 
     const topNominees: AwardNominee[] = [];
-    const artistCountInCat = new Map<string, number>();
+    const usedArtistsInCat = new Set<string>();
+    const usedWorksInCat = new Set<string>();
 
     for (const nom of scored) {
-      if (topNominees.length >= AWARD_CALENDAR_CONFIG[show].nomineesPerCategory) break;
-      const aKey = nom.artistName.toLowerCase();
-      const currentCount = artistCountInCat.get(aKey) || 0;
-      const maxAllowed = 1;
-      if (currentCount < maxAllowed) {
-        topNominees.push(nom);
-        artistCountInCat.set(aKey, currentCount + 1);
-      }
+      if (topNominees.length >= maxNomineesPerCat) break;
+      const workKey = (nom.workTitle || '').trim().toLowerCase();
+      const artistKeys = extractIndividualArtistsFromNominee(
+        nom.artistName,
+        nom.secondaryLabel
+      );
+
+      if (!workKey || artistKeys.length === 0) continue;
+      // Strict check: neither the song/work nor ANY participating artist (solo or collab partner) can appear twice in 1 category!
+      if (usedWorksInCat.has(workKey)) continue;
+      if (artistKeys.some(k => usedArtistsInCat.has(k))) continue;
+
+      topNominees.push(nom);
+      usedWorksInCat.add(workKey);
+      artistKeys.forEach(k => usedArtistsInCat.add(k));
     }
 
     if (topNominees.length === 0) return;
@@ -1335,10 +1775,11 @@ export function getArtistTrophyRoomSummary(
     const isCompleted = season.phase === 'ceremony_completed';
     season.categories.forEach(cat => {
       cat.nominees.forEach(nom => {
-        const nomPrimary = nom.artistName.split(' & ')[0].split(' feat.')[0].trim();
-        const matchesArtist =
-          nomPrimary.toLowerCase() === artistName.toLowerCase() ||
-          nom.artistName.toLowerCase().includes(artistName.toLowerCase());
+        const participatingArtists = extractIndividualArtistsFromNominee(
+          nom.artistName,
+          nom.secondaryLabel
+        );
+        const matchesArtist = participatingArtists.includes(artistName.trim().toLowerCase());
 
         if (!matchesArtist) return;
 

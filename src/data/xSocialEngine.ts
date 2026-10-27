@@ -8,6 +8,7 @@
 import { GameState } from '../types';
 import { formatNumFull } from '../constants';
 import { generateDailyTweetsForNewDay, getInitialFeedTweets } from './xIndustryFeedEngine';
+import type { XVisualCardPayload } from './xRichVisualTweetsEngine';
 
 export interface XQuoteTweet {
   authorName: string;
@@ -33,6 +34,7 @@ export interface XPost {
   mediaBadge?: string;
   mediaTitle?: string;
   mediaSubtitle?: string;
+  visualCard?: XVisualCardPayload;
   quoteTweet?: XQuoteTweet;
   likes: number;
   reposts: number;

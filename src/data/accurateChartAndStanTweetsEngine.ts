@@ -14,6 +14,8 @@ import { resolveSongMetadataAndCollabCredits } from './spotifyTrackMetadataAndCo
 import { generateCatalogAndLivingStanTweets } from './catalogAndLivingStanTweetsEngine';
 import { generateExpandedPublicationAndFanTweets } from './xAccountAvatarsAndMoreTweetsEngine';
 import { generateMegaViralAndCommunityTweets } from './megaViralAndCommunityTweetsEngine';
+import { generateRichVisualXFeedTweets } from './xRichVisualTweetsEngine';
+import { generatePitchforkAndMetacriticXPosts } from './pitchforkAndMetacriticEngine';
 
 const BRAND_AVATARS = {
   chartdata: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&q=80',
@@ -537,11 +539,12 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
         daysOld: 0
       });
     }
-      // Append rich catalog, older-song longevity, multi-song leaderboard, publication reviews, and expressive Stan Twitter tweets!
+      const richVisualTweets = generateRichVisualXFeedTweets(state);
+      const criticsAndMetaTweets = generatePitchforkAndMetacriticXPosts(state);
       const catalogAndLivingTweets = generateCatalogAndLivingStanTweets(state);
       const publicationAndFanTweets = generateExpandedPublicationAndFanTweets(state);
       const megaViralTweets = generateMegaViralAndCommunityTweets(state);
-      tweets.push(...catalogAndLivingTweets, ...publicationAndFanTweets, ...megaViralTweets);
+      tweets.push(...richVisualTweets, ...criticsAndMetaTweets, ...catalogAndLivingTweets, ...publicationAndFanTweets, ...megaViralTweets);
   } else {
     // Player hasn't released a song yet: report real follower/fanbase growth & active NPC drops!
     const topGlobalItem = state.spotify?.charts?.['daily_global']?.[0];
@@ -555,7 +558,7 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
       category: 'fanbase',
       timeAgo: 'Just now',
       dateCreated: dateStr,
-      content: `📊 PRE-DEBUT ARTIST TELEMETRY (${dateStr}):\n\n• Dedicated Fans: ${formatNumFull(state.fans || 250)}\n• Popularity Index: ${(state.popularity || 0).toFixed(1)}%\n• Hype & Buzz: ${(state.hype || 0).toFixed(1)}%\n• Primary Industry Rival: ${rivalState.rivalName} (${rivalState.beefStatusLabel})`,
+      content: `📊 PRE-DEBUT ARTIST TELEMETRY (${dateStr}):\n\n• Dedicated Fans: ${formatNumFull(state.fans || 250)}\n• Popularity Index: ${(state.popularity || 0).toFixed(1)}%\n• Hype & Buzz: ${(state.hype || 0).toFixed(1)}%\n• Industry Rivalry Status: ${rivalState.hasActiveRival ? `${rivalState.rivalName} (${rivalState.beefStatusLabel})` : 'No active feuds'}`,
       image: artistAvatar,
       mediaBadge: 'ARTIST TELEMETRY',
       likes: Math.max(240, Math.round(followers * 0.04)),
@@ -589,8 +592,9 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
       });
     }
 
+    const preDebutVisualTweets = generateRichVisualXFeedTweets(state);
     const preDebutMegaTweets = generateMegaViralAndCommunityTweets(state);
-    tweets.push(...preDebutMegaTweets);
+    tweets.push(...preDebutVisualTweets, ...preDebutMegaTweets);
   }
 
   return tweets;

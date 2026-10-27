@@ -23,6 +23,10 @@ import { ProjectStreamSnapshotModal } from '../Modals/ProjectStreamSnapshotModal
 import { ChartMovementBadge } from '../Common/ChartMovementBadge';
 import { SpotifyTrackSubRow } from '../Common/SpotifyTrackSubRow';
 import { resolveSongMetadataAndCollabCredits } from '../../data/spotifyTrackMetadataAndCollabEngine';
+import {
+  SpotifyPlaylistPitchModal,
+  SpotifyPlaylistAnalyticsHubModal
+} from './SpotifyPlaylistPitchingHub';
 
 export default function SpotifyApp() {
   const { state, setState } = useGameContext();
@@ -31,6 +35,7 @@ export default function SpotifyApp() {
   const [selectedPlaylist, setSelectedPlaylist] = useState<any>(null);
   const [selectedNpc, setSelectedNpc] = useState<DetailedNPC | null>(null);
   const [pitchModal, setPitchModal] = useState<string | null>(null);
+  const [showPlaylistHub, setShowPlaylistHub] = useState<boolean>(false);
   const [editorialResult, setEditorialResult] = useState<EditorialReviewResult | null>(null);
   const [snapshotItem, setSnapshotItem] = useState<any>(null);
   const [chartRegion, setChartRegion] = useState<string>('global');
@@ -160,6 +165,7 @@ export default function SpotifyApp() {
           onOpenPlayerProfile={() => setActiveTab('profile')}
           onOpenCharts={() => setActiveTab('chart')}
           onSelectPlayerRelease={setSelectedRelease}
+          onOpenPlaylistHub={() => setShowPlaylistHub(true)}
         />
       </div>
   );
@@ -169,7 +175,7 @@ export default function SpotifyApp() {
       const rawTracks = state.spotify.playlists?.[pl.id];
       const tracks = (rawTracks && rawTracks.length > 0)
         ? rawTracks
-        : (generateCuratedSpotifyPlaylists(state.songs, state.artist?.name || '')[pl.id] || []);
+        : (generateCuratedSpotifyPlaylists(state.songs, state.artist?.name || '', state.popularity || 30)[pl.id] || []);
       
       let bgGrad = 'from-zinc-800 via-[#181818] to-[#121212]';
       let coverGrad = pl.gradient || 'from-gray-700 to-gray-900';
@@ -232,18 +238,22 @@ export default function SpotifyApp() {
             </div>
             
             {/* Authentic Spotify Playlist Action Bar */}
-            <div className="px-4 py-3 relative z-10 flex justify-between items-center">
-               <div className="flex items-center space-x-5">
+            <div className="px-4 py-3 relative z-10 flex justify-between items-center border-b border-white/5">
+               <div className="flex items-center space-x-2.5">
                   <button 
                      onClick={() => setPitchModal(pl.id)}
-                     className="bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-xs px-4 py-2 rounded-full active:scale-95 transition flex items-center space-x-1.5 cursor-pointer"
+                     className="bg-[#1DB954] hover:bg-[#1ed760] text-black font-black text-xs px-4 py-2 rounded-full active:scale-95 transition flex items-center space-x-1.5 cursor-pointer shadow"
                   >
-                     <i className="ph-bold ph-paper-plane-tilt text-[#1DB954]"></i>
+                     <i className="ph-bold ph-paper-plane-tilt"></i>
                      <span>Pitch Song</span>
                   </button>
-                  <i className="ph ph-plus-circle text-2xl text-[#A7A7A7] hover:text-white transition cursor-pointer"></i>
-                  <i className="ph ph-arrow-circle-down text-2xl text-[#A7A7A7] hover:text-white transition cursor-pointer"></i>
-                  <i className="ph ph-dots-three text-2xl text-[#A7A7A7] hover:text-white transition cursor-pointer"></i>
+                  <button
+                     onClick={() => setShowPlaylistHub(true)}
+                     className="bg-white/10 hover:bg-white/20 border border-white/15 text-white font-bold text-xs px-3.5 py-2 rounded-full active:scale-95 transition flex items-center space-x-1.5 cursor-pointer"
+                  >
+                     <i className="ph-fill ph-playlist text-[#1DB954]"></i>
+                     <span>Playlist Hub</span>
+                  </button>
                </div>
                <div className="flex items-center space-x-3">
                   <i className="ph-fill ph-shuffle text-xl text-[#1DB954]"></i>
@@ -253,8 +263,9 @@ export default function SpotifyApp() {
                </div>
             </div>
             
-            <div className="px-4 relative z-10 space-y-1">
+            <div className="px-3 pt-2 relative z-10 space-y-1">
                {tracks.length > 0 ? tracks.map((item: any, idx: number) => {
+                  const rank = idx + 1;
                   const meta = resolveSongMetadataAndCollabCredits(item, item.artist, state);
                   const displayArtist = meta.primaryArtist;
                   const displayTitle = meta.cleanTitle;
@@ -270,18 +281,44 @@ export default function SpotifyApp() {
                           if (npcObj) setSelectedNpc(npcObj);
                         }
                       }}
-                      className="flex items-center py-2 px-1.5 rounded-md hover:bg-white/10 transition group cursor-pointer"
+                      className={`flex items-center py-2 px-2 rounded-lg hover:bg-white/10 transition group cursor-pointer ${
+                        item.isPlayer ? 'bg-[#1DB954]/10 ring-1 ring-[#1DB954]/30' : ''
+                      }`}
                     >
-                       <OfficialArtworkImg
-                          artist={displayArtist}
-                          title={displayTitle}
-                          explicitSrc={item.cover}
-                          isPlayer={item.isPlayer}
-                          alt={displayTitle}
-                          className="w-12 h-12 bg-[#282828] rounded-[4px] shrink-0 object-cover shadow"
-                       />
+                       <div className="w-7 text-center shrink-0 mr-1.5 tabular-nums">
+                          <span className={`text-xs font-bold ${rank === 1 ? 'text-amber-400 font-black' : item.isPlayer ? 'text-[#1DB954] font-black' : 'text-[#A7A7A7]'}`}>
+                            {rank}
+                          </span>
+                       </div>
+                       <div className="relative shrink-0">
+                         <OfficialArtworkImg
+                            artist={displayArtist}
+                            title={displayTitle}
+                            explicitSrc={item.cover}
+                            isPlayer={item.isPlayer}
+                            alt={displayTitle}
+                            className="w-12 h-12 bg-[#282828] rounded-[4px] shrink-0 object-cover shadow"
+                         />
+                         {rank === 1 && (
+                           <span className="absolute -top-1 -left-1 bg-amber-400 text-black text-[8px] font-black px-1 rounded-sm shadow">
+                             ★1
+                           </span>
+                         )}
+                       </div>
                        <div className="ml-3 flex-1 min-w-0 pr-2">
-                          <h4 className={`font-semibold text-[15px] truncate ${item.isPlayer ? 'text-[#1DB954]' : 'text-white'}`}>{displayTitle}</h4>
+                          <div className="flex items-center space-x-1.5">
+                            <h4 className={`font-semibold text-[14px] truncate ${item.isPlayer ? 'text-[#1DB954]' : 'text-white'}`}>{displayTitle}</h4>
+                            {rank === 1 && (
+                              <span className="text-[8px] font-black uppercase bg-amber-400/20 text-amber-300 border border-amber-400/40 px-1 py-0.2 rounded shrink-0">
+                                Cover Star
+                              </span>
+                            )}
+                            {item.isPlayer && (
+                              <span className="text-[8px] font-black uppercase bg-[#1DB954] text-black px-1 py-0.2 rounded shrink-0">
+                                YOU
+                              </span>
+                            )}
+                          </div>
                           <SpotifyTrackSubRow
                             songOrItem={item}
                             fallbackArtistName={displayArtist}
@@ -1066,7 +1103,27 @@ export default function SpotifyApp() {
       )}
 
       {selectedNpc && <SpotifyNpcArtistProfileView npc={selectedNpc} onClose={() => setSelectedNpc(null)} />}
-      {pitchModal && renderPitchModal()}
+      {pitchModal && (
+        <SpotifyPlaylistPitchModal
+          playlistId={pitchModal}
+          state={state}
+          onClose={() => setPitchModal(null)}
+          onPitchSong={handlePitch}
+          onExitPlaylist={handleExitPlaylist}
+        />
+      )}
+      {showPlaylistHub && (
+        <SpotifyPlaylistAnalyticsHubModal
+          state={state}
+          onClose={() => setShowPlaylistHub(false)}
+          onOpenPlaylist={(pl) => setSelectedPlaylist(pl)}
+          onOpenPitchModal={(plId) => {
+            setShowPlaylistHub(false);
+            setPitchModal(plId);
+          }}
+          onExitPlaylist={handleExitPlaylist}
+        />
+      )}
       {editorialResult && renderEditorialDecisionModal()}
       {snapshotItem && (
         <ProjectStreamSnapshotModal

@@ -26,7 +26,15 @@ export default function AppsTab() {
       name: "Charts & Analytics",
       apps: [
         { id: 'billboard', name: 'Billboard', icon: 'ph-fill ph-chart-bar', color: 'text-blue-500', bg: 'bg-blue-500/10' },
+        { id: 'radio', name: 'Radio Airplay', icon: 'ph-fill ph-broadcast', color: 'text-sky-400', bg: 'bg-[#0A0D14]' },
         { id: 'statistic', name: 'Statistic', icon: 'ph-fill ph-trend-up', color: 'text-violet-500', bg: 'bg-violet-500/10' },
+      ]
+    },
+    {
+      name: "Music Press & Critics",
+      apps: [
+        { id: 'pitchfork', name: 'Pitchfork', icon: 'ph-fill ph-newspaper-clipping', color: 'text-[#FF3530]', bg: 'bg-[#0A0A0A]' },
+        { id: 'metacritic', name: 'Metacritic', icon: 'ph-fill ph-seal-check', color: 'text-[#FFBD3F]', bg: 'bg-[#111318]' },
       ]
     },
     {

@@ -39,11 +39,13 @@ export interface ActiveRivalCounterRelease {
 export interface BeefHistoryEvent {
   id: string;
   date: string;
-  type: 'counter_drop' | 'diss_tweet' | 'chart_win' | 'fan_rally' | 'rival_switch';
+  type: 'counter_drop' | 'diss_tweet' | 'chart_win' | 'fan_rally' | 'rival_switch' | 'chart_clash';
   text: string;
 }
 
 export interface RivalSystemState {
+  hasActiveRival: boolean;
+  rivalryOriginReason: string;
   rivalNpcId: string;
   rivalName: string;
   rivalHandle: string;
@@ -54,6 +56,7 @@ export interface RivalSystemState {
   rivalHype: number;
   beefHeat: number; // 0 to 100
   beefStatusLabel:
+    | 'No Active Rivalry'
     | 'Competitive Rivalry'
     | 'Subliminal Shade'
     | 'Active Chart War'
@@ -67,8 +70,10 @@ export interface RivalSystemState {
 }
 
 export function getBeefStatusLabel(
-  heat: number
+  heat: number,
+  hasActiveRival = true
 ): RivalSystemState['beefStatusLabel'] {
+  if (!hasActiveRival || heat <= 0) return 'No Active Rivalry';
   if (heat >= 80) return 'All-Out Industry Beef';
   if (heat >= 55) return 'Active Chart War';
   if (heat >= 30) return 'Subliminal Shade';
@@ -91,7 +96,7 @@ function selectDefaultRivalNpc(state: GameState) {
 
   const pool = genreMatches.length >= 3 ? genreMatches : eligibleNpcs;
   // Sort by closeness to player popularity (or top stars if player is high pop)
-  const targetPop = Math.max(78, Math.min(98, playerPop + 15));
+  const targetPop = Math.max(65, Math.min(96, playerPop + 15));
   const sorted = [...pool].sort(
     (a, b) => Math.abs((a.pop || 85) - targetPop) - Math.abs((b.pop || 85) - targetPop)
   );
@@ -103,59 +108,62 @@ export function getEnsuredRivalState(state: GameState): RivalSystemState {
   const existing = (state as any).rivalState as RivalSystemState | undefined;
   const playerName = state.artist?.name || '';
 
-  if (
-    existing &&
-    existing.rivalNpcId &&
-    !isNpcMatchingPlayerName(existing.rivalName, playerName)
-  ) {
-    const liveNpc = REAL_WORLD_NPCS.find(
-      n => n.id === existing.rivalNpcId || n.name.toLowerCase() === existing.rivalName.toLowerCase()
-    );
-    const portrait =
-      getVerifiedSpotifyNpcPortrait(existing.rivalName) ||
-      liveNpc?.avatar ||
-      existing.rivalAvatar;
+  if (existing) {
+    // Check if this save genuinely had an active rivalry or was just the old Day-1 placeholder
+    const hadRealHistory =
+      existing.hasActiveRival === true ||
+      (existing.hasActiveRival === undefined &&
+        ((existing.chartBlocksTriggered || 0) > 0 ||
+          (existing.playerChartWins || 0) > 0 ||
+          (existing.rivalChartWins || 0) > 0 ||
+          Boolean(existing.activeCounterRelease) ||
+          (existing.beefHistoryLog || []).some(e => e.id !== 'init-beef-1')));
 
-    return {
-      ...existing,
-      rivalAvatar: portrait,
-      beefStatusLabel: getBeefStatusLabel(existing.beefHeat || 45)
-    };
+    if (
+      hadRealHistory &&
+      existing.rivalNpcId &&
+      !isNpcMatchingPlayerName(existing.rivalName, playerName)
+    ) {
+      const liveNpc = REAL_WORLD_NPCS.find(
+        n => n.id === existing.rivalNpcId || n.name.toLowerCase() === existing.rivalName.toLowerCase()
+      );
+      const portrait =
+        getVerifiedSpotifyNpcPortrait(existing.rivalName) ||
+        liveNpc?.avatar ||
+        existing.rivalAvatar;
+
+      return {
+        ...existing,
+        hasActiveRival: true,
+        rivalryOriginReason:
+          existing.rivalryOriginReason ||
+          `Ignited from direct chart & release competition against ${existing.rivalName}.`,
+        rivalAvatar: portrait,
+        beefStatusLabel: getBeefStatusLabel(existing.beefHeat || 45, true)
+      };
+    }
   }
 
-  const chosen = selectDefaultRivalNpc(state);
-  const portrait =
-    getVerifiedSpotifyNpcPortrait(chosen.name) ||
-    chosen.avatar ||
-    chosen.image ||
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80';
-  const cleanHandle = `@${chosen.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
-  const dateStr = state.date ? state.date.split('T')[0] : '2026-01-01';
-
   return {
-    rivalNpcId: chosen.id,
-    rivalName: chosen.name,
-    rivalHandle: cleanHandle,
-    rivalAvatar: portrait,
-    rivalGenre: chosen.genre || 'Pop',
-    rivalCountry: chosen.country || 'US',
-    rivalPop: chosen.pop || 88,
-    rivalHype: chosen.hype || 84,
-    beefHeat: 48,
-    beefStatusLabel: 'Subliminal Shade',
+    hasActiveRival: false,
+    rivalryOriginReason: '',
+    rivalNpcId: '',
+    rivalName: '',
+    rivalHandle: '',
+    rivalAvatar: '',
+    rivalGenre: '',
+    rivalCountry: '',
+    rivalPop: 0,
+    rivalHype: 0,
+    beefHeat: 0,
+    beefStatusLabel: 'No Active Rivalry',
     playerChartWins: 0,
     rivalChartWins: 0,
     chartBlocksTriggered: 0,
-    lastBeefHeadline: `Industry insiders report growing chart tension between ${playerName || 'you'} and ${chosen.name} ahead of upcoming releases.`,
+    lastBeefHeadline:
+      'No active industry feud. Rivalries begin naturally when your music clashes with another artist on the charts, collides on release day, or when you call an artist out on X.',
     activeCounterRelease: null,
-    beefHistoryLog: [
-      {
-        id: 'init-beef-1',
-        date: dateStr,
-        type: 'diss_tweet',
-        text: `${chosen.name} liked a shady post comparing their streaming longevity to ${playerName || 'your catalog'}.`
-      }
-    ]
+    beefHistoryLog: []
   };
 }
 
@@ -173,7 +181,7 @@ export function injectRivalCounterReleaseIntoNpcCatalog(state?: GameState) {
   const rivalState =
     (state ? ((state as any).rivalState as RivalSystemState | undefined) : undefined) ||
     latestCachedRivalState;
-  if (!rivalState || !rivalState.activeCounterRelease) return;
+  if (!rivalState || !rivalState.hasActiveRival || !rivalState.activeCounterRelease) return;
 
   const counter = rivalState.activeCounterRelease;
   const targetNpc = REAL_WORLD_NPCS.find(
@@ -302,7 +310,8 @@ function pickRivalCounterReleaseMeta(
 
 /**
  * Triggered immediately when the player releases a Single or Project (`EnhancedReleaseModal`).
- * The Rival NPC drops a surprise counter-release on the exact same day to try to block the player on the charts!
+ * Only triggers a surprise counter-release if the player ALREADY has an active rival, OR if the player
+ * has already built real chart stature and a threatened peer NPC sparks a feud over the same-day release date.
  */
 export function triggerRivalCounterReleaseOnPlayerDrop(
   state: GameState,
@@ -310,16 +319,62 @@ export function triggerRivalCounterReleaseOnPlayerDrop(
   playerReleaseKind: 'single' | 'project',
   estimatedPlayerFirstDayStreams: number
 ): {
+  didTriggerCounterDrop: boolean;
   updatedRivalState: RivalSystemState;
   counterDropTweets: XPost[];
   headlineAlert: string;
 } {
-  const currentRival = getEnsuredRivalState(state);
+  let currentRival = getEnsuredRivalState(state);
   const playerProfile = getEnsuredXProfile(state);
   const playerName = playerProfile.name;
   const playerHandle = playerProfile.handle.replace(/^@/, '');
   const dateStr = state.date ? state.date.split('T')[0] : '2026-01-01';
   const timestamp = Date.now();
+
+  // If the player does NOT have an active rival yet, do not randomly counter-block a new/rising artist!
+  // Only ignite a release-collision rivalry if the player already has established chart clout & prior releases.
+  if (!currentRival.hasActiveRival) {
+    const priorReleases = (state.songs || []).filter(
+      s => s.status === 'released' && s.title !== playerReleaseTitle
+    ).length;
+    const hasMajorMomentum =
+      priorReleases >= 2 &&
+      ((state.popularity || 0) >= 32 || estimatedPlayerFirstDayStreams >= 380000);
+
+    if (!hasMajorMomentum) {
+      return {
+        didTriggerCounterDrop: false,
+        updatedRivalState: currentRival,
+        counterDropTweets: [],
+        headlineAlert: ''
+      };
+    }
+
+    // Player is a major chart force: a threatened same-genre peer steps up on release day, creating the cause of rivalry!
+    const chosen = selectDefaultRivalNpc(state);
+    const portrait =
+      getVerifiedSpotifyNpcPortrait(chosen.name) ||
+      chosen.avatar ||
+      chosen.image ||
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80';
+    const cleanHandle = `@${chosen.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
+    currentRival = {
+      ...currentRival,
+      hasActiveRival: true,
+      rivalryOriginReason: `Release Day Collision: Ignited when ${chosen.name} surprise-dropped on the exact same day as "${playerReleaseTitle}" to defend their chart spot.`,
+      rivalNpcId: chosen.id,
+      rivalName: chosen.name,
+      rivalHandle: cleanHandle,
+      rivalAvatar: portrait,
+      rivalGenre: chosen.genre || 'Pop',
+      rivalCountry: chosen.country || 'US',
+      rivalPop: chosen.pop || 85,
+      rivalHype: chosen.hype || 82,
+      beefHeat: 45,
+      beefStatusLabel: 'Subliminal Shade'
+    };
+  }
 
   const meta = pickRivalCounterReleaseMeta(
     currentRival.rivalNpcId,
@@ -329,7 +384,6 @@ export function triggerRivalCounterReleaseOnPlayerDrop(
   );
 
   // Calibrate Rival's counter-drop opening streams so it creates a realistic, neck-and-neck chart battle!
-  // Scales dynamically with both the Rival's stature and the player's expected debut velocity (between 88% and 112% of player's pace)
   const npcBasePower = Math.max(
     180000,
     Math.floor(3200000 * Math.pow(Math.max(40, currentRival.rivalPop) / 100, 2.7))
@@ -371,9 +425,13 @@ export function triggerRivalCounterReleaseOnPlayerDrop(
 
   const updatedRivalState: RivalSystemState = {
     ...currentRival,
+    hasActiveRival: true,
+    rivalryOriginReason:
+      currentRival.rivalryOriginReason ||
+      `Release Day Collision: Ignited when ${currentRival.rivalName} surprise-dropped "${meta.title}" on the same day as "${playerReleaseTitle}".`,
     rivalHype: Math.min(100, currentRival.rivalHype + 8),
     beefHeat: nextHeat,
-    beefStatusLabel: getBeefStatusLabel(nextHeat),
+    beefStatusLabel: getBeefStatusLabel(nextHeat, true),
     chartBlocksTriggered: (currentRival.chartBlocksTriggered || 0) + 1,
     lastBeefHeadline: headlineAlert,
     activeCounterRelease: counterRelease,
@@ -458,6 +516,7 @@ export function triggerRivalCounterReleaseOnPlayerDrop(
   ];
 
   return {
+    didTriggerCounterDrop: true,
     updatedRivalState,
     counterDropTweets,
     headlineAlert
@@ -466,6 +525,7 @@ export function triggerRivalCounterReleaseOnPlayerDrop(
 
 /**
  * Advances the Rival's counter-release metrics and head-to-head chart battle score every day.
+ * If the player does not have a rival yet, checks if an organic chart collision/overtake occurs!
  */
 export function processDailyRivalSystemStep(state: GameState): RivalSystemState {
   const rival = getEnsuredRivalState(state);
@@ -473,6 +533,76 @@ export function processDailyRivalSystemStep(state: GameState): RivalSystemState 
 
   const releasedPlayerSongs = (state.songs || []).filter(s => s.status === 'released');
   const latestPlayerSong = releasedPlayerSongs[releasedPlayerSongs.length - 1];
+
+  // If the player has NO active rival yet, check for an organic cause of rivalry (Chart Clash / Overtake)
+  if (!rival.hasActiveRival) {
+    if (!latestPlayerSong) {
+      return rival;
+    }
+
+    const pDaily = latestPlayerSong.dailyStreams || 0;
+    const playerPop = state.popularity || 0;
+    // A song needs meaningful chart velocity before established artists take notice and start beefing
+    if (pDaily < 65000 && (playerPop < 22 || pDaily < 35000)) {
+      return rival;
+    }
+
+    const playerName = state.artist?.name || 'You';
+    const playerGenre = ((state.artist as any)?.genre || 'Pop').toLowerCase().split('/')[0].trim();
+
+    // Find an NPC whose active song is in a tight chart battle with the player's song
+    const clashingNpc = REAL_WORLD_NPCS.find(npc => {
+      if (isNpcMatchingPlayerName(npc.name, playerName)) return false;
+      const topSong = npc.songs?.[0];
+      if (!topSong) return false;
+      const npcDaily = topSong.dailyStreams || Math.floor((topSong.streams || 140000) / 14);
+      const ratio = pDaily / Math.max(1, npcDaily);
+      const isSameGenre = (npc.genre || '').toLowerCase().includes(playerGenre);
+      // Trigger when player's daily streams are neck-and-neck with or overtaking the NPC's song
+      return isSameGenre ? ratio >= 0.78 && ratio <= 1.45 : ratio >= 0.9 && ratio <= 1.25;
+    });
+
+    if (!clashingNpc) {
+      return rival;
+    }
+
+    const clashingSongTitle = clashingNpc.songs?.[0]?.title || 'their latest single';
+    const portrait =
+      getVerifiedSpotifyNpcPortrait(clashingNpc.name) ||
+      clashingNpc.avatar ||
+      clashingNpc.image ||
+      '';
+    const cleanHandle = `@${clashingNpc.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    const originReason = `Chart Clash: Ignited when your release "${latestPlayerSong.title}" (${formatNumFull(pDaily)}/d) collided with ${clashingNpc.name}'s "${clashingSongTitle}" on the daily charts.`;
+
+    return {
+      hasActiveRival: true,
+      rivalryOriginReason: originReason,
+      rivalNpcId: clashingNpc.id,
+      rivalName: clashingNpc.name,
+      rivalHandle: cleanHandle,
+      rivalAvatar: portrait,
+      rivalGenre: clashingNpc.genre || 'Pop',
+      rivalCountry: clashingNpc.country || 'US',
+      rivalPop: clashingNpc.pop || 84,
+      rivalHype: clashingNpc.hype || 80,
+      beefHeat: 46,
+      beefStatusLabel: 'Subliminal Shade',
+      playerChartWins: 1,
+      rivalChartWins: 0,
+      chartBlocksTriggered: 0,
+      lastBeefHeadline: `🔥 NEW RIVALRY IGNITED: ${clashingNpc.name} threw shade on X after your track "${latestPlayerSong.title}" clashed with "${clashingSongTitle}" on the charts!`,
+      activeCounterRelease: null,
+      beefHistoryLog: [
+        {
+          id: `clash-${Date.now()}`,
+          date: dateStr,
+          type: 'chart_clash',
+          text: `${originReason} ${clashingNpc.name} reacted to fan comparisons on X, kicking off an official chart rivalry!`
+        }
+      ]
+    };
+  }
 
   let updatedCounter = rival.activeCounterRelease ? { ...rival.activeCounterRelease } : null;
   let playerWins = rival.playerChartWins || 0;
@@ -551,8 +681,9 @@ export function processDailyRivalSystemStep(state: GameState): RivalSystemState 
 
   const nextRivalState: RivalSystemState = {
     ...rival,
+    hasActiveRival: true,
     beefHeat: nextHeat,
-    beefStatusLabel: getBeefStatusLabel(nextHeat),
+    beefStatusLabel: getBeefStatusLabel(nextHeat, true),
     playerChartWins: playerWins,
     rivalChartWins: rivalWins,
     lastBeefHeadline: headline,
@@ -580,11 +711,37 @@ export function executePlayerBeefDissAction(
   updatedState: GameState;
   notification: string;
 } {
-  const rival = getEnsuredRivalState(state);
+  let rival = getEnsuredRivalState(state);
   const profile = getEnsuredXProfile(state);
   const playerName = profile.name;
   const dateStr = state.date ? state.date.split('T')[0] : '2026-01-01';
   const timestamp = Date.now();
+
+  if (!rival.hasActiveRival) {
+    const chosen = selectDefaultRivalNpc(state);
+    const portrait =
+      getVerifiedSpotifyNpcPortrait(chosen.name) ||
+      chosen.avatar ||
+      chosen.image ||
+      '';
+    const cleanHandle = `@${chosen.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    rival = {
+      ...rival,
+      hasActiveRival: true,
+      rivalryOriginReason: `Public Callout: Ignited when you publicly called out ${chosen.name} on X.`,
+      rivalNpcId: chosen.id,
+      rivalName: chosen.name,
+      rivalHandle: cleanHandle,
+      rivalAvatar: portrait,
+      rivalGenre: chosen.genre || 'Pop',
+      rivalCountry: chosen.country || 'US',
+      rivalPop: chosen.pop || 86,
+      rivalHype: chosen.hype || 82,
+      beefHeat: 35,
+      beefStatusLabel: 'Subliminal Shade'
+    };
+  }
+
   const latestSong = (state.songs || []).filter(s => s.status === 'released').slice(-1)[0];
 
   const defaultDiss = latestSong
@@ -664,8 +821,9 @@ export function executePlayerBeefDissAction(
 
   const updatedRivalState: RivalSystemState = {
     ...rival,
+    hasActiveRival: true,
     beefHeat: nextHeat,
-    beefStatusLabel: getBeefStatusLabel(nextHeat),
+    beefStatusLabel: getBeefStatusLabel(nextHeat, true),
     lastBeefHeadline: `${playerName} & ${rival.rivalName} traded viral shots on X! Beef Heat surged to ${nextHeat}% (+6.5% Hype).`,
     beefHistoryLog: [
       {
@@ -702,6 +860,12 @@ export function executeFanbaseChartDefenseRally(
   notification: string;
 } {
   const rival = getEnsuredRivalState(state);
+  if (!rival.hasActiveRival) {
+    return {
+      updatedState: state,
+      notification: 'You need an active rivalry before launching a Chart-Block Defense Rally!'
+    };
+  }
   const releasedSongs = (state.songs || []).filter(s => s.status === 'released');
   const latestSong = releasedSongs[releasedSongs.length - 1];
 
@@ -800,7 +964,7 @@ export function executeFanbaseChartDefenseRally(
 }
 
 /**
- * Allows the player to switch or challenge any real-world NPC artist as their Arch-Rival.
+ * Allows the player to publicly call out or challenge any real-world NPC artist as their Arch-Rival.
  */
 export function switchActiveRivalNpc(
   state: GameState,
@@ -817,8 +981,11 @@ export function switchActiveRivalNpc(
   const cleanHandle = `@${chosen.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
   const dateStr = state.date ? state.date.split('T')[0] : '2026-01-01';
   const prevRival = getEnsuredRivalState(state);
+  const originReason = `Public Callout: Started when you publicly challenged ${chosen.name} to a head-to-head chart rivalry.`;
 
   const nextRivalState: RivalSystemState = {
+    hasActiveRival: true,
+    rivalryOriginReason: originReason,
     rivalNpcId: chosen.id,
     rivalName: chosen.name,
     rivalHandle: cleanHandle,
@@ -832,14 +999,14 @@ export function switchActiveRivalNpc(
     playerChartWins: prevRival.playerChartWins || 0,
     rivalChartWins: prevRival.rivalChartWins || 0,
     chartBlocksTriggered: prevRival.chartBlocksTriggered || 0,
-    lastBeefHeadline: `You officially challenged ${chosen.name} as your primary chart rival! Watch out when you drop your next single or album.`,
+    lastBeefHeadline: `You publicly called out ${chosen.name} as your primary chart rival! Watch out when you drop your next single or album.`,
     activeCounterRelease: null,
     beefHistoryLog: [
       {
         id: `switch-${Date.now()}`,
         date: dateStr,
         type: 'rival_switch',
-        text: `New Rivalry ignited with ${chosen.name} (${chosen.genre} • ${chosen.pop}% Popularity).`
+        text: `${originReason} (${chosen.genre} • ${chosen.pop}% Popularity).`
       },
       ...(prevRival.beefHistoryLog || []).slice(0, 14)
     ]

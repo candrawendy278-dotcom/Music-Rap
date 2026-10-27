@@ -12,6 +12,8 @@ import {
 import XEditProfileModal from './XEditProfileModal';
 import { OfficialArtworkImg } from '../Common/OfficialArtworkImg';
 import { XAccountAvatar } from './XAccountAvatar';
+import { XRichChartGraphicCard } from './XRichChartGraphicCard';
+import { generateRichVisualXFeedTweets } from '../../data/xRichVisualTweetsEngine';
 
 /**
  * Formats tweet text by highlighting @handles, #hashtags, and domain links in X Blue (#1D9BF0)
@@ -70,8 +72,13 @@ export default function XApp() {
     if (!state.xPosts || state.xPosts.length === 0) {
       return generateIndustryFeedTweets(state);
     }
+    const hasVisualCardTweet = state.xPosts.some(p => Boolean(p.visualCard));
+    if (!hasVisualCardTweet) {
+      const richTweets = generateRichVisualXFeedTweets(state);
+      return [...richTweets, ...state.xPosts];
+    }
     return state.xPosts;
-  }, [state.xPosts, state.songs, state.fans, state.popularity, state.hype, state.billboard, state.itunes, state.spotify, state.youtube, state.date, profile.name, profile.handle]);
+  }, [state.xPosts, state.songs, state.projects, state.fans, state.popularity, state.hype, state.billboard, state.itunes, state.spotify, state.youtube, state.date, profile.name, profile.handle]);
 
   // Ensure initial feed is populated if xPosts is empty
   React.useEffect(() => {
@@ -341,8 +348,13 @@ export default function XApp() {
             </div>
           )}
 
+          {/* Rich Visual Chart / Milestone Graphic Card */}
+          {tweet.visualCard && (
+            <XRichChartGraphicCard visualCard={tweet.visualCard} />
+          )}
+
           {/* Attached Tweet Media Card */}
-          {tweet.image && (
+          {!tweet.visualCard && tweet.image && (
             <div className="rounded-2xl overflow-hidden border border-[#2F3336] mb-2.5 bg-[#0D0F12] relative">
               <div className="relative max-h-72 overflow-hidden bg-neutral-950">
                 <img
