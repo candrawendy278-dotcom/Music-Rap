@@ -19,6 +19,8 @@ import MtvVmasApp from './components/Apps/MtvVmasApp';
 import PitchforkApp from './components/Apps/PitchforkApp';
 import MetacriticApp from './components/Apps/MetacriticApp';
 import RadioAirplayChartApp from './components/Apps/RadioAirplayChartApp';
+import ArtistMerchStoreApp from './components/Apps/ArtistMerchStoreApp';
+import RiaaCertificationApp from './components/Apps/RiaaCertificationApp';
 import AwardCeremonyLiveModal from './components/Modals/AwardCeremonyLiveModal';
 import { resolveCurrentTheme, applyThemeToDocument } from './data/themeSystemEngine';
 
@@ -69,6 +71,8 @@ export default function MainApp() {
       {state.activeApp === 'vmas' && <MtvVmasApp />}
       {state.activeApp === 'pitchfork' && <PitchforkApp />}
       {state.activeApp === 'metacritic' && <MetacriticApp />}
+      {state.activeApp === 'merch' && <ArtistMerchStoreApp />}
+      {state.activeApp === 'riaa' && <RiaaCertificationApp />}
 
       {activeModalSeason && (
         <AwardCeremonyLiveModal

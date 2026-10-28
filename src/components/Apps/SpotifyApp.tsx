@@ -33,6 +33,7 @@ import {
   buildPlayerUnifiedCountdown
 } from './SpotifyReleaseCountdownView';
 import { SpotifyAppearsOnSection } from './SpotifyAppearsOnSection';
+import { SpotifyArtistMerchShelf } from './SpotifyArtistMerchShelf';
 import { getTrackRoleBadgeMeta, SINGLE_ROLE_OPTIONS } from '../../data/preReleaseCountdownEngine';
 
 export default function SpotifyApp() {
@@ -902,6 +903,13 @@ export default function SpotifyApp() {
               }
             }}
           />
+
+          <div className="-mx-4 mt-6">
+            <SpotifyArtistMerchShelf
+              state={state}
+              onOpenMerchStore={() => setState(p => ({ ...p, activeApp: 'merch' }))}
+            />
+          </div>
           
           <h3 className="text-xl font-bold text-white mb-4 mt-8">About</h3>
           <div className="bg-[#282828] rounded-xl hover:bg-[#333] transition cursor-pointer relative overflow-hidden mb-8 h-80 group">

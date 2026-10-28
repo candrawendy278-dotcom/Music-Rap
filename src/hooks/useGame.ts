@@ -37,6 +37,7 @@ import { processDailyCollabRoyaltySplits } from '../data/collabNegotiationAndRoy
 import { calculateEnhancedMonthlyListenersStep } from '../data/enhancedMonthlyListenersAnalyticsEngine';
 import { processDailyAwardsCalendarStep } from '../data/awardsFormulaAndSimulationEngine';
 import { generateAwardEventXPosts } from '../data/awardsXAnnouncementEngine';
+import { processDailyMerchWebstoreStep } from '../data/merchWebstoreEngine';
 
 syncNpcRealisticReleaseWorkflow('2026-01-01T00:00:00');
 
@@ -244,16 +245,23 @@ export function useGame() {
       const collabRoyaltyStep = processDailyCollabRoyaltySplits(marketResult.updatedSongs);
       nextState.songs = collabRoyaltyStep.updatedSongs;
       nextState.projects = marketResult.updatedProjects;
+
+      // Process Official Artist Merch & Vinyl Webstore daily sales, pre-order waves & Billboard pure sales credits
+      const merchStep = processDailyMerchWebstoreStep(nextState, date);
+      nextState.projects = merchStep.updatedProjects;
+      nextState.songs = merchStep.updatedSongs;
+      nextState.merchStore = merchStep.updatedStore;
+
       const totalStreams = marketResult.totalStreams;
       const totalViews = marketResult.totalViews;
-      const totalSales = marketResult.totalSales;
+      const totalSales = marketResult.totalSales + merchStep.dailyBillboardUnitsAdded;
       const netRevenueAfterCollabRoyalties = Math.max(
         0,
         marketResult.totalRevenue - collabRoyaltyStep.totalCollabRoyaltyDeducted
       );
 
       nextState.dailyStreamsTotal = totalStreams;
-      nextState.dailyIncome = netRevenueAfterCollabRoyalties;
+      nextState.dailyIncome = netRevenueAfterCollabRoyalties + merchStep.dailyMerchRevenue;
       const effectiveDailyExpense = nextState.isHiatus
         ? Math.round(nextState.dailyExpense * 0.2)
         : nextState.dailyExpense;

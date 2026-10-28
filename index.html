@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Music Rap</title>
+    <script>
+      window.addEventListener('unhandledrejection', function (event) {
+        if (event && event.reason && String(event.reason.message || event.reason).includes('WebSocket closed without opened')) {
+          event.preventDefault();
+        }
+      });
+      window.addEventListener('error', function (event) {
+        if (event && String(event.message || '').includes('WebSocket closed without opened')) {
+          event.preventDefault();
+        }
+      });
+    </script>
     <meta name="description" content="Music Rap - The Simulator: Define your musical legacy from zero" />
     <meta name="theme-color" content="#09090b" />
     <meta name="mobile-web-app-capable" content="yes" />

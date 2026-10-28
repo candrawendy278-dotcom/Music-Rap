@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for the Pre-Release Rollout System, Single Role Selection (Lead Single, Pre-Release Single, Promotional Single, and Standalone/Official Single), and the Spotify Upcoming Release Countdown page on Player and NPC Artist Profiles.",
-  "updatedAt":  "2026-10-27T10:16:47.597194588Z",
+  "summary":  "Comprehensive architectural and UX plan for the RIAA Gold & Platinum Certification Program, including real-world RIAA unit conversion math (Pure/Vinyl Sales + SEA/TEA Streams & Video Views), Manual Audit Submission with Label Fee & Auto-Eligibility Alerts, Interactive 3D-Style Framed Plaque Customizer & Wall Gallery, Global Artist Plaque Leaderboard (Player vs. NPCs), Catalog Badges, and Official @RIAA X Announcements.",
+  "updatedAt":  "2026-10-28T05:00:39.092825979Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -1,7 +1,20 @@
 import React from 'react';
+import { useGameContext } from '../../GameContext';
+import { getItemRiaaCertBadge } from '../../data/riaaCertificationEngine';
+import { RiaaCertBadge } from '../Apps/RiaaPlaqueVisual';
 
 const CatalogItem = React.memo(({ item, onClick }: { item: any; onClick?: () => void }) => {
+  const { state, setState } = useGameContext();
   const isProject = 'type' in item;
+  const riaaBadge =
+    item.status === 'released'
+      ? getItemRiaaCertBadge(state, isProject ? 'project' : 'song', item.id)
+      : null;
+
+  const handleOpenRiaa = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setState(p => ({ ...p, activeApp: 'riaa' }));
+  };
   
   if (isProject) {
     return (
@@ -13,7 +26,7 @@ const CatalogItem = React.memo(({ item, onClick }: { item: any; onClick?: () => 
           <img src={item.cover} className="w-12 h-12 rounded-xl object-cover bg-gray-200 dark:bg-zinc-800 shrink-0" />
           <div className="min-w-0">
             <h4 className="font-bold text-apple-text text-sm truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition">{item.title}</h4>
-            <div className="flex items-center space-x-2 mt-1">
+            <div className="flex items-center flex-wrap gap-1.5 mt-1">
               <span className="text-xs text-apple-subtext font-medium uppercase">{item.type.replace('_', ' ')}</span>
               {item.status === 'released' ? 
                 <span className="bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Released</span> : 
@@ -21,6 +34,15 @@ const CatalogItem = React.memo(({ item, onClick }: { item: any; onClick?: () => 
                 <span className="bg-cyan-100 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Scheduled</span> :
                 <span className="bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Ready</span>
               }
+              {riaaBadge && (
+                <RiaaCertBadge
+                  shortBadge={riaaBadge.shortBadge}
+                  metalClass={riaaBadge.metalClass}
+                  isCertified={riaaBadge.isCertified}
+                  isEligibleForUpgrade={riaaBadge.isEligibleForUpgrade}
+                  onClick={handleOpenRiaa}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -44,7 +66,7 @@ const CatalogItem = React.memo(({ item, onClick }: { item: any; onClick?: () => 
         <img src={item.cover} className="w-12 h-12 rounded-xl object-cover bg-gray-200 dark:bg-zinc-800 shrink-0" />
         <div className="min-w-0">
           <h4 className="font-bold text-apple-text text-sm truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition">{item.title}</h4>
-          <div className="flex items-center space-x-2 mt-1">
+          <div className="flex items-center flex-wrap gap-1.5 mt-1">
             <span className="text-xs text-apple-subtext font-medium">Quality: {item.status === 'writing' || item.status === 'recording' ? '???' : (item.quality || 0).toFixed(0)}</span>
             {item.theme && (
               <span className="bg-purple-50 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[10px] px-1.5 py-0.5 rounded font-bold border border-purple-200/60 dark:border-purple-500/30 truncate max-w-[120px]">
@@ -59,6 +81,15 @@ const CatalogItem = React.memo(({ item, onClick }: { item: any; onClick?: () => 
              item.status === 'released' ? <span className="bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Released</span> :
              <span className="bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-zinc-300 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Packaged</span>
             }
+            {riaaBadge && (
+              <RiaaCertBadge
+                shortBadge={riaaBadge.shortBadge}
+                metalClass={riaaBadge.metalClass}
+                isCertified={riaaBadge.isCertified}
+                isEligibleForUpgrade={riaaBadge.isEligibleForUpgrade}
+                onClick={handleOpenRiaa}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -70,15 +101,6 @@ const CatalogItem = React.memo(({ item, onClick }: { item: any; onClick?: () => 
         </div>
       )}
     </div>
-  );
-}, (prevProps, nextProps) => {
-  return (
-    prevProps.item.id === nextProps.item.id &&
-    prevProps.item.status === nextProps.item.status &&
-    prevProps.item.daysLeft === nextProps.item.daysLeft &&
-    prevProps.item.dailyStreams === nextProps.item.dailyStreams &&
-    prevProps.item.title === nextProps.item.title &&
-    prevProps.item.cover === nextProps.item.cover
   );
 });
 

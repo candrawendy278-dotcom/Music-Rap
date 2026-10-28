@@ -5,6 +5,8 @@ import MarketDistributionView from './MarketDistributionView';
 import { evaluateDistinctTrackProfile } from '../../data/bSideDistinctVelocityEngine';
 import { getArtistMarketSynergySummary } from '../../data/skillMarketSynergyEngine';
 import { OfficialArtworkImg } from '../Common/OfficialArtworkImg';
+import { getItemRiaaCertBadge } from '../../data/riaaCertificationEngine';
+import { RiaaCertBadge } from './RiaaPlaqueVisual';
 
 type StatViewTab = 'overview' | 'tracks' | 'markets';
 
@@ -405,9 +407,30 @@ export default function StatisticApp() {
                           className="w-9 h-9 rounded object-cover border border-white/10 shrink-0 bg-zinc-800"
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-white truncate">
-                            {item.title}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-semibold text-white truncate">
+                              {item.title}
+                            </p>
+                            {(() => {
+                              const riaaBadge = getItemRiaaCertBadge(
+                                state,
+                                item.itemType,
+                                item.id
+                              );
+                              return riaaBadge ? (
+                                <RiaaCertBadge
+                                  shortBadge={riaaBadge.shortBadge}
+                                  metalClass={riaaBadge.metalClass}
+                                  isCertified={riaaBadge.isCertified}
+                                  isEligibleForUpgrade={riaaBadge.isEligibleForUpgrade}
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setState(p => ({ ...p, activeApp: 'riaa' }));
+                                  }}
+                                />
+                              ) : null;
+                            })()}
+                          </div>
                           <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
                             <span>{item.itemType === 'project' ? 'Album / EP' : 'Single'}</span>
                             <span aria-hidden="true">·</span>

@@ -1,7 +1,13 @@
+import { useMemo } from 'react';
 import { useGameContext } from '../../GameContext';
+import { evaluateAllPlayerRiaaItems } from '../../data/riaaCertificationEngine';
 
 export default function AppsTab() {
-  const { setState } = useGameContext();
+  const { state, setState } = useGameContext();
+
+  const eligibleRiaaCount = useMemo(() => {
+    return evaluateAllPlayerRiaaItems(state).eligibleItems.length;
+  }, [state]);
 
   const openApp = (app: any) => {
     setState(p => ({ ...p, activeApp: app }));
@@ -11,6 +17,7 @@ export default function AppsTab() {
     {
       name: "Artist Craft & Income",
       apps: [
+        { id: 'merch', name: 'Official Store', icon: 'ph-fill ph-shopping-bag-open', color: 'text-rose-500 dark:text-rose-400', bg: 'bg-rose-500/10 dark:bg-rose-500/20' },
         { id: 'skills', name: 'Mastery Academy', icon: 'ph-fill ph-sparkle', color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-600/10 dark:bg-indigo-500/20' },
         { id: 'jobs', name: 'Jobs & Hustles', icon: 'ph-fill ph-briefcase', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-600/10 dark:bg-emerald-500/20' },
       ]
@@ -40,6 +47,7 @@ export default function AppsTab() {
     {
       name: "Awards & Honors",
       apps: [
+        { id: 'riaa', name: 'RIAA Program', icon: 'ph-fill ph-disc', color: 'text-amber-400', bg: 'bg-[#171308] dark:bg-amber-400/15', badgeCount: eligibleRiaaCount },
         { id: 'grammys', name: 'The GRAMMYs', icon: 'ph-fill ph-trophy', color: 'text-[#D4AF37]', bg: 'bg-[#12110E] dark:bg-[#D4AF37]/15' },
         { id: 'vmas', name: 'MTV VMAs', icon: 'ph-fill ph-planet', color: 'text-[#FF1E8A]', bg: 'bg-[#120D1D] dark:bg-[#FF1E8A]/15' },
       ]
@@ -62,12 +70,17 @@ export default function AppsTab() {
           <div key={i}>
             <h3 className="text-sm font-bold text-gray-400 dark:text-zinc-400 uppercase tracking-wider mb-4 px-1">{cat.name}</h3>
             <div className="grid grid-cols-2 gap-4">
-              {cat.apps.map(app => (
+              {cat.apps.map((app: any) => (
                 <button
                   key={app.id}
                   onClick={() => openApp(app.id)}
-                  className="bg-apple-card rounded-2xl p-4 flex flex-col items-center justify-center border border-apple-border/60 shadow-ios active:scale-95 transition-transform group cursor-pointer hover:shadow-md"
+                  className="relative bg-apple-card rounded-2xl p-4 flex flex-col items-center justify-center border border-apple-border/60 shadow-ios active:scale-95 transition-transform group cursor-pointer hover:shadow-md"
                 >
+                  {app.badgeCount > 0 && (
+                    <span className="absolute top-2.5 right-2.5 px-1.5 py-0.5 rounded-md bg-amber-400 text-zinc-950 text-[10px] font-mono font-black shadow-xs">
+                      {app.badgeCount} ELIGIBLE
+                    </span>
+                  )}
                   <div className={`w-14 h-14 ${app.bg} rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
                     <i className={`${app.icon} ${app.color} text-3xl`}></i>
                   </div>
