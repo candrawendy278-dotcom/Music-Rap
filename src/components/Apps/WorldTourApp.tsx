@@ -34,6 +34,8 @@ import {
 import TourStagePreview from './TourStagePreview';
 import TourWorldMap from './TourWorldMap';
 import TourTicketSeatingConsole from './TourTicketSeatingConsole';
+import TourCooldownBanner from './TourCooldownBanner';
+import { evaluateTourCooldownStatus } from '../../data/tourCooldownEngine';
 
 type TourAppTab =
   | 'overview'
@@ -97,6 +99,10 @@ export default function WorldTourApp() {
   const { state, setState } = useGameContext();
   const tourState = useMemo(() => ensureWorldTourState(state), [state]);
   const activeTour = tourState.activeTour;
+  const tourCooldown = useMemo(
+    () => evaluateTourCooldownStatus(state),
+    [state]
+  );
 
   const [activeTab, setActiveTab] = useState<TourAppTab>(
     activeTour ? 'overview' : 'planner'
@@ -963,6 +969,11 @@ export default function WorldTourApp() {
                     LIVE
                   </span>
                 )}
+                {!activeTour && tourCooldown.isOnCooldown && (
+                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[9px] font-mono font-bold">
+                    REST ({tourCooldown.daysRemaining}d)
+                  </span>
+                )}
               </div>
               <p className="text-[10px] text-zinc-400 truncate font-mono">
                 3D Stage • Presale Queue • @TouringData Banner
@@ -1510,6 +1521,7 @@ export default function WorldTourApp() {
               </div>
             ) : (
               <div className="space-y-3.5">
+                <TourCooldownBanner cooldown={tourCooldown} />
                 {renderTourBannerStudioCard(true)}
                 <TourWorldMap
                   stops={selectedStops}
@@ -1521,10 +1533,14 @@ export default function WorldTourApp() {
                 />
                 <div className="p-4 rounded-2xl bg-[#0F1322] border border-white/10 text-center space-y-3">
                   <h3 className="text-sm font-black text-white">
-                    Ready to Launch Your Era World Tour?
+                    {tourCooldown.isOnCooldown
+                      ? `Post-Tour Recovery Period (${tourCooldown.daysRemaining} Days Remaining)`
+                      : 'Ready to Launch Your Era World Tour?'}
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed">
-                    Upload your custom Tour Banner, customize your 3D Stadium Stage, and open the Ticketmaster Presale Queue!
+                    {tourCooldown.isOnCooldown
+                      ? `You can pre-design your next 3D Stadium Stage and routing during recovery. Official tour announcement unlocks on ${tourCooldown.cooldownEndDate}.`
+                      : 'Upload your custom Tour Banner, customize your 3D Stadium Stage, and open the Ticketmaster Presale Queue!'}
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -1537,7 +1553,9 @@ export default function WorldTourApp() {
                       onClick={() => setActiveTab('planner')}
                       className="py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 active:scale-95 text-white text-xs font-black cursor-pointer"
                     >
-                      🗓️ Plan &amp; Launch →
+                      {tourCooldown.isOnCooldown
+                        ? '🗓️ Pre-Plan Next Tour →'
+                        : '🗓️ Plan & Launch →'}
                     </button>
                   </div>
                 </div>
@@ -1812,6 +1830,7 @@ export default function WorldTourApp() {
            ===================================================================== */}
         {activeTab === 'planner' && (
           <div className="px-3.5 mt-3 space-y-3.5">
+            <TourCooldownBanner cooldown={tourCooldown} compact />
             {/* Step-by-Step Mobile Wizard Progress Bar */}
             <div className="grid grid-cols-4 gap-1 p-1 bg-[#111524] rounded-xl border border-white/10">
               {[
@@ -2387,11 +2406,17 @@ export default function WorldTourApp() {
 
                   <button
                     type="button"
+                    disabled={tourCooldown.isOnCooldown}
                     onClick={handleLaunchTour}
-                    className="w-full py-3.5 rounded-xl bg-rose-500 hover:bg-rose-400 active:scale-99 text-white font-black text-xs tracking-wide uppercase shadow-lg cursor-pointer transition"
+                    className={`w-full py-3.5 rounded-xl font-black text-xs tracking-wide uppercase shadow-lg transition ${
+                      tourCooldown.isOnCooldown
+                        ? 'bg-amber-500/20 border border-amber-400/40 text-amber-300 cursor-not-allowed'
+                        : 'bg-rose-500 hover:bg-rose-400 active:scale-99 text-white cursor-pointer'
+                    }`}
                   >
-                    🚀 Launch Tour &amp; Post Banner to X ({selectedStops.length}{' '}
-                    Dates)
+                    {tourCooldown.isOnCooldown
+                      ? `🔒 Post-Tour Rest Cooldown (${tourCooldown.daysRemaining}d Left • Ready ${tourCooldown.cooldownEndDate})`
+                      : `🚀 Launch Tour & Post Banner to X (${selectedStops.length} Dates)`}
                   </button>
                 </div>
               </div>

@@ -2,6 +2,11 @@ import { GameState, Song, Project, NPC } from '../types';
 import { formatNum, formatNumFull } from '../constants';
 import { DETAILED_NPCS, getNpcAvatar } from './npcAssets';
 import type { XPost } from './xSocialEngine';
+import {
+  applyTourCompletionCooldown,
+  evaluateTourCooldownStatus,
+  tickDailyTourCooldown
+} from './tourCooldownEngine';
 
 export type TourRegionId =
   | 'north_america'
@@ -343,6 +348,11 @@ export interface WorldTourState {
   lifetimeTourGross: number;
   lifetimeTourAttendance: number;
   lifetimeShowsPlayed: number;
+  cooldownDaysLeft?: number;
+  cooldownTotalDays?: number;
+  cooldownEndDate?: string;
+  lastCompletedTourTitle?: string;
+  lastCompletedTourDate?: string;
 }
 
 export interface GlobalTourBoxscoreEntry {
@@ -1718,6 +1728,15 @@ export function launchNewWorldTour(params: {
     selectedStops
   } = params;
 
+  const cooldownStatus = evaluateTourCooldownStatus(state);
+  if (cooldownStatus.isOnCooldown) {
+    return {
+      success: false,
+      error: `Post-Tour Recovery Cooldown active: ${cooldownStatus.daysRemaining} days of mandatory rest remaining (Available on ${cooldownStatus.cooldownEndDate}).`,
+      updatedState: state
+    };
+  }
+
   if (!title.trim()) {
     return {
       success: false,
@@ -2654,10 +2673,14 @@ export function processDailyWorldTourStep(
   const activeTour = tourState.activeTour;
 
   if (!activeTour || activeTour.status !== 'active') {
+    const tickedCooldownState = tickDailyTourCooldown(
+      tourState,
+      currentDateObj
+    );
     return {
       updatedTourState: {
-        ...tourState,
-        vocalStamina: Math.min(100, (tourState.vocalStamina || 100) + 10)
+        ...tickedCooldownState,
+        vocalStamina: Math.min(100, (tickedCooldownState.vocalStamina || 100) + 10)
       },
       dailyTourNetIncome: 0,
       updatedSongs: state.songs,
@@ -3052,7 +3075,7 @@ export function processDailyWorldTourStep(
 
   const nextStamina = Math.max(8, (tourState.vocalStamina || 100) - 13);
 
-  const updatedTourState: WorldTourState = {
+  let baseNextTourState: WorldTourState = {
     ...tourState,
     vocalStamina: nextStamina,
     activeTour: anyRemaining ? updatedTour : null,
@@ -3065,8 +3088,20 @@ export function processDailyWorldTourStep(
     lifetimeShowsPlayed: (tourState.lifetimeShowsPlayed || 0) + 1
   };
 
+  if (!anyRemaining) {
+    const completionRes = applyTourCompletionCooldown({
+      state,
+      tourState: baseNextTourState,
+      completedTour: updatedTour,
+      currentDateObj,
+      resolvedTourBanner
+    });
+    baseNextTourState = completionRes.updatedTourState;
+    newXPosts.unshift(completionRes.finaleXPost);
+  }
+
   return {
-    updatedTourState,
+    updatedTourState: baseNextTourState,
     dailyTourNetIncome: netProfit,
     updatedSongs,
     newXPosts,
