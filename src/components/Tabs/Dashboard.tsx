@@ -4,12 +4,14 @@ import { useState, useMemo } from 'react';
 import SkillSystemModal from '../Modals/SkillSystemModal';
 import RivalBeefModal from '../Modals/RivalBeefModal';
 import ArtistTrophyRoomModal from '../Modals/ArtistTrophyRoomModal';
+import DailyExpensesModal from '../Modals/DailyExpensesModal';
 import { getEnsuredSkillState, calculateMasteryRank } from '../../data/skillSystemEngine';
 import { getPopularityTierInfo, getHypeStatusInfo } from '../../data/artistGrowthEngine';
 import { getDetailedFanDemographics } from '../../data/fansSystemEngine';
 import { getHiatusStatusSummary } from '../../data/hiatusSystemEngine';
 import { getEnsuredRivalState } from '../../data/rivalBeefSystemEngine';
 import { getArtistTrophyRoomSummary } from '../../data/awardsFormulaAndSimulationEngine';
+import { calculateDailyExpensesBreakdown } from '../../data/dailyExpensesEngine';
 import { OfficialArtworkImg } from '../Common/OfficialArtworkImg';
 
 export default function Dashboard() {
@@ -17,6 +19,7 @@ export default function Dashboard() {
   const [showSkillModal, setShowSkillModal] = useState(false);
   const [showRivalModal, setShowRivalModal] = useState(false);
   const [showTrophyRoomModal, setShowTrophyRoomModal] = useState(false);
+  const [showExpensesModal, setShowExpensesModal] = useState(false);
 
   const skills = getEnsuredSkillState(state.skills);
   const masteryRank = calculateMasteryRank(skills);
@@ -30,6 +33,7 @@ export default function Dashboard() {
   const hiatusSummary = useMemo(() => getHiatusStatusSummary(state), [state.isHiatus, (state as any).hiatusDays]);
   const rivalState = useMemo(() => getEnsuredRivalState(state), [state]);
   const trophySummary = useMemo(() => getArtistTrophyRoomSummary(state), [state]);
+  const expensesBreakdown = useMemo(() => calculateDailyExpensesBreakdown(state), [state]);
 
   const activeTrainings = useMemo(() => {
     const list: { name: string; targetLevel: number; daysRemaining: number; totalDays: number }[] = [];
@@ -113,7 +117,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Primary Telemetry Strip: Daily Income & Streams */}
+      {/* Primary Telemetry Strip: Daily Revenue, Daily Expenses & Streams */}
       <div className="grid grid-cols-2 gap-3.5">
         <div className="bg-apple-card rounded-[24px] p-4.5 border border-apple-border/60 shadow-ios flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
@@ -122,7 +126,7 @@ export default function Dashboard() {
               <i className="ph-bold ph-trend-up text-xs"></i>
             </div>
           </div>
-          <p className="text-xl font-black text-apple-text tracking-tight tabular-nums">
+          <p className="text-xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight tabular-nums">
             +{formatMoney(state.dailyIncome)}
           </p>
           <p className="text-[11px] text-apple-subtext font-medium mt-1">
@@ -130,23 +134,86 @@ export default function Dashboard() {
           </p>
         </div>
 
-        <div className="bg-apple-card rounded-[24px] p-4.5 border border-apple-border/60 shadow-ios flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-apple-subtext uppercase tracking-[0.14em]">
-              {state.gameMode === 'realtime' ? 'Streams / Sec' : 'Daily Streams'}
-            </span>
-            <div className="w-7 h-7 rounded-xl bg-neutral-900/5 dark:bg-white/10 text-neutral-800 dark:text-zinc-200 flex items-center justify-center">
-              <i className="ph-fill ph-Waveform text-xs ph-headphones"></i>
+        <button
+          type="button"
+          onClick={() => setShowExpensesModal(true)}
+          className="bg-apple-card rounded-[24px] p-4.5 border border-apple-border/60 shadow-ios flex flex-col justify-between text-left hover:bg-neutral-50/70 dark:hover:bg-white/[0.03] active:scale-[0.99] transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between mb-2 w-full">
+            <span className="text-[10px] font-bold text-apple-subtext uppercase tracking-[0.14em]">Daily Expenses</span>
+            <div className="w-7 h-7 rounded-xl bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+              <i className="ph-bold ph-receipt text-xs"></i>
             </div>
           </div>
-          <p className="text-xl font-black text-apple-text tracking-tight tabular-nums">
-            {state.gameMode === 'realtime'
-              ? `+${formatNumFull(state.currentStreamRate || 0)}`
-              : formatNumFull(state.dailyStreamsTotal)}
+          <p className="text-xl font-black text-rose-500 tracking-tight tabular-nums">
+            -{formatMoney(expensesBreakdown.effectiveRecurringExpense)}
           </p>
-          <p className="text-[11px] text-apple-subtext font-medium mt-1">
-            Global platform plays
+          <p className="text-[11px] text-apple-subtext font-medium mt-1 flex items-center justify-between w-full">
+            <span>{state.isHiatus ? 'Hiatus -80% active' : 'Tap for full breakdown'}</span>
+            <i className="ph-bold ph-caret-right text-[10px] text-apple-subtext"></i>
           </p>
+        </button>
+      </div>
+
+      {/* Compact Daily Streams & Itemized Expense Breakdown Strip */}
+      <div className="bg-apple-card rounded-[24px] border border-apple-border/60 shadow-ios overflow-hidden">
+        <div className="p-4 flex items-center justify-between border-b border-apple-border/40">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-neutral-900/5 dark:bg-white/10 text-neutral-800 dark:text-zinc-200 flex items-center justify-center shrink-0">
+              <i className="ph-fill ph-headphones text-sm"></i>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-apple-subtext uppercase tracking-[0.14em] block">
+                {state.gameMode === 'realtime' ? 'Streams / Sec' : 'Daily Streams'}
+              </span>
+              <span className="text-base font-black text-apple-text tracking-tight tabular-nums">
+                {state.gameMode === 'realtime'
+                  ? `+${formatNumFull(state.currentStreamRate || 0)}`
+                  : formatNumFull(state.dailyStreamsTotal)}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowExpensesModal(true)}
+            className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-white/10 text-apple-text text-[11px] font-bold flex items-center gap-1.5 hover:opacity-85 active:scale-95 transition-all cursor-pointer"
+          >
+            <i className="ph-bold ph-list-Numbers text-xs ph-list-bullets"></i>
+            <span>Expense Breakdown</span>
+          </button>
+        </div>
+
+        {/* Quick 4-Column Expense Breakdown Preview */}
+        <div
+          onClick={() => setShowExpensesModal(true)}
+          className="grid grid-cols-4 divide-x divide-apple-border/40 bg-neutral-50/50 dark:bg-white/[0.02] cursor-pointer hover:bg-neutral-100/50 dark:hover:bg-white/[0.04] transition-colors"
+        >
+          <div className="p-3 text-center">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-apple-subtext truncate">Lifestyle</div>
+            <div className="text-xs font-black text-rose-500 tabular-nums mt-0.5">
+              -{formatMoney(expensesBreakdown.recurringItems[0]?.amount || 0)}
+            </div>
+          </div>
+          <div className="p-3 text-center">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-apple-subtext truncate">Studio & PR</div>
+            <div className="text-xs font-black text-rose-500 tabular-nums mt-0.5">
+              -{formatMoney((expensesBreakdown.recurringItems[1]?.amount || 0) + (expensesBreakdown.recurringItems[2]?.amount || 0))}
+            </div>
+          </div>
+          <div className="p-3 text-center">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-apple-subtext truncate">Catalog/Sec</div>
+            <div className="text-xs font-black text-rose-500 tabular-nums mt-0.5">
+              -{formatMoney((expensesBreakdown.recurringItems[3]?.amount || 0) + (expensesBreakdown.recurringItems[4]?.amount || 0))}
+            </div>
+          </div>
+          <div className="p-3 text-center">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-apple-subtext truncate">Ops & Splits</div>
+            <div className="text-xs font-black text-amber-500 tabular-nums mt-0.5">
+              {expensesBreakdown.operationalDeductionsToday > 0
+                ? `-${formatMoney(expensesBreakdown.operationalDeductionsToday)}`
+                : '$0'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -549,6 +616,10 @@ export default function Dashboard() {
 
       {showTrophyRoomModal && (
         <ArtistTrophyRoomModal onClose={() => setShowTrophyRoomModal(false)} />
+      )}
+
+      {showExpensesModal && (
+        <DailyExpensesModal onClose={() => setShowExpensesModal(false)} />
       )}
     </div>
   );

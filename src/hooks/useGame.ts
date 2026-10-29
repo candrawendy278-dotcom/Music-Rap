@@ -39,6 +39,7 @@ import { processDailyAwardsCalendarStep } from '../data/awardsFormulaAndSimulati
 import { generateAwardEventXPosts } from '../data/awardsXAnnouncementEngine';
 import { processDailyMerchWebstoreStep } from '../data/merchWebstoreEngine';
 import { processDailyWorldTourStep } from '../data/worldTourSystemEngine';
+import { calculateDailyExpensesBreakdown } from '../data/dailyExpensesEngine';
 
 syncNpcRealisticReleaseWorkflow('2026-01-01T00:00:00');
 
@@ -262,12 +263,13 @@ export function useGame() {
       );
 
       nextState.dailyStreamsTotal = totalStreams;
-      nextState.dailyIncome = netRevenueAfterCollabRoyalties + merchStep.dailyMerchRevenue;
-      const effectiveDailyExpense = nextState.isHiatus
-        ? Math.round(nextState.dailyExpense * 0.2)
-        : nextState.dailyExpense;
-      nextState.money += nextState.dailyIncome - effectiveDailyExpense;
-      if (nextState.money < 0) nextState.money = 0;
+      const safeMerchDailyIncome = Math.max(0, Math.round(Number(merchStep.dailyMerchRevenue) || 0));
+      nextState.dailyIncome = Math.max(0, Math.round(netRevenueAfterCollabRoyalties + safeMerchDailyIncome));
+      const expenseBreakdown = calculateDailyExpensesBreakdown(nextState);
+      nextState.dailyExpense = expenseBreakdown.rawRecurringExpense;
+      const effectiveDailyExpense = expenseBreakdown.effectiveRecurringExpense;
+      const currentMoneySafe = Math.max(0, Math.round(Number(nextState.money) || 0));
+      nextState.money = Math.max(0, currentMoneySafe + nextState.dailyIncome - effectiveDailyExpense);
 
       // Calculate dynamic Popularity and Hype shifts using dedicated Artist Growth Engine
       const growth = calculateDailyArtistGrowth({
@@ -635,17 +637,19 @@ export function useGame() {
 
         // Process Daily Job Contract Salary & reset daily shift stamina
         const jobSalaryStep = processDailyJobContractSalary(nextState, nextState.date);
-        nextState.money = (nextState.money || 0) + jobSalaryStep.salaryPaid;
-        nextState.dailyIncome = (nextState.dailyIncome || 0) + jobSalaryStep.salaryPaid;
+        const safeSalaryPaid = Math.max(0, Math.round(Number(jobSalaryStep.salaryPaid) || 0));
+        nextState.money = Math.max(0, (nextState.money || 0) + safeSalaryPaid);
+        nextState.dailyIncome = (nextState.dailyIncome || 0) + safeSalaryPaid;
         (nextState as any).jobsState = jobSalaryStep.updatedJobsState;
 
         // Process Daily World Tour Stop, Boxscore Revenue, Merch Booth Sales & @TouringData X Reports
         const tourStep = processDailyWorldTourStep(nextState, date);
         (nextState as any).tourState = tourStep.updatedTourState;
         nextState.songs = tourStep.updatedSongs;
-        if (tourStep.dailyTourNetIncome !== 0) {
-          nextState.money = Math.max(0, (nextState.money || 0) + tourStep.dailyTourNetIncome);
-          nextState.dailyIncome = (nextState.dailyIncome || 0) + Math.max(0, tourStep.dailyTourNetIncome);
+        if (tourStep.dailyTourNetIncome > 0) {
+          const safeTourNet = Math.round(tourStep.dailyTourNetIncome);
+          nextState.money = Math.max(0, (nextState.money || 0) + safeTourNet);
+          nextState.dailyIncome = (nextState.dailyIncome || 0) + safeTourNet;
         }
         if (tourStep.popGain > 0) {
           nextState.popularity = Math.min(100, Number(((nextState.popularity || 0) + tourStep.popGain).toFixed(2)));

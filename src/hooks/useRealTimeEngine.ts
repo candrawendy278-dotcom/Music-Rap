@@ -35,15 +35,11 @@ export function useRealTimeEngine(
 
         let nextState = { ...prev, lastRealTimeUpdate: now };
         let totalStreamRatePerSecond = 0;
+        let realtimeRevenueEarned = 0;
 
         // Continuous streams/views accumulation
         nextState.songs = nextState.songs.map(song => {
           if (song.status === 'released') {
-             // We need to calculate what the daily streams WOULD be.
-             // But we don't want to re-run the full logic if we can just use `dailyStreams` and `dailyViews` 
-             // from the last `nextDay` tick? No, they might be freshly released.
-             
-             const safeQuality = song.quality || 1;
              const rng = 1.0; // static rng for real-time
              const tierMultiplier = prev.artist?.tier === 1 ? 1.5 : (prev.artist?.tier === 2 ? 1.8 : 1.0);
              const baseMultiplier = 300 + (prev.popularity * 250) + (prev.hype * 80);
@@ -78,6 +74,12 @@ export function useRealTimeEngine(
              const radioToAdd = (song.dailyRadioPlays !== undefined ? song.dailyRadioPlays : ((song.basePotential || 0) * (song.momentum || 1) * 25)) * deltaDays;
              const salesToAdd = (song.dailyPureSales !== undefined ? song.dailyPureSales : (streamsToAdd * 0.00015)) * deltaDays;
 
+             const collabKeepRatio = song.collabId && song.collabId !== 'none'
+                 ? Math.max(0.2, 1 - (song.collabRoyaltyPercent || 0) / 100)
+                 : 1.0;
+             realtimeRevenueEarned +=
+                 (streamsToAdd * 0.0038 + mvViewsToAdd * 0.0022 + salesToAdd * 0.70) * collabKeepRatio;
+
              return {
                  ...song,
                  streams: (song.streams || 0) + streamsToAdd,
@@ -89,15 +91,10 @@ export function useRealTimeEngine(
           return song;
         });
 
-        // Also we should check if a full 24 hours has passed to officially "change the date" and do decay.
-        // But the user might manually click nextDay or we could auto-trigger nextDay logic here?
-        // Let's just do stream increments here. 
-        // For date changing in real-time mode: if 24 hours actually passed, we should trigger a full nextDay.
-        
-
         nextState.projects = nextState.projects.map(proj => {
             if (proj.status === 'released') {
                 const projSalesToAdd = ((proj.basePotential || 0) * (proj.momentum || 1) * (100 + (nextState.artist?.popularity || 0) * 800) * 0.08) * deltaDays;
+                realtimeRevenueEarned += projSalesToAdd * 4.5;
                 return {
                     ...proj,
                     pureSales: (proj.pureSales || 0) + projSalesToAdd
@@ -106,6 +103,9 @@ export function useRealTimeEngine(
             return proj;
         });
 
+        if (realtimeRevenueEarned > 0) {
+            nextState.money = Math.max(0, (nextState.money || 0) + realtimeRevenueEarned);
+        }
         nextState.currentStreamRate = totalStreamRatePerSecond;
 
         return nextState;

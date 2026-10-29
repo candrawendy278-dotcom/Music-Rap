@@ -1462,8 +1462,8 @@ export function processDailyMerchWebstoreStep(
       };
     }
 
-    // 2. Daily Warehouse Holding Fee ($0.04 per 100 unsold units sitting in warehouse)
-    const itemHoldingFee = Math.round((item.stockRemaining / 100) * 0.04);
+    // 2. Daily Warehouse Holding Fee (capped so large inventory never drains personal bank balance)
+    const itemHoldingFee = Math.min(120, Math.round((item.stockRemaining / 1000) * 0.25));
     dailyWarehouseHoldingTotal += itemHoldingFee;
 
     // 3. Calculate realistic daily D2C conversion pool
@@ -1649,10 +1649,17 @@ export function processDailyMerchWebstoreStep(
   });
 
   // Deduct daily marketing campaign ad spend & warehouse holding fees from today's net store payout
+  // Overhead is deducted from store revenue rather than draining the artist's personal bank account below $0
   const campaignAdSpendToday =
-    inStockSkuCount > 0 ? activeCampaign.dailyAdSpend : 0;
-  const finalDailyMerchNetIncome =
-    dailyNetArtistPayoutTotal - dailyWarehouseHoldingTotal - campaignAdSpendToday;
+    inStockSkuCount > 0 && dailyUnitsSoldTotal > 0 ? activeCampaign.dailyAdSpend : 0;
+  const effectiveOverheadDeducted = Math.min(
+    dailyNetArtistPayoutTotal,
+    dailyWarehouseHoldingTotal + campaignAdSpendToday
+  );
+  const finalDailyMerchNetIncome = Math.max(
+    0,
+    dailyNetArtistPayoutTotal - effectiveOverheadDeducted
+  );
 
   // Apply Billboard pure sales credits to Projects and Songs
   const updatedProjects = state.projects.map(proj => {

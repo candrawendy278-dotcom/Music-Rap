@@ -668,7 +668,7 @@ function buildCityVenues(params: {
       tierLabel: 'Intimate Club',
       venueName: club[0],
       capacity: club[1],
-      rentalCost: Math.round(club[1] * 14 * costMult),
+      rentalCost: Math.round(club[1] * 8 * costMult),
       minRecommendedPop: 5,
       baseAcousticRating: 84
     },
@@ -677,7 +677,7 @@ function buildCityVenues(params: {
       tierLabel: 'Historic Theater',
       venueName: theater[0],
       capacity: theater[1],
-      rentalCost: Math.round(theater[1] * 22 * costMult),
+      rentalCost: Math.round(theater[1] * 12 * costMult),
       minRecommendedPop: 22,
       baseAcousticRating: 91
     },
@@ -686,7 +686,7 @@ function buildCityVenues(params: {
       tierLabel: 'Major Arena',
       venueName: arena[0],
       capacity: arena[1],
-      rentalCost: Math.round(arena[1] * 34 * costMult),
+      rentalCost: Math.round(arena[1] * 18 * costMult),
       minRecommendedPop: 48,
       baseAcousticRating: 89
     },
@@ -695,7 +695,7 @@ function buildCityVenues(params: {
       tierLabel: 'Global Stadium',
       venueName: stadium[0],
       capacity: stadium[1],
-      rentalCost: Math.round(stadium[1] * 48 * costMult),
+      rentalCost: Math.round(stadium[1] * 22 * costMult),
       minRecommendedPop: 75,
       baseAcousticRating: 95
     }
@@ -1637,8 +1637,12 @@ export function estimateCityShowDemand(params: {
     stageMetrics.perShowRiggingCost +
     promoterCut +
     vipPerksCost;
-  const projectedNetProfit =
+  const rawProjectedNet =
     totalProjectedTicketGross + projectedMerchGross - projectedExpenses;
+  const promoterGuaranteeFloor = Math.round(
+    (totalProjectedTicketGross + projectedMerchGross) * 0.25
+  );
+  const projectedNetProfit = Math.max(promoterGuaranteeFloor, rawProjectedNet);
 
   return {
     recommendedVenueTier,
@@ -2892,27 +2896,27 @@ export function processDailyWorldTourStep(
     Math.round((ticketsSold / Math.max(1, stop.capacity)) * 100)
   );
 
-  const gaTicketsSold = Math.round(ticketsSold * 0.68);
-  const goldenCircleSold = Math.round(ticketsSold * 0.22);
+  const attendanceScale =
+    ticketsSold / Math.max(1, demandEst.projectedAttendance);
+
+  const gaTicketsSold = Math.round(ticketsSold * 0.78);
+  const goldenCircleSold = Math.round(ticketsSold * 0.16);
   const vipSold = Math.max(0, ticketsSold - gaTicketsSold - goldenCircleSold);
 
-  const dynamicMult =
-    activeTour.dynamicPlatinumEnabled && selloutPct >= 90 ? 1.18 : 1.0;
-
-  const ticketGross = Math.round(
-    (gaTicketsSold * activeTour.gaPrice +
-      goldenCircleSold * activeTour.goldenCirclePrice) *
-      dynamicMult
+  const vipGross = Math.round(
+    (demandEst.tierBreakdown.vip_package?.gross ||
+      vipSold * activeTour.vipPackagePrice) * attendanceScale
   );
-  const vipGross = Math.round(vipSold * activeTour.vipPackagePrice * dynamicMult);
+  const ticketGross = Math.max(
+    0,
+    Math.round(demandEst.projectedTicketGross * attendanceScale) - vipGross
+  );
 
   const hasActiveMerchStoreItems =
     ((state as any).merchStore?.items || []).length > 0;
   const merchCatalogBoost = hasActiveMerchStoreItems ? 1.28 : 1.0;
   const merchBoothGross = Math.round(
-    demandEst.projectedMerchGross *
-      (ticketsSold / Math.max(1, demandEst.projectedAttendance)) *
-      merchCatalogBoost
+    demandEst.projectedMerchGross * attendanceScale * merchCatalogBoost
   );
 
   const sponsorBonus = sponsor.perShowBonus;
@@ -2923,9 +2927,15 @@ export function processDailyWorldTourStep(
   const logisticsAndCrewCost = stageMetrics.perShowRiggingCost;
   const openingActFee = activeTour.openingActNpcIds.length * 14_500;
 
-  const totalShowExpenses =
+  const rawShowExpenses =
     venueRentalFee + promoterCut + logisticsAndCrewCost + openingActFee;
-  const netProfit = totalGross - totalShowExpenses;
+  // Promoter Minimum Guarantee ensures artist always nets at least 25% of total show gross + sponsor bonus
+  const promoterGuaranteeFloor = Math.round(totalGross * 0.25);
+  const netProfit = Math.max(
+    promoterGuaranteeFloor,
+    totalGross - rawShowExpenses
+  );
+  const totalShowExpenses = Math.max(0, totalGross - netProfit);
 
   const releasedSongs = (state.songs || []).filter(s => s.status === 'released');
   const surpriseSong =
