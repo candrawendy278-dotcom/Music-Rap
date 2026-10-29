@@ -6,6 +6,7 @@
 import { Song } from '../types';
 import { getCountryMarketProfile } from './countryMarketSystem';
 import { calculateAuthenticBillboardPoints } from './billboardFormulaEngine';
+import { evaluateSongRegionalBreakoutProfile } from './selectiveRegionalBreakoutEngine';
 
 export interface StabilizedStreamsAndViewsInput {
   song: Song;
@@ -57,9 +58,9 @@ export interface CalibratedPlayerTerritoryResult {
 }
 
 /**
- * Returns the home-country affinity multiplier for the player's home market,
- * matching and slightly exceeding the local NPC territorial affinity so the player's
- * home country always rallies strongly behind hometown releases.
+ * Returns a balanced home-country affinity multiplier for the player's home market:
+ * Contributes meaningfully as a supportive domestic fanbase pillar without monopolizing
+ * the player's global market share.
  */
 export function getPlayerHomeMarketAffinityMultiplier(
   countryCode: string,
@@ -67,21 +68,20 @@ export function getPlayerHomeMarketAffinityMultiplier(
 ): number {
   const cc = (countryCode || 'US').toUpperCase();
 
-  // Base domestic affinity calibrated to match/exceed local NPC affinity (4.2x in ID/KR/JP/NG/BR, 2.8x regional, 1.35x US/GB)
-  let baseHomeAffinity = 3.4;
+  let baseHomeAffinity = 2.05;
   if (['ID', 'KR', 'JP', 'NG', 'BR', 'PH', 'MX', 'IN', 'TH', 'VN', 'TR', 'AR', 'CO', 'PL'].includes(cc)) {
-    baseHomeAffinity = 4.65;
+    baseHomeAffinity = 2.65;
   } else if (['US', 'GB'].includes(cc)) {
-    baseHomeAffinity = 1.65;
+    baseHomeAffinity = 1.28;
   } else if (['CA', 'AU', 'DE', 'FR', 'ES', 'IT', 'NL', 'SE'].includes(cc)) {
-    baseHomeAffinity = 3.1;
+    baseHomeAffinity = 1.95;
   }
 
   if (hitScope === 'local_gem' || hitScope === 'domestic_sensation') {
-    return baseHomeAffinity * 1.45;
+    return baseHomeAffinity * 1.30;
   }
   if (hitScope === 'regional_hit') {
-    return baseHomeAffinity * 1.2;
+    return baseHomeAffinity * 1.12;
   }
   return baseHomeAffinity;
 }
@@ -326,25 +326,35 @@ export function calculateCalibratedPlayerTerritoryMetrics(
   const isHomeMarket = targetRegion === homeCountry;
 
   const targetProfile = getCountryMarketProfile(targetRegion);
-  const homeProfile = getCountryMarketProfile(homeCountry);
-  const isSameRegionGroup = targetProfile.regionGroup === homeProfile.regionGroup;
+  const breakoutProfile = evaluateSongRegionalBreakoutProfile(
+    song,
+    homeCountry,
+    playerPopularity,
+    playerHype
+  );
 
   // Same base market fraction formula used by NPCs in npcRealReleaseChartsEngine.ts (`marketSizeWeight / 320`)
   const npcCompatibleMarketFraction = Math.max(0.008, targetProfile.marketSizeWeight / 320);
 
-  // Determine territorial affinity multiplier on the same scale as NPCs, with Strong Hometown Pride for Home Market
+  // Determine territorial affinity using the song's Selective Regional Breakout Profile:
+  // - Home Market contributes solidly without monopolizing the global market
+  // - Hot Breakout Countries (e.g. US + select European markets, or Asia-Pacific pockets) surge strongly
+  // - Cold Countries (e.g. Indonesia/Asia on a Western/European-only hit, or Europe on an Asia-only hit) stay low
   let affinityMultiplier: number;
+  const isBreakoutCountry = breakoutProfile.breakoutCountries.includes(targetRegion);
+  const isColdCountry = breakoutProfile.coldCountries.includes(targetRegion);
+  const songCountryMult = breakoutProfile.countryMultipliers[targetRegion] ?? 0.65;
+
   if (isHomeMarket) {
     affinityMultiplier = getPlayerHomeMarketAffinityMultiplier(homeCountry);
-    // Early/mid-career artists have even stronger relative concentration in their home country
-    if (playerPopularity < 55) {
-      affinityMultiplier *= 1.18;
-    }
-  } else if (isSameRegionGroup) {
-    affinityMultiplier = 1.48;
+  } else if (isBreakoutCountry) {
+    // Foreign country where this specific song caught fire!
+    affinityMultiplier = songCountryMult * 1.42;
+  } else if (isColdCountry) {
+    // Country/region where this song did NOT connect (e.g., US/EU hit that didn't cross over to Indonesia/Asia)
+    affinityMultiplier = songCountryMult * 0.72;
   } else {
-    const popCrossover = Math.max(0.55, Math.min(1.15, (playerPopularity + playerHype * 0.35) / 85));
-    affinityMultiplier = Math.max(0.42, (1.0 - targetProfile.domesticLoyalty * 0.38) * popCrossover);
+    affinityMultiplier = songCountryMult;
   }
 
   const effectiveTerritoryScale = npcCompatibleMarketFraction * affinityMultiplier;
@@ -369,19 +379,11 @@ export function calculateCalibratedPlayerTerritoryMetrics(
       : globalDailyViews * 7
     : 0;
 
-  // Cultural platform propensity adjustments (subtle and bounded so no country gets penalized unfairly)
-  const streamCultureBoost = isHomeMarket
-    ? Math.max(1.0, targetProfile.streamingShare / 0.58)
-    : Math.max(0.82, targetProfile.streamingShare / 0.60);
-  const viewCultureBoost = isHomeMarket
-    ? Math.max(1.05, targetProfile.youtubeShare / 0.28)
-    : Math.max(0.85, targetProfile.youtubeShare / 0.30);
-  const salesCultureBoost = isHomeMarket
-    ? Math.max(1.05, Math.min(1.85, targetProfile.salesShare / 0.048))
-    : Math.max(0.85, Math.min(1.8, targetProfile.salesShare / 0.05));
-  const radioCultureBoost = isHomeMarket
-    ? Math.max(1.05, targetProfile.radioShare / 0.038)
-    : Math.max(0.85, targetProfile.radioShare / 0.04);
+  // Cultural platform propensity adjustments
+  const streamCultureBoost = Math.max(0.82, targetProfile.streamingShare / 0.60);
+  const viewCultureBoost = Math.max(0.85, targetProfile.youtubeShare / 0.30);
+  const salesCultureBoost = Math.max(0.85, Math.min(1.8, targetProfile.salesShare / 0.05));
+  const radioCultureBoost = Math.max(0.85, targetProfile.radioShare / 0.04);
 
   let territoryStreams = Math.round(
     (isWeekly ? globalWeeklyStreams : globalDailyStreams) *
@@ -407,7 +409,7 @@ export function calculateCalibratedPlayerTerritoryMetrics(
       viewCultureBoost
   );
 
-  // Calculate player's Global score on this platform to check Global-to-Home Chart Sync
+  // Calculate player's Global score on this platform
   let playerGlobalScore = 0;
   if (platform === 'spotify') {
     playerGlobalScore = isWeekly ? globalWeeklyStreams : globalDailyStreams;
@@ -431,7 +433,7 @@ export function calculateCalibratedPlayerTerritoryMetrics(
   } else if (platform === 'youtube') {
     points = territoryViews;
   } else if (platform === 'itunes') {
-    points = Math.min(Math.max(1, Math.round(globalDailySales * 0.78)), territorySales);
+    points = Math.min(Math.max(1, Math.round(globalDailySales * 0.45)), territorySales);
     territorySales = points;
   } else {
     points = calculateAuthenticBillboardPoints({
@@ -443,46 +445,71 @@ export function calculateCalibratedPlayerTerritoryMetrics(
     });
   }
 
-  // HOME COUNTRY CHART SYNC GUARANTEE:
-  // If this is the player's Home Country (`isHomeMarket`), the player has a natural hometown advantage:
-  // a song's relative standing vs. the #1 song in the player's Home Country must ALWAYS be at least
-  // 1.15x stronger than its relative standing vs. the #1 song on the Global chart!
-  // This guarantees that if the player is #1 on Global (ratio >= 1.0), they are comfortably #1 in their
-  // Home Country too, and even if they are #15 Global, they are a major Top 5-10 contender at home.
-  if (isHomeMarket && topGlobalNpcScore > 0 && topRegionNpcScore > 0 && playerGlobalScore > 0) {
+  // BALANCED HOME COUNTRY & SELECTIVE BREAKOUT SYNC:
+  // 1. In the player's Home Country (`isHomeMarket`), guarantee a supportive hometown floor (0.85x-0.98x of global standing)
+  //    so the player never has 0 streams or misses their home chart when charting globally,
+  //    while capping home share at 28%-38% of global so the Home Country NEVER monopolizes the player's market!
+  // 2. In a Hot Foreign Breakout Country (`isBreakoutCountry` && !isHomeMarket), allow the song to surge
+  //    up to 1.05x-1.22x of its global relative ratio so a song can genuinely hit #1 or Top 5 in select countries!
+  if (topGlobalNpcScore > 0 && topRegionNpcScore > 0 && playerGlobalScore > 0 && !isColdCountry) {
     const globalRelativeRatio = playerGlobalScore / topGlobalNpcScore;
-    // Hometown pride boost: stronger relative chart standing at home than globally
-    const homePrideRatioMultiplier = playerPopularity < 60 ? 1.28 : 1.16;
-    const syncedHomeRatio = globalRelativeRatio * homePrideRatioMultiplier;
-    const syncedHomeFloorPoints = Math.round(topRegionNpcScore * syncedHomeRatio);
 
-    // Cap so territory streams/sales never exceed global totals
-    const maxAllowedByGlobal =
-      platform === 'billboard'
-        ? Math.max(points, Math.round(playerGlobalScore * 0.85))
-        : Math.max(points, Math.round(playerGlobalScore * 0.72));
+    if (isHomeMarket) {
+      const homeSupportRatio = globalRelativeRatio * 0.92;
+      const homeSupportFloorPoints = Math.round(topRegionNpcScore * homeSupportRatio);
+      // Cap Home Country so it contributes realistically (max 28% for medium markets, 38% for US) instead of dominating
+      const maxHomeShareCap = homeCountry === 'US' ? 0.38 : 0.28;
+      const maxAllowedByGlobal = Math.max(points, Math.round(playerGlobalScore * maxHomeShareCap));
+      const targetHomePoints = Math.min(maxAllowedByGlobal, homeSupportFloorPoints);
 
-    const targetSyncedPoints = Math.min(maxAllowedByGlobal, syncedHomeFloorPoints);
+      if (targetHomePoints > points && points > 0) {
+        const boostRatio = targetHomePoints / points;
+        points = targetHomePoints;
+        territoryStreams = Math.min(
+          Math.round((isWeekly ? globalWeeklyStreams : globalDailyStreams) * maxHomeShareCap),
+          Math.round(territoryStreams * boostRatio)
+        );
+        territoryWeeklyStreams = Math.min(
+          Math.round(globalWeeklyStreams * maxHomeShareCap),
+          Math.round(territoryWeeklyStreams * boostRatio)
+        );
+        territorySales = Math.min(
+          Math.round((isWeekly || platform === 'billboard' ? globalWeeklySales : globalDailySales) * maxHomeShareCap),
+          Math.round(territorySales * boostRatio)
+        );
+        territoryViews = Math.min(
+          Math.round((isWeekly || platform === 'billboard' ? globalWeeklyViews : globalDailyViews) * maxHomeShareCap),
+          Math.round(territoryViews * boostRatio)
+        );
+      }
+    } else if (isBreakoutCountry && songCountryMult >= 1.25) {
+      // Selective foreign country breakout: allows a song to smash in specific countries/regions!
+      const foreignBreakoutRatio = globalRelativeRatio * Math.min(1.18, songCountryMult * 0.72);
+      const foreignBreakoutPoints = Math.round(topRegionNpcScore * foreignBreakoutRatio);
+      const maxForeignCap = targetRegion === 'US' ? 0.36 : 0.24;
+      const maxAllowedForeign = Math.max(points, Math.round(playerGlobalScore * maxForeignCap));
+      const targetForeignPoints = Math.min(maxAllowedForeign, foreignBreakoutPoints);
 
-    if (targetSyncedPoints > points && points > 0) {
-      const boostRatio = targetSyncedPoints / points;
-      points = targetSyncedPoints;
-      territoryStreams = Math.min(
-        isWeekly ? globalWeeklyStreams : globalDailyStreams,
-        Math.round(territoryStreams * boostRatio)
-      );
-      territoryWeeklyStreams = Math.min(
-        globalWeeklyStreams,
-        Math.round(territoryWeeklyStreams * boostRatio)
-      );
-      territorySales = Math.min(
-        isWeekly || platform === 'billboard' ? globalWeeklySales : globalDailySales,
-        Math.round(territorySales * boostRatio)
-      );
-      territoryViews = Math.min(
-        isWeekly || platform === 'billboard' ? globalWeeklyViews : globalDailyViews,
-        Math.round(territoryViews * boostRatio)
-      );
+      if (targetForeignPoints > points && points > 0) {
+        const boostRatio = targetForeignPoints / points;
+        points = targetForeignPoints;
+        territoryStreams = Math.min(
+          Math.round((isWeekly ? globalWeeklyStreams : globalDailyStreams) * maxForeignCap),
+          Math.round(territoryStreams * boostRatio)
+        );
+        territoryWeeklyStreams = Math.min(
+          Math.round(globalWeeklyStreams * maxForeignCap),
+          Math.round(territoryWeeklyStreams * boostRatio)
+        );
+        territorySales = Math.min(
+          Math.round((isWeekly || platform === 'billboard' ? globalWeeklySales : globalDailySales) * maxForeignCap),
+          Math.round(territorySales * boostRatio)
+        );
+        territoryViews = Math.min(
+          Math.round((isWeekly || platform === 'billboard' ? globalWeeklyViews : globalDailyViews) * maxForeignCap),
+          Math.round(territoryViews * boostRatio)
+        );
+      }
     }
   }
 

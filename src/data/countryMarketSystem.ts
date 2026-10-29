@@ -17,6 +17,7 @@ import {
 } from './billboardFormulaEngine';
 import { getTightenedHot100CurveMultiplier } from './albumSalesAndMarketCalibrator';
 import { calculatePlatformAffinityScore } from './calibratedMusicEcosystemEngine';
+import { evaluateSongRegionalBreakoutProfile } from './selectiveRegionalBreakoutEngine';
 
 export type RegionGroup = 
   | 'North America' 
@@ -507,8 +508,9 @@ export function evaluateSongHitScope(
   const totalStreams = song.streams || 0;
   const hasGlobalPlaylist = song.playlistPlacements && song.playlistPlacements.some(p => p === 'tth' || p === 'v50');
 
-  // Criteria for Global Crossover:
-  // Must have high quality, strong global hype, high streams, or major global playlist
+  const breakoutProfile = evaluateSongRegionalBreakoutProfile(song, artistCountry, artistPop, artistHype);
+
+  // Criteria for Global / Multi-Region Crossover:
   if (
     (artistPop >= 65 && quality >= 78 && momentum >= 0.75) ||
     (hasGlobalPlaylist && quality >= 70) ||
@@ -516,15 +518,15 @@ export function evaluateSongHitScope(
   ) {
     return {
       scope: 'global_crossover',
-      label: 'Global Crossover Hit',
+      label: breakoutProfile.archetypeLabel,
       badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
-      description: 'Viral across all continents. Charting in US, Europe, Asia & Latin America simultaneously.',
-      domesticSharePercent: 22,
-      internationalReach: 0.95
+      description: breakoutProfile.archetypeSummary,
+      domesticSharePercent: 18,
+      internationalReach: 0.90
     };
   }
 
-  // Criteria for Regional Hit:
+  // Criteria for Regional / Selective Multi-Country Hit:
   if (
     (artistPop >= 40 && momentum >= 0.6) ||
     (quality >= 75 && momentum >= 0.5) ||
@@ -532,35 +534,34 @@ export function evaluateSongHitScope(
   ) {
     return {
       scope: 'regional_hit',
-      label: 'Regional Smash',
+      label: breakoutProfile.archetypeLabel,
       badgeColor: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40',
-      description: 'Strong breakout across culturally aligned markets and neighboring territories.',
-      domesticSharePercent: 48,
-      internationalReach: 0.65
+      description: breakoutProfile.archetypeSummary,
+      domesticSharePercent: 26,
+      internationalReach: 0.68
     };
   }
 
-  // Criteria for Domestic Sensation (Viral Lokal):
-  // Very popular in home country! Can reach #1 domestically while unknown abroad!
+  // Criteria for Domestic + Selective Foreign Breakout:
   if (momentum >= 0.4 || quality >= 60 || (song.dailyStreams || 0) > 20000) {
     return {
       scope: 'domestic_sensation',
-      label: 'Domestic Viral Sensation',
+      label: breakoutProfile.archetypeLabel,
       badgeColor: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-      description: 'Massive viral hit in home territory! Holding top domestic spots and dominating local charts.',
-      domesticSharePercent: 78,
-      internationalReach: 0.25
+      description: breakoutProfile.archetypeSummary,
+      domesticSharePercent: 34,
+      internationalReach: 0.45
     };
   }
 
   // Baseline Local Gem
   return {
     scope: 'local_gem',
-    label: 'Local Cult Favorite',
+    label: 'Domestic & Niche Pockets',
     badgeColor: 'bg-zinc-700/40 text-zinc-300 border-zinc-600/40',
-    description: 'Niche listener base concentrated heavily within the domestic hometown market.',
-    domesticSharePercent: 88,
-    internationalReach: 0.12
+    description: 'Core listener base in home market with emerging niche streams in select foreign territories.',
+    domesticSharePercent: 42,
+    internationalReach: 0.28
   };
 }
 
@@ -605,8 +606,7 @@ export function calculateSongTerritorialBreakdown(
   }
 
   const hitInfo = evaluateSongHitScope(song, artistCountry, artistPop, artistHype);
-  const homeProfile = getCountryMarketProfile(artistCountry);
-  const homeRegion = homeProfile.regionGroup;
+  const breakoutProfile = evaluateSongRegionalBreakoutProfile(song, artistCountry, artistPop, artistHype);
 
   const allCountries = Object.keys(COUNTRY_TIERS);
   const rawWeights: Record<string, number> = {};
@@ -617,40 +617,24 @@ export function calculateSongTerritorialBreakdown(
     let weight = prof.marketSizeWeight;
 
     const isHome = cc === artistCountry;
-    const isSameRegion = prof.regionGroup === homeRegion;
+    const countrySpecificMult = breakoutProfile.countryMultipliers[cc] ?? 0.65;
 
-    if (hitInfo.scope === 'domestic_sensation' || hitInfo.scope === 'local_gem') {
-      // In a domestic hit, home country gets huge concentration!
-      if (isHome) {
-        weight *= 18;
-      } else if (isSameRegion) {
-        weight *= 2.0;
+    if (isHome) {
+      // Home country contributes meaningfully as a core pillar, without swallowing the global market
+      if (hitInfo.scope === 'local_gem') {
+        weight *= breakoutProfile.homeMarketWeightMultiplier * 2.1;
+      } else if (hitInfo.scope === 'domestic_sensation') {
+        weight *= breakoutProfile.homeMarketWeightMultiplier * 1.55;
+      } else if (hitInfo.scope === 'regional_hit') {
+        weight *= breakoutProfile.homeMarketWeightMultiplier * 1.25;
       } else {
-        weight *= 0.15; // Barely any presence in distant continents
-      }
-    } else if (hitInfo.scope === 'regional_hit') {
-      if (isHome) {
-        weight *= 9.5;
-      } else if (isSameRegion) {
-        weight *= 3.5;
-      } else {
-        weight *= 0.6;
+        weight *= breakoutProfile.homeMarketWeightMultiplier;
       }
     } else {
-      // Global Crossover Hit:
-      // Penetrates worldwide while maintaining strong hometown pride in the artist's home country
-      if (isHome) {
-        const isHighLoyaltyHome = ['ID', 'KR', 'JP', 'NG', 'BR', 'PH', 'MX', 'IN', 'TH', 'VN', 'TR', 'AR', 'CO', 'PL'].includes(cc);
-        weight *= isHighLoyaltyHome ? 6.2 : (cc === 'US' || cc === 'GB' ? 2.1 : 4.2);
-      } else if (isSameRegion) {
-        weight *= 1.45;
-      }
+      // Foreign market weight is driven by the song's Selective Regional Breakout Profile
+      // (e.g., high in US + select European countries, low in Indonesia/Asia, or vice-versa)
+      weight *= countrySpecificMult;
     }
-
-    // Add slight deterministic pseudo-random variance based on country code & title
-    const titleLen = (song && song.title) ? song.title.length : 10;
-    const hash = (cc.charCodeAt(0) * 17 + cc.charCodeAt(1) * 31 + titleLen) % 30;
-    weight *= (0.85 + (hash / 100));
 
     rawWeights[cc] = Math.max(0.1, weight);
     sumWeight += rawWeights[cc];
