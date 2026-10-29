@@ -622,15 +622,15 @@ export function calculateSongTerritorialBreakdown(
     if (hitInfo.scope === 'domestic_sensation' || hitInfo.scope === 'local_gem') {
       // In a domestic hit, home country gets huge concentration!
       if (isHome) {
-        weight *= 14;
+        weight *= 18;
       } else if (isSameRegion) {
-        weight *= 1.8;
+        weight *= 2.0;
       } else {
         weight *= 0.15; // Barely any presence in distant continents
       }
     } else if (hitInfo.scope === 'regional_hit') {
       if (isHome) {
-        weight *= 6;
+        weight *= 9.5;
       } else if (isSameRegion) {
         weight *= 3.5;
       } else {
@@ -638,11 +638,12 @@ export function calculateSongTerritorialBreakdown(
       }
     } else {
       // Global Crossover Hit:
-      // Penetrates everywhere, but home country still has natural +25% hometown pride
+      // Penetrates worldwide while maintaining strong hometown pride in the artist's home country
       if (isHome) {
-        weight *= 1.5;
+        const isHighLoyaltyHome = ['ID', 'KR', 'JP', 'NG', 'BR', 'PH', 'MX', 'IN', 'TH', 'VN', 'TR', 'AR', 'CO', 'PL'].includes(cc);
+        weight *= isHighLoyaltyHome ? 6.2 : (cc === 'US' || cc === 'GB' ? 2.1 : 4.2);
       } else if (isSameRegion) {
-        weight *= 1.2;
+        weight *= 1.45;
       }
     }
 

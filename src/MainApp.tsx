@@ -16,6 +16,7 @@ import XApp from './components/Apps/XApp';
 import JobsApp from './components/Apps/JobsApp';
 import GrammyAwardsApp from './components/Apps/GrammyAwardsApp';
 import MtvVmasApp from './components/Apps/MtvVmasApp';
+import VanguardHonorsApp, { VanguardCeremonyLiveModal } from './components/Apps/VanguardHonorsApp';
 import PitchforkApp from './components/Apps/PitchforkApp';
 import MetacriticApp from './components/Apps/MetacriticApp';
 import RadioAirplayChartApp from './components/Apps/RadioAirplayChartApp';
@@ -36,6 +37,7 @@ export default function MainApp() {
   const pendingCeremony = (state as any).awardsState?.pendingLiveCeremony || null;
   const pendingNominations = (state as any).awardsState?.pendingNominationsAnnouncement || null;
   const activeModalSeason = pendingCeremony || pendingNominations;
+  const pendingVanguardSeason = (state as any).vanguardState?.pendingLiveModalSeason || null;
 
   const handleCloseAwardModal = () => {
     setState(prev => ({
@@ -44,6 +46,16 @@ export default function MainApp() {
         ...(prev as any).awardsState,
         pendingLiveCeremony: null,
         pendingNominationsAnnouncement: null
+      }
+    } as any));
+  };
+
+  const handleCloseVanguardModal = () => {
+    setState(prev => ({
+      ...prev,
+      vanguardState: {
+        ...(prev as any).vanguardState,
+        pendingLiveModalSeason: null
       }
     } as any));
   };
@@ -70,6 +82,7 @@ export default function MainApp() {
       {state.activeApp === 'jobs' && <JobsApp />}
       {state.activeApp === 'grammys' && <GrammyAwardsApp />}
       {state.activeApp === 'vmas' && <MtvVmasApp />}
+      {state.activeApp === 'vanguard' && <VanguardHonorsApp />}
       {state.activeApp === 'pitchfork' && <PitchforkApp />}
       {state.activeApp === 'metacritic' && <MetacriticApp />}
       {state.activeApp === 'merch' && <ArtistMerchStoreApp />}
@@ -80,6 +93,13 @@ export default function MainApp() {
         <AwardCeremonyLiveModal
           season={activeModalSeason}
           onClose={handleCloseAwardModal}
+        />
+      )}
+
+      {pendingVanguardSeason && (
+        <VanguardCeremonyLiveModal
+          season={pendingVanguardSeason}
+          onClose={handleCloseVanguardModal}
         />
       )}
     </div>

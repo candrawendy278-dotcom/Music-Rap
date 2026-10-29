@@ -40,6 +40,8 @@ import { generateAwardEventXPosts } from '../data/awardsXAnnouncementEngine';
 import { processDailyMerchWebstoreStep } from '../data/merchWebstoreEngine';
 import { processDailyWorldTourStep } from '../data/worldTourSystemEngine';
 import { calculateDailyExpensesBreakdown } from '../data/dailyExpensesEngine';
+import { processDailyVanguardHonorsStep } from '../data/vanguardHonorsEngine';
+import { processDailyGlobalRadioEcosystemStep } from '../data/globalRadioEcosystemEngine';
 
 syncNpcRealisticReleaseWorkflow('2026-01-01T00:00:00');
 
@@ -254,7 +256,12 @@ export function useGame() {
       nextState.songs = merchStep.updatedSongs;
       nextState.merchStore = merchStep.updatedStore;
 
-      const totalStreams = marketResult.totalStreams;
+      // Process Global Radio Ecosystem daily step (feeds Billboard Airplay points & organic streaming discovery only)
+      const radioEcoStep = processDailyGlobalRadioEcosystemStep(nextState, date);
+      nextState.songs = radioEcoStep.updatedSongs;
+      (nextState as any).radioEcosystemState = radioEcoStep.updatedRadioState;
+
+      const totalStreams = marketResult.totalStreams + radioEcoStep.dailyStreamDiscoveryAdded;
       const totalViews = marketResult.totalViews;
       const totalSales = marketResult.totalSales + merchStep.dailyBillboardUnitsAdded;
       const netRevenueAfterCollabRoyalties = Math.max(
@@ -677,6 +684,19 @@ export function useGame() {
             awardsStep.triggeredEvent.eventType
           );
           nextState.xPosts = [...awardTweets, ...(nextState.xPosts || [])].slice(0, 120);
+        }
+
+        // Process Annual Vanguard Music Honors (May 10 Nominations & June 20 Live Gala Ceremony + X Announcements)
+        const vanguardStep = processDailyVanguardHonorsStep(nextState, date);
+        (nextState as any).vanguardState = vanguardStep.updatedVanguardState;
+        if (vanguardStep.popGain > 0) {
+          nextState.popularity = Math.min(100, Number(((nextState.popularity || 0) + vanguardStep.popGain).toFixed(2)));
+        }
+        if (vanguardStep.hypeGain > 0) {
+          nextState.hype = Math.min(100, Number(((nextState.hype || 0) + vanguardStep.hypeGain).toFixed(2)));
+        }
+        if (vanguardStep.newXPosts.length > 0) {
+          nextState.xPosts = [...vanguardStep.newXPosts, ...(nextState.xPosts || [])].slice(0, 120);
         }
         } catch (innerErr) {
           console.error('Error inside nextDay state calculation:', innerErr);

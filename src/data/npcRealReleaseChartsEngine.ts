@@ -25,6 +25,10 @@ import {
   getNpcLivingAttributes,
   calculateUnifiedYoutubeViewsFromStreams
 } from './npcLivingArtistAttributesAndMarketEngine';
+import {
+  calculateCalibratedPlayerTerritoryMetrics,
+  getPlayerHomeMarketAffinityMultiplier
+} from './homeCountryAndMarketStabilityImprover';
 
 export interface RealNpcSinglesChartParams {
   platform: 'spotify' | 'billboard' | 'itunes' | 'youtube';
@@ -310,6 +314,9 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
   const candidates: ChartItem[] = [];
   const precomputedPool = getPrecomputedNpcPoolForDay(effectiveDate, dayOfYear, playerName);
 
+  let topGlobalNpcScore = 0;
+  let topRegionNpcScore = 0;
+
   // 2. Score precomputed NPC songs for the target platform & territory
   for (let i = 0; i < precomputedPool.length; i++) {
     const item = precomputedPool[i];
@@ -327,6 +334,7 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
     const territoryDailyViews = Math.max(150, Math.round(item.globalDailyViews * territoryScale));
     const territoryWeeklyViews = Math.max(800, Math.round(item.globalWeeklyViews * territoryScale));
 
+    let globalBenchmarkPts = 0;
     let points = 0;
     let stats = {
       streams: territoryWeeklyStreams,
@@ -335,6 +343,7 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
     };
 
     if (platform === 'spotify') {
+      globalBenchmarkPts = isWeekly ? item.rawWeeklyStreams : item.rawDailyStreams;
       points = isWeekly ? territoryWeeklyStreams : territoryDailyStreams;
       stats = {
         streams: points,
@@ -342,6 +351,7 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
         radio: territoryRadio
       };
     } else if (platform === 'youtube') {
+      globalBenchmarkPts = item.globalDailyViews;
       points = territoryDailyViews;
       stats = {
         streams: territoryDailyViews,
@@ -349,6 +359,7 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
         radio: territoryRadio
       };
     } else if (platform === 'itunes') {
+      globalBenchmarkPts = item.rawDailySales;
       points = territoryDailySales;
       stats = {
         streams: territoryDailyStreams,
@@ -356,6 +367,13 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
         radio: territoryRadio
       };
     } else {
+      globalBenchmarkPts = calculateAuthenticBillboardPoints({
+        weeklyAudioStreams: item.rawWeeklyStreams,
+        weeklyVideoViews: item.globalWeeklyViews,
+        weeklyPureSales: item.rawWeeklySales,
+        weeklyRadioPlays: 0,
+        isGlobal: true
+      });
       points = calculateAuthenticBillboardPoints({
         weeklyAudioStreams: territoryWeeklyStreams,
         weeklyVideoViews: territoryWeeklyViews,
@@ -380,6 +398,13 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
       region
     );
     points = Math.max(1, Math.round(points * rankWave));
+
+    if (globalBenchmarkPts > topGlobalNpcScore) {
+      topGlobalNpcScore = globalBenchmarkPts;
+    }
+    if (points > topRegionNpcScore) {
+      topRegionNpcScore = points;
+    }
 
     candidates.push({
       id: `npc_single_${region}_${item.npcId}_${item.sIdx}`,
@@ -472,66 +497,24 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
           };
         }
       } else {
-        const isPlatformWeekly = platform === 'billboard' || isWeekly;
-        const breakdown = calculateSongTerritorialBreakdown(
-          s,
+        const calibratedTerritory = calculateCalibratedPlayerTerritoryMetrics({
+          song: s,
+          platform,
+          region,
           playerCountry,
           playerPopularity,
           playerHype,
-          isPlatformWeekly
-        );
-        const countryData = breakdown.find(b => b.code === region);
-        const shareFraction = countryData ? countryData.marketSharePercent / 100 : 0.01;
+          isWeekly: Boolean(isWeekly),
+          topGlobalNpcScore,
+          topRegionNpcScore
+        });
 
-        if (platform === 'billboard') {
-          if (countryData) {
-            const videoViewsTerritory = s.hasMV ? Math.round(countryData.views || 0) : 0;
-            rawPts = calculateAuthenticBillboardPoints({
-              weeklyAudioStreams: countryData.streams,
-              weeklyVideoViews: videoViewsTerritory,
-              weeklyPureSales: countryData.pureSales,
-              weeklyRadioPlays: countryData.radio,
-              isGlobal: false
-            });
-            stats = {
-              streams: countryData.streams,
-              sales: countryData.pureSales,
-              radio: countryData.radio
-            };
-          }
-        } else if (platform === 'spotify') {
-          const globalMetric = isWeekly
-            ? s.weeklyStreams && s.weeklyStreams > 0
-              ? s.weeklyStreams
-              : (s.dailyStreams || 0) * 7
-            : s.dailyStreams || 0;
-          rawPts = Math.round(
-            globalMetric * shareFraction * (profile ? profile.streamingShare / 0.6 : 1)
-          );
-          stats = {
-            streams: rawPts,
-            sales: Math.round((s.dailyPureSales || 0) * shareFraction),
-            radio: Math.round((s.dailyRadioPlays || 0) * shareFraction)
-          };
-        } else if (platform === 'youtube') {
-          const globalViews = s.dailyViews || 0;
-          rawPts = Math.round(
-            globalViews * shareFraction * (profile ? profile.youtubeShare / 0.3 : 1)
-          );
-          stats = { streams: rawPts, sales: 0, radio: 0 };
-        } else if (platform === 'itunes') {
-          const globalSales = s.dailyPureSales || 0;
-          const territoryBoost = profile ? Math.min(1.8, profile.salesShare / 0.05) : 1;
-          rawPts = Math.min(
-            Math.max(1, Math.round(globalSales * 0.72)),
-            Math.round(globalSales * shareFraction * territoryBoost)
-          );
-          stats = {
-            streams: Math.round((s.dailyStreams || 0) * shareFraction),
-            sales: rawPts,
-            radio: 0
-          };
-        }
+        rawPts = calibratedTerritory.points;
+        stats = {
+          streams: platform === 'youtube' ? calibratedTerritory.views : calibratedTerritory.streams,
+          sales: calibratedTerritory.sales,
+          radio: calibratedTerritory.radio
+        };
       }
 
       const finalPlayerPts = Math.round(rawPts);
@@ -648,7 +631,8 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
 
       if (!isGlobal) {
         const isHome = playerCountry === region;
-        const share = Math.min(0.68, marketFraction * (isHome ? 2.2 : 0.85));
+        const homeAffinity = isHome ? getPlayerHomeMarketAffinityMultiplier(playerCountry) : 1.05;
+        const share = Math.min(0.76, marketFraction * homeAffinity);
         points = Math.round(points * share);
       }
 

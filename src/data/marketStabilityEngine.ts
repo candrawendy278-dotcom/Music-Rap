@@ -48,6 +48,10 @@ import {
   calculateDailyProjectPreSaveGrowth,
   getPreSaveLaunchBoostMultipliers
 } from './preReleaseCountdownEngine';
+import {
+  calculateStabilizedStreamsAndViewsHold,
+  calculateStabilizedDailyPureSales
+} from './homeCountryAndMarketStabilityImprover';
 
 export interface MarketDailyUpdateResult {
   updatedSongs: Song[];
@@ -232,7 +236,7 @@ export function processDailyMarketStep(
           ? Math.round(projPreSaveBoost.bonusFirstDayStreams / Math.max(1, totalTracks))
           : 0;
 
-      const dailyStreams = Math.max(
+      const computedDailyStreams = Math.max(
         0,
         Math.round(
           rawDailyStreams * enhancedMetrics.streamMultiplier * preSaveStreamMult +
@@ -244,18 +248,32 @@ export function processDailyMarketStep(
       // MV daily views using authentic video velocity model + audio-to-video spillover
       const { dailyViews: rawDailyViews, remainingAdDays: newMvAdsDays } = calculateYouTubeViewVelocity(
         song,
-        dailyStreams,
+        computedDailyStreams,
         artistCountry,
         daysSinceRelease,
         organicVariance,
         singleDebut?.debutYoutubeMultiplier
       );
-      const dailyViews = computeEnhancedYoutubeDailyViews(
+      const computedDailyViews = computeEnhancedYoutubeDailyViews(
         rawDailyViews,
         song,
-        dailyStreams,
+        computedDailyStreams,
         daysSinceRelease
       );
+
+      // Stabilize post-debut streams and YouTube views (Soft Day 2 dip, smooth Week 1-4 hold)
+      const { stabilizedDailyStreams: dailyStreams, stabilizedDailyViews: dailyViews } =
+        calculateStabilizedStreamsAndViewsHold({
+          song,
+          daysSinceRelease,
+          computedDailyStreams,
+          computedDailyViews,
+          artistPopularity,
+          artistHype,
+          isSingle,
+          weekendLift,
+          organicVariance: organicVariance * perSongVariance
+        });
       const newViews = (song.views || 0) + dailyViews;
 
       // 2. Organic Commercial Radio Airplay:
@@ -273,7 +291,7 @@ export function processDailyMarketStep(
       });
       const dailyRadio = radioRotation.dailySpins;
 
-      // 3. Organic Pure Digital Track Sales:
+      // 3. Organic Pure Digital Track Sales (with smooth Week 1 hold & multi-week iTunes longevity):
       const effectiveSalesModifier = isSingle
         ? (singleDebut?.debutSalesMultiplier ?? distinctProfile.salesModifier)
         : distinctProfile.salesModifier;
@@ -290,7 +308,18 @@ export function processDailyMarketStep(
         salesModifier: effectiveSalesModifier,
         fans: playerFans
       });
-      const dailySales = Math.max(0, Math.round(rawDailySales * enhancedMetrics.salesMultiplier));
+      const computedDailySales = Math.max(0, Math.round(rawDailySales * enhancedMetrics.salesMultiplier));
+      const dailySales = calculateStabilizedDailyPureSales({
+        song,
+        daysSinceRelease,
+        stabilizedDailyStreams: dailyStreams,
+        computedDailySales,
+        artistPopularity,
+        artistHype,
+        playerFans: playerFans || 0,
+        isSingle,
+        organicVariance: organicVariance * perSongVariance
+      });
 
       const newRadioPlays = (song.radioPlays || 0) + dailyRadio;
       const newPureSales = (song.pureSales || 0) + dailySales;

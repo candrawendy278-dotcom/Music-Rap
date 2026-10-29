@@ -53,6 +53,7 @@ export default function AppsTab() {
         { id: 'riaa', name: 'RIAA Program', icon: 'ph-fill ph-disc', color: 'text-amber-400', bg: 'bg-[#171308] dark:bg-amber-400/15', badgeCount: eligibleRiaaCount },
         { id: 'grammys', name: 'The GRAMMYs', icon: 'ph-fill ph-trophy', color: 'text-[#D4AF37]', bg: 'bg-[#12110E] dark:bg-[#D4AF37]/15' },
         { id: 'vmas', name: 'MTV VMAs', icon: 'ph-fill ph-planet', color: 'text-[#FF1E8A]', bg: 'bg-[#120D1D] dark:bg-[#FF1E8A]/15' },
+        { id: 'vanguard', name: 'Vanguard Honors', icon: 'ph-fill ph-diamond', color: 'text-emerald-400', bg: 'bg-[#081512] dark:bg-emerald-400/15' },
       ]
     },
     {

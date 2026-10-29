@@ -211,7 +211,7 @@ export interface GameState {
   xPosts?: XPost[];
   xProfile?: XProfile;
   activeTab: 'dashboard' | 'studio' | 'apps' | 'settings';
-  activeApp: 'none' | 'spotify' | 'youtube' | 'billboard' | 'radio' | 'itunes' | 'statistic' | 'skills' | 'x' | 'jobs' | 'grammys' | 'vmas' | 'pitchfork' | 'metacritic' | 'merch' | 'riaa' | 'tour';
+  activeApp: 'none' | 'spotify' | 'youtube' | 'billboard' | 'radio' | 'itunes' | 'statistic' | 'skills' | 'x' | 'jobs' | 'grammys' | 'vmas' | 'vanguard' | 'pitchfork' | 'metacritic' | 'merch' | 'riaa' | 'tour';
   gameMode?: 'normal' | 'realtime';
   lastRealTimeUpdate?: number;
   currentStreamRate?: number;
@@ -222,9 +222,11 @@ export interface GameState {
   rivalState?: any;
   jobsState?: any;
   awardsState?: any;
+  vanguardState?: any;
   merchStore?: any;
   riaaState?: any;
   tourState?: any;
+  radioEcosystemState?: any;
 }
 
 export interface NPC {
