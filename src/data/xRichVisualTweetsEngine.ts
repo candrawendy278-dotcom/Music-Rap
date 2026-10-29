@@ -63,7 +63,8 @@ export interface XVisualCardPayload {
   spotifySplitCard?: {
     chartTitle: string;
     dateLabel: string;
-    rank: number;
+    rank: number | null;
+    rankLabel?: string;
     songTitle: string;
     artistName: string;
     cover: string;
@@ -86,8 +87,8 @@ export interface XVisualCardPayload {
     songTitle: string;
     artistName: string;
     cover: string;
-    itunesRank: number;
-    ytRank: number;
+    itunesRank: number | null;
+    ytRank: number | null;
     itunesSalesText: string;
     ytViewsText: string;
   };
@@ -346,11 +347,20 @@ export function generateRichVisualXFeedTweets(state: GameState): XPost[] {
     const prevDaily = latestSong.prevDailyStreams || currentDaily;
     const totalStreams = Math.max(currentDaily, latestSong.streams || currentDaily);
 
-    // Find on Hot 100 for @chartdata concise format
+    const normalizeTitle = (t: string) =>
+      t
+        .replace(/\s*\(Official Music Video\)/i, '')
+        .replace(/\s*\((?:feat\.|ft\.|with)\s+[^)]+\)/i, '')
+        .trim()
+        .toLowerCase();
+    const targetNorm = normalizeTitle(cleanTitle);
+
+    // Find on Hot 100 for @chartdata concise format (real rank or OUT)
     const h100Idx = hot100Chart.findIndex(
       item =>
-        item.isPlayer &&
-        item.title.toLowerCase().includes(cleanTitle.toLowerCase())
+        (item.isPlayer ||
+          item.artist.toLowerCase().includes(artistName.toLowerCase())) &&
+        normalizeTitle(item.title) === targetNorm
     );
     if (h100Idx !== -1) {
       const item = hot100Chart[h100Idx];
@@ -387,47 +397,74 @@ export function generateRichVisualXFeedTweets(state: GameState): XPost[] {
         isPlayerPost: false,
         daysOld: 0
       });
+    } else {
+      const recordedPeak = (latestSong as any).peakPosition;
+      const recordedWeeks = (latestSong as any).weeksOnChart || 0;
+      const historyNote =
+        recordedPeak && recordedPeak <= 100
+          ? `[${recordedWeeks} ${recordedWeeks === 1 ? 'week' : 'weeks'}]. *peak: #${recordedPeak}*`
+          : '[Not Charting / Bubbling Under]';
+
+      posts.push({
+        id: `rich-chartdata-h100line-${timestamp}`,
+        authorName: 'chart data',
+        authorHandle: '@chartdata',
+        authorAvatar: AVATARS.chartdata,
+        isVerified: true,
+        verifiedType: 'blue',
+        category: 'chart',
+        timeAgo: '45m',
+        dateCreated: dateStr,
+        content: `Billboard Hot 100: OUT — ${cleanTitle}, @${cleanHandle} ${historyNote}`,
+        likes: Math.max(1450, Math.round(followers * 0.075 + 480)),
+        reposts: Math.max(310, Math.round(followers * 0.018 + 105)),
+        replies: 72,
+        views: Math.max(34000, Math.round(followers * 0.52 + 14000)),
+        isPlayerPost: false,
+        daysOld: 0
+      });
     }
 
-    // Find on Spotify Global Chart for Day-by-Day & Date-by-Date + Official Spotify Split Card
+    // Find on Spotify Global Chart — 100% real lookup, NEVER fallback to a fake number!
     const spIdx = spotifyGlobalChart.findIndex(
       item =>
-        item.isPlayer &&
-        item.title.toLowerCase().includes(cleanTitle.toLowerCase())
+        (item.isPlayer ||
+          item.artist.toLowerCase().includes(artistName.toLowerCase())) &&
+        normalizeTitle(item.title) === targetNorm
     );
-    const spRank = spIdx !== -1 ? spIdx + 1 : Math.min(200, Math.max(1, Math.round(120 - (state.popularity || 10))));
+    const actualSpRank: number | null = spIdx !== -1 ? spIdx + 1 : null;
+    const spRankLabel = actualSpRank !== null ? `#${actualSpRank}` : 'OUT';
+    const spMov =
+      spIdx !== -1
+        ? resolveChartItemMovement(
+            spotifyGlobalChart[spIdx],
+            actualSpRank!,
+            spotifyGlobalChart.length,
+            state.date
+          )
+        : null;
+    const prevSpRankLabel =
+      spMov && spMov.lastPosition ? `#${spMov.lastPosition}` : 'OUT';
 
-    // Build realistic multi-day trajectory grounded in the song's actual totalStreams, prevDaily, and currentDaily
-    const runLength = Math.min(10, Math.max(1, daysOut));
+    // Build real telemetry lines (only yesterday + today from actual song telemetry, no fake fabricated history)
     const dayLines: string[] = [];
     const dateLines: string[] = [];
 
-    for (let d = 1; d <= runLength; d++) {
-      let dayStreamVal = currentDaily;
-      let dayRankVal = spRank;
-      if (d === runLength) {
-        dayStreamVal = currentDaily;
-        dayRankVal = spRank;
-      } else if (d === runLength - 1 && prevDaily > 0) {
-        dayStreamVal = prevDaily;
-        dayRankVal = Math.min(200, Math.max(1, spRank + (currentDaily >= prevDaily ? 2 : -1)));
-      } else {
-        // Reconstruct earlier days proportionally so they align with cumulative history
-        const avgHistorical = Math.max(
-          1000,
-          Math.round((totalStreams - currentDaily) / Math.max(1, daysOut - 1))
-        );
-        const dayCurve = d === 1 ? 1.12 : 0.92 + ((d * 7) % 19) * 0.01;
-        dayStreamVal = Math.max(500, Math.round(avgHistorical * dayCurve));
-        dayRankVal = Math.min(200, Math.max(1, spRank + ((runLength - d) % 4)));
-      }
-
-      dayLines.push(`Day ${d}: ${formatNumFull(dayStreamVal)} (#${dayRankVal})`);
-      const dateSlash = formatDateShortSlash(dateStr, -(runLength - d));
-      dateLines.push(`${dateSlash} - ${formatNumFull(dayStreamVal)} (#${dayRankVal})`);
+    if (daysOut >= 2 && latestSong.prevDailyStreams && latestSong.prevDailyStreams > 0) {
+      const yesterdaySlash = formatDateShortSlash(dateStr, -1);
+      dayLines.push(
+        `Day ${daysOut - 1}: ${formatNumFull(latestSong.prevDailyStreams)} (${prevSpRankLabel})`
+      );
+      dateLines.push(
+        `${yesterdaySlash} - ${formatNumFull(latestSong.prevDailyStreams)} (${prevSpRankLabel})`
+      );
     }
 
-    // Format A: "@[handle]xSpotify — #Artist's 'Song' - Spotify Global Chart: DD/MM - X (#Rank)... Total - Y filtered streams" + Official Spotify Charts Split Card
+    const todaySlash = formatDateShortSlash(dateStr, 0);
+    dayLines.push(`Day ${daysOut}: ${formatNumFull(currentDaily)} (${spRankLabel})`);
+    dateLines.push(`${todaySlash} - ${formatNumFull(currentDaily)} (${spRankLabel})`);
+
+    // Format A: "@[handle]xSpotify — #Artist's 'Song' - Spotify Global Chart: DD/MM - X (#Rank or OUT)... Total - Y filtered streams"
     posts.push({
       id: `rich-sp-split-${timestamp}`,
       authorName: `${artistName} Spotify`,
@@ -438,17 +475,21 @@ export function generateRichVisualXFeedTweets(state: GameState): XPost[] {
       category: 'platform',
       timeAgo: '1h',
       dateCreated: dateStr,
-      content: `#${artistName.replace(/\s+/g, '')}’s "${cleanTitle}" - Spotify Global Chart:\n\n${dateLines.join('\n')}\n\nTotal - ${formatNumFull(totalStreams)} filtered streams`,
+      content: `#${artistName.replace(/\s+/g, '')}’s "${cleanTitle}" — Spotify Global Chart Status (${spRankLabel}):\n\n${dateLines.join('\n')}\n\nTotal — ${formatNumFull(totalStreams)} filtered streams`,
       visualCard: {
         cardType: 'spotify_chart_split_card',
         spotifySplitCard: {
           chartTitle: 'Top Songs Global',
           dateLabel: datedUpper,
-          rank: spRank,
+          rank: actualSpRank,
+          rankLabel: spRankLabel,
           songTitle: cleanTitle,
           artistName: creditedArtist,
           cover: songCover,
-          dailyStreamsText: `${formatNumFull(currentDaily)} daily streams`
+          dailyStreamsText:
+            actualSpRank !== null
+              ? `${formatNumFull(currentDaily)} daily streams`
+              : `OUT of Global Chart • ${formatNumFull(currentDaily)} daily streams`
         }
       },
       likes: Math.max(1850, Math.round(followers * 0.088 + 540)),
@@ -459,72 +500,79 @@ export function generateRichVisualXFeedTweets(state: GameState): XPost[] {
       daysOld: 0
     });
 
-    // Format B: Fan account "Song" on Global Spotify: Day 1: ... Day N: ...
-    if (runLength >= 2) {
-      posts.push({
-        id: `rich-fan-dayrun-${timestamp}`,
-        authorName: `${artistName} Updates`,
-        authorHandle: `@${cleanHandle}Updates`,
-        authorAvatar: AVATARS.fanAccount1,
-        isVerified: true,
-        verifiedType: 'blue',
-        category: 'fanbase',
-        timeAgo: '2h',
-        dateCreated: dateStr,
-        content: `"${cleanTitle}" on Global Spotify:\n${dayLines.join('\n')}`,
-        image: latestSong.mvThumbnail || songCover,
-        mediaBadge: `GLOBAL SPOTIFY #${spRank}`,
-        likes: Math.max(920, Math.round(followers * 0.055 + 290)),
-        reposts: Math.max(210, Math.round(followers * 0.013 + 65)),
-        replies: 41,
-        views: Math.max(22000, Math.round(followers * 0.35 + 8500)),
-        isPlayerPost: false,
-        daysOld: 0
-      });
-    }
+    // Format B: Fan account "Song" on Global Spotify: real Day N telemetry + real #Rank or OUT
+    posts.push({
+      id: `rich-fan-dayrun-${timestamp}`,
+      authorName: `${artistName} Updates`,
+      authorHandle: `@${cleanHandle}Updates`,
+      authorAvatar: AVATARS.fanAccount1,
+      isVerified: true,
+      verifiedType: 'blue',
+      category: 'fanbase',
+      timeAgo: '2h',
+      dateCreated: dateStr,
+      content: `"${cleanTitle}" on Global Spotify:\n${dayLines.join('\n')}\nTotal: ${formatNumFull(totalStreams)} streams`,
+      image: latestSong.mvThumbnail || songCover,
+      mediaBadge:
+        actualSpRank !== null
+          ? `GLOBAL SPOTIFY #${actualSpRank}`
+          : 'GLOBAL SPOTIFY: OUT',
+      likes: Math.max(920, Math.round(followers * 0.055 + 290)),
+      reposts: Math.max(210, Math.round(followers * 0.013 + 65)),
+      replies: 41,
+      views: Math.max(22000, Math.round(followers * 0.35 + 8500)),
+      isPlayerPost: false,
+      daysOld: 0
+    });
 
-    // Format C: Dual Worldwide iTunes + YouTube Music Trending Card when song has MV or strong sales
+    // Format C: Dual Worldwide iTunes + YouTube Music Status Card — 100% real rank or OUT, NEVER fake #1!
     const itunesIdx = itunesGlobalChart.findIndex(
-      item => item.isPlayer && item.title.toLowerCase().includes(cleanTitle.toLowerCase())
+      item =>
+        (item.isPlayer ||
+          item.artist.toLowerCase().includes(artistName.toLowerCase())) &&
+        normalizeTitle(item.title) === targetNorm
     );
     const ytIdx = ytGlobalChart.findIndex(
-      item => item.isPlayer && item.title.toLowerCase().includes(cleanTitle.toLowerCase())
+      item =>
+        (item.isPlayer ||
+          item.artist.toLowerCase().includes(artistName.toLowerCase())) &&
+        normalizeTitle(item.title) === targetNorm
     );
-    const itunesRank = itunesIdx !== -1 ? itunesIdx + 1 : 1;
-    const ytRank = ytIdx !== -1 ? ytIdx + 1 : 1;
+    const itunesRank: number | null = itunesIdx !== -1 ? itunesIdx + 1 : null;
+    const ytRank: number | null = ytIdx !== -1 ? ytIdx + 1 : null;
+    const itunesRankText = itunesRank !== null ? `#${itunesRank}` : 'OUT';
+    const ytRankText = ytRank !== null ? `#${ytRank}` : 'OUT';
 
-    if ((itunesIdx !== -1 && itunesRank <= 25) || (ytIdx !== -1 && ytRank <= 25) || latestSong.hasMV) {
-      posts.push({
-        id: `rich-dual-itunes-yt-${timestamp}`,
-        authorName: `${artistName} Charts`,
-        authorHandle: `@${cleanHandle}charts`,
-        authorAvatar: artistAvatar,
-        isVerified: true,
-        verifiedType: 'blue',
-        category: 'platform',
-        timeAgo: '2h',
-        dateCreated: dateStr,
-        content: `"${cleanTitle}" by ${creditedArtist} is currently at #${itunesRank} on the Worldwide iTunes Song Chart and #${ytRank} on YouTube Music Trending Worldwide! 🌍🔥`,
-        visualCard: {
-          cardType: 'dual_itunes_yt_no1_banner',
-          dualNo1Banner: {
-            songTitle: cleanTitle,
-            artistName: creditedArtist,
-            cover: latestSong.mvThumbnail || songCover,
-            itunesRank,
-            ytRank,
-            itunesSalesText: `+${formatNumFull(latestSong.dailyPureSales || 0)} sales`,
-            ytViewsText: `+${formatNumFull(latestSong.dailyViews || 0)} views`
-          }
-        },
-        likes: Math.max(1340, Math.round(followers * 0.072 + 380)),
-        reposts: Math.max(310, Math.round(followers * 0.017 + 95)),
-        replies: 58,
-        views: Math.max(31000, Math.round(followers * 0.45 + 11000)),
-        isPlayerPost: false,
-        daysOld: 0
-      });
-    }
+    posts.push({
+      id: `rich-dual-itunes-yt-${timestamp}`,
+      authorName: `${artistName} Charts`,
+      authorHandle: `@${cleanHandle}charts`,
+      authorAvatar: artistAvatar,
+      isVerified: true,
+      verifiedType: 'blue',
+      category: 'platform',
+      timeAgo: '2h',
+      dateCreated: dateStr,
+      content: `📊 Worldwide iTunes & YouTube Music Chart Status — "${cleanTitle}" by ${creditedArtist}:\n\n• Worldwide iTunes Song Chart: ${itunesRankText} (+${formatNumFull(latestSong.dailyPureSales || 0)} sales)\n• YouTube Music Global Chart: ${ytRankText} (+${formatNumFull(latestSong.dailyViews || 0)} views)`,
+      visualCard: {
+        cardType: 'dual_itunes_yt_no1_banner',
+        dualNo1Banner: {
+          songTitle: cleanTitle,
+          artistName: creditedArtist,
+          cover: latestSong.mvThumbnail || songCover,
+          itunesRank,
+          ytRank,
+          itunesSalesText: `+${formatNumFull(latestSong.dailyPureSales || 0)} sales`,
+          ytViewsText: `+${formatNumFull(latestSong.dailyViews || 0)} views`
+        }
+      },
+      likes: Math.max(1340, Math.round(followers * 0.072 + 380)),
+      reposts: Math.max(310, Math.round(followers * 0.017 + 95)),
+      replies: 58,
+      views: Math.max(31000, Math.round(followers * 0.45 + 11000)),
+      isPlayerPost: false,
+      daysOld: 0
+    });
   }
 
   // =========================================================================

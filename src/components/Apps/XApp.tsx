@@ -67,18 +67,105 @@ export default function XApp() {
     return (state.xPosts || []).filter(p => p.isPlayerPost);
   }, [state.xPosts]);
 
-  // Combined feed: player posts + industry/fan tweets stored in state.xPosts
+  // Combined feed: player posts + industry/fan tweets stored in state.xPosts, reconciled with live chart truth
   const allFeedTweets = useMemo<XPost[]>(() => {
-    if (!state.xPosts || state.xPosts.length === 0) {
-      return generateIndustryFeedTweets(state);
-    }
-    const hasVisualCardTweet = state.xPosts.some(p => Boolean(p.visualCard));
-    if (!hasVisualCardTweet) {
-      const richTweets = generateRichVisualXFeedTweets(state);
-      return [...richTweets, ...state.xPosts];
-    }
-    return state.xPosts;
-  }, [state.xPosts, state.songs, state.projects, state.fans, state.popularity, state.hype, state.billboard, state.itunes, state.spotify, state.youtube, state.date, profile.name, profile.handle]);
+    const rawFeed =
+      !state.xPosts || state.xPosts.length === 0
+        ? generateIndustryFeedTweets(state)
+        : !state.xPosts.some(p => Boolean(p.visualCard))
+        ? [...generateRichVisualXFeedTweets(state), ...state.xPosts]
+        : state.xPosts;
+
+    const spGlobal = state.spotify?.charts?.['daily_global'] || [];
+    const itGlobal = state.itunes?.charts?.['daily_global'] || [];
+    const ytGlobal = state.youtube?.charts?.['daily_global'] || [];
+    const hot100 = state.billboard?.hot100 || [];
+    const pNameLower = (profile.name || '').toLowerCase();
+
+    const normTitle = (t: string) =>
+      t
+        .replace(/\s*\(Official Music Video\)/i, '')
+        .replace(/\s*\((?:feat\.|ft\.|with)\s+[^)]+\)/i, '')
+        .trim()
+        .toLowerCase();
+
+    const lookupLiveRank = (chart: any[], songTitle: string): number | null => {
+      const target = normTitle(songTitle);
+      const idx = chart.findIndex(
+        item =>
+          (item.isPlayer ||
+            (pNameLower && item.artist?.toLowerCase().includes(pNameLower))) &&
+          normTitle(item.title || '') === target
+      );
+      return idx !== -1 ? idx + 1 : null;
+    };
+
+    return rawFeed.map(post => {
+      if ((post.daysOld || 0) > 1) return post;
+
+      if (post.visualCard?.cardType === 'spotify_chart_split_card' && post.visualCard.spotifySplitCard) {
+        const sc = post.visualCard.spotifySplitCard;
+        const liveRank = lookupLiveRank(spGlobal, sc.songTitle);
+        const rankLabel = liveRank !== null ? `#${liveRank}` : 'OUT';
+        return {
+          ...post,
+          content: post.content.replace(/\(#\d+\)/g, `(${rankLabel})`),
+          visualCard: {
+            ...post.visualCard,
+            spotifySplitCard: {
+              ...sc,
+              rank: liveRank,
+              rankLabel
+            }
+          }
+        };
+      }
+
+      if (post.visualCard?.cardType === 'dual_itunes_yt_no1_banner' && post.visualCard.dualNo1Banner) {
+        const db = post.visualCard.dualNo1Banner;
+        const liveItunes = lookupLiveRank(itGlobal, db.songTitle);
+        const liveYt = lookupLiveRank(ytGlobal, db.songTitle);
+        const itText = liveItunes !== null ? `#${liveItunes}` : 'OUT';
+        const ytText = liveYt !== null ? `#${liveYt}` : 'OUT';
+        return {
+          ...post,
+          content: `📊 Worldwide iTunes & YouTube Music Chart Status — "${db.songTitle}" by ${db.artistName}:\n\n• Worldwide iTunes Song Chart: ${itText} (${db.itunesSalesText})\n• YouTube Music Global Chart: ${ytText} (${db.ytViewsText})`,
+          visualCard: {
+            ...post.visualCard,
+            dualNo1Banner: {
+              ...db,
+              itunesRank: liveItunes,
+              ytRank: liveYt
+            }
+          }
+        };
+      }
+
+      if (post.id.startsWith('rich-fan-dayrun-') && latestReleasedSong) {
+        const liveRank = lookupLiveRank(spGlobal, latestReleasedSong.title);
+        const rankLabel = liveRank !== null ? `#${liveRank}` : 'OUT';
+        return {
+          ...post,
+          content: post.content.replace(/\(#\d+\)/g, `(${rankLabel})`),
+          mediaBadge:
+            liveRank !== null ? `GLOBAL SPOTIFY #${liveRank}` : 'GLOBAL SPOTIFY: OUT'
+        };
+      }
+
+      if (post.id.startsWith('rich-chartdata-h100line-') && latestReleasedSong) {
+        const liveH100 = lookupLiveRank(hot100, latestReleasedSong.title);
+        if (liveH100 === null && post.content.includes('Billboard Hot 100: #')) {
+          const handleClean = (profile.handle || '').replace(/^@/, '');
+          return {
+            ...post,
+            content: `Billboard Hot 100: OUT — ${latestReleasedSong.title}, @${handleClean} [Not Charting / Bubbling Under]`
+          };
+        }
+      }
+
+      return post;
+    });
+  }, [state.xPosts, state.songs, state.projects, state.fans, state.popularity, state.hype, state.billboard, state.itunes, state.spotify, state.youtube, state.date, profile.name, profile.handle, latestReleasedSong]);
 
   // Ensure initial feed is populated if xPosts is empty
   React.useEffect(() => {

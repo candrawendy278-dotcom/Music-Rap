@@ -190,8 +190,8 @@ export function generateCatalogAndLivingStanTweets(state: GameState): XPost[] {
     if (catalogAngle === 0) {
       // @PopCrave — Catalog classic longevity appreciation
       const chartNote = oldSpEntry
-        ? ` and is currently charting at #${oldSpEntry.rank} ${oldSpEntry.movementBadge} on Global Spotify`
-        : '';
+        ? ` (#${oldSpEntry.rank} ${oldSpEntry.movementBadge} on Global Spotify)`
+        : ' (Global Spotify Chart: OUT)';
       extraTweets.push({
         id: `living-old-popcrave-${timestamp}-2`,
         authorName: 'Pop Crave',
@@ -202,9 +202,11 @@ export function generateCatalogAndLivingStanTweets(state: GameState): XPost[] {
         category: 'media',
         timeAgo: '1h',
         dateCreated: dateStr,
-        content: `${oldDaysOut} days after its release, ${oldSongMeta.formattedArtistCredits}'s "${oldSongMeta.cleanTitle}" is still pulling +${formatNumFull(oldDaily)} daily streams on Spotify${chartNote} — bringing its lifetime total to ${formatNumFull(oldTotal)} streams and ${formatNumFull(oldSales)} pure sales. A certified modern classic. 🔥💿`,
+        content: `${oldDaysOut} days after its release, ${oldSongMeta.formattedArtistCredits}'s "${oldSongMeta.cleanTitle}" earned +${formatNumFull(oldDaily)} daily streams on Spotify${chartNote} — bringing its lifetime total to ${formatNumFull(oldTotal)} streams and ${formatNumFull(oldSales)} pure sales. 💿`,
         image: oldCover,
-        mediaBadge: `DAY ${oldDaysOut} LONGEVITY`,
+        mediaBadge: oldSpEntry
+          ? `GLOBAL SPOTIFY #${oldSpEntry.rank}`
+          : `DAY ${oldDaysOut} • CHARTS: OUT`,
         mediaTitle: `${oldSongMeta.cleanTitle} — ${oldSongMeta.formattedArtistCredits}`,
         mediaSubtitle: `${formatNumFull(oldTotal)} Total Streams • +${formatNumFull(oldDaily)} Today`,
         likes: Math.max(2450, Math.round(followers * 0.088 + 1100)),
@@ -225,9 +227,11 @@ export function generateCatalogAndLivingStanTweets(state: GameState): XPost[] {
         category: 'fanbase',
         timeAgo: '2h',
         dateCreated: dateStr,
-        content: `can we talk about how "${oldSongMeta.cleanTitle}" aged like the finest wine in existence?! 😭🍷 ${oldDaysOut} days out and it STILL gained +${formatNumFull(oldDaily)} streams today (${formatNumFull(oldTotal)} total)!! When ${artistName} makes a timeless record, it stays on repeat forever 🎧✨`,
+        content: `can we talk about how "${oldSongMeta.cleanTitle}" aged like the finest wine in existence?! 😭🍷 ${oldDaysOut} days out and it STILL gained +${formatNumFull(oldDaily)} streams today (${formatNumFull(oldTotal)} total | Global Spotify: ${oldSpEntry ? `#${oldSpEntry.rank}` : 'OUT'})!! 🎧✨`,
         image: oldCover,
-        mediaBadge: 'TIMELESS CATALOG HIT',
+        mediaBadge: oldSpEntry
+          ? `GLOBAL SPOTIFY #${oldSpEntry.rank}`
+          : 'CATALOG TRACK • OUT OF CHARTS',
         likes: Math.max(1320, Math.round(followers * 0.075 + 480)),
         reposts: Math.max(340, Math.round(followers * 0.02 + 150)),
         replies: 89,
@@ -236,12 +240,14 @@ export function generateCatalogAndLivingStanTweets(state: GameState): XPost[] {
         daysOld: 0
       });
     } else if (catalogAngle === 2) {
-      // @chartdata — Back-catalog streaming update
-      const rankSnippet = oldHot100Entry
-        ? ` (#${oldHot100Entry.rank} ${oldHot100Entry.movementBadge} on the Billboard Hot 100; Peak: #${oldHot100Entry.peak})`
-        : oldSpEntry
-        ? ` (#${oldSpEntry.rank} ${oldSpEntry.movementBadge} on Global Spotify)`
-        : '';
+      // @chartdata — Back-catalog streaming update with explicit #Rank or OUT
+      const rankSnippet = ` (Billboard Hot 100: ${
+        oldHot100Entry
+          ? `#${oldHot100Entry.rank} ${oldHot100Entry.movementBadge}; Peak: #${oldHot100Entry.peak}`
+          : 'OUT'
+      } | Global Spotify: ${
+        oldSpEntry ? `#${oldSpEntry.rank} ${oldSpEntry.movementBadge}` : 'OUT'
+      })`;
       extraTweets.push({
         id: `living-old-chartdata-${timestamp}-2`,
         authorName: 'chart data',
@@ -254,7 +260,11 @@ export function generateCatalogAndLivingStanTweets(state: GameState): XPost[] {
         dateCreated: dateStr,
         content: `Catalog Update: "${oldSongMeta.cleanTitle}" by ${oldSongMeta.formattedArtistCredits} earned +${formatNumFull(oldDaily)} Spotify streams today (${oldPctFormatted})${rankSnippet}. It now sits at ${formatNumFull(oldTotal)} cumulative streams and ${formatNumFull(oldSales)} pure digital copies sold.`,
         image: oldCover,
-        mediaBadge: 'CATALOG TELEMETRY',
+        mediaBadge: oldHot100Entry
+          ? `HOT 100 #${oldHot100Entry.rank}`
+          : oldSpEntry
+          ? `SPOTIFY #${oldSpEntry.rank}`
+          : 'CHARTS: OUT',
         likes: Math.max(1890, Math.round(followers * 0.072 + 890)),
         reposts: Math.max(410, Math.round(followers * 0.019 + 190)),
         replies: 76,

@@ -369,6 +369,65 @@ export default function MetacriticApp() {
                   })}
                 </div>
               </div>
+
+              {/* Strict 5-Gate Metacritic Must-Play Qualification Audit */}
+              {selectedEntry.pitchforkRef?.scoringAudit?.mustPlayChecklist && (
+                <div className="mt-4 pt-3 border-t border-white/10">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <i className="ph-fill ph-trophy text-xs text-[#FFBD3F]"></i>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-white">
+                        Metacritic Must-Play Certification Audit
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
+                        selectedEntry.isMustPlay
+                          ? 'bg-[#FFBD3F] text-[#0B0D10]'
+                          : 'bg-white/10 text-[#9CA3AF]'
+                      }`}
+                    >
+                      {selectedEntry.isMustPlay ? 'MUST-PLAY AWARDED' : 'NOT QUALIFIED'}
+                    </span>
+                  </div>
+
+                  <div className="bg-[#111318] border border-white/5 rounded-lg divide-y divide-white/5">
+                    {selectedEntry.pitchforkRef.scoringAudit.mustPlayChecklist.map(
+                      (gate, idx) => (
+                        <div
+                          key={idx}
+                          className="px-3 py-1.5 flex items-center justify-between gap-2 text-[11px]"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`w-4 h-4 rounded flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                gate.passed
+                                  ? 'bg-[#00CE7A] text-[#0B0D10]'
+                                  : 'bg-[#FF6874]/20 text-[#FF6874]'
+                              }`}
+                            >
+                              {gate.passed ? '✓' : '✕'}
+                            </span>
+                            <span className="text-[#D1D5DB] font-bold truncate">
+                              {gate.label}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px] tabular-nums">
+                            <span
+                              className={`font-black ${
+                                gate.passed ? 'text-[#00CE7A]' : 'text-[#FF6874]'
+                              }`}
+                            >
+                              {gate.currentValue}
+                            </span>
+                            <span className="text-[#6B7280]">/ {gate.requiredValue}</span>
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Sub-Tab Toggle: 12 Weighted Publications vs User Reviews */}

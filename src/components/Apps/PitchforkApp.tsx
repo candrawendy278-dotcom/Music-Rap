@@ -315,14 +315,14 @@ export default function PitchforkApp() {
               </div>
             </div>
 
-            {/* 4-Pillar Critical Sub-Score Breakdown */}
+            {/* 4-Pillar Critical Sub-Score Breakdown (0-100 Scale) */}
             <div className="px-5 py-4 border-b border-[#E6E2DC] bg-white">
               <div className="flex items-center justify-between mb-2.5">
                 <h3 className="text-[10px] font-black uppercase tracking-[0.18em] text-[#52504C]">
                   Critical Evaluation Matrix
                 </h3>
                 <span className="text-[10px] font-mono text-[#8A857D] tabular-nums">
-                  COMPOSITE: {selectedReview.score.toFixed(1)} / 10.0
+                  FINAL VERDICT: {selectedReview.score.toFixed(1)} / 10.0
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -339,25 +339,163 @@ export default function PitchforkApp() {
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="font-bold text-[#52504C]">{item.label}</span>
                       <span className="font-black text-[#0A0A0A] tabular-nums">
-                        {item.val.toFixed(1)}
+                        {item.val} / 100
                       </span>
                     </div>
                     <div className="w-full h-1.5 bg-[#E6E2DC] mt-1.5 overflow-hidden">
                       <div
                         className={`h-full ${
-                          item.val >= 8.2
+                          item.val >= 82
                             ? 'bg-[#FF3530]'
-                            : item.val >= 6.5
+                            : item.val >= 68
                             ? 'bg-[#0A0A0A]'
                             : 'bg-[#8A857D]'
                         }`}
-                        style={{ width: `${Math.min(100, item.val * 10)}%` }}
+                        style={{ width: `${Math.min(100, item.val)}%` }}
                       />
                     </div>
                   </div>
                 ))}
               </div>
             </div>
+
+            {/* Strict Pitchfork Editorial Scoring Ledger & BNM/BNT Qualification Audit */}
+            {selectedReview.scoringAudit && (
+              <div className="px-5 py-4 border-b border-[#E6E2DC] bg-[#FAF8F5]">
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <i className="ph-fill ph-scales text-xs text-[#0A0A0A]"></i>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.18em] text-[#0A0A0A]">
+                      Editorial Scoring Audit &{' '}
+                      {selectedReview.releaseType === 'single'
+                        ? 'Best New Track'
+                        : 'Best New Music'}{' '}
+                      Gates
+                    </h3>
+                  </div>
+                  <span
+                    className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 border ${
+                      selectedReview.isBestNewMusic || selectedReview.isBestNewTrack
+                        ? 'bg-[#FF3530] text-white border-[#FF3530]'
+                        : selectedReview.isSundayReview
+                        ? 'bg-[#0A0A0A] text-white border-[#0A0A0A]'
+                        : 'bg-white text-[#52504C] border-[#D8D3CA]'
+                    }`}
+                  >
+                    {selectedReview.isBestNewMusic
+                      ? 'BNM CERTIFIED'
+                      : selectedReview.isBestNewTrack
+                      ? 'BNT CERTIFIED'
+                      : selectedReview.isSundayReview
+                      ? 'SUNDAY CLASSIC'
+                      : 'STANDARD REVIEW (NO STAMP)'}
+                  </span>
+                </div>
+
+                {/* Modifier Breakdown Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                  <div className="bg-white border border-[#E6E2DC] p-2">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-[#8A857D]">
+                      Raw Track Avg
+                    </p>
+                    <p className="text-xs font-black text-[#0A0A0A] tabular-nums mt-0.5">
+                      {selectedReview.scoringAudit.rawAvgTrackQuality.toFixed(1)} / 100
+                    </p>
+                  </div>
+                  <div className="bg-white border border-[#E6E2DC] p-2">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-[#8A857D]">
+                      Studio Mastery
+                    </p>
+                    <p className="text-xs font-black text-emerald-700 tabular-nums mt-0.5">
+                      +{selectedReview.scoringAudit.studioMasteryBonus.toFixed(1)} pts
+                    </p>
+                  </div>
+                  <div className="bg-white border border-[#E6E2DC] p-2">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-[#8A857D]">
+                      Filler / Bloat Penalty
+                    </p>
+                    <p
+                      className={`text-xs font-black tabular-nums mt-0.5 ${
+                        selectedReview.scoringAudit.fillerPenaltyPoints +
+                          selectedReview.scoringAudit.sequencingPenaltyPoints >
+                        0
+                          ? 'text-[#FF3530]'
+                          : 'text-[#0A0A0A]'
+                      }`}
+                    >
+                      -
+                      {(
+                        selectedReview.scoringAudit.fillerPenaltyPoints +
+                        selectedReview.scoringAudit.sequencingPenaltyPoints
+                      ).toFixed(2)}{' '}
+                      pts
+                    </p>
+                  </div>
+                  <div className="bg-white border border-[#E6E2DC] p-2">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-[#8A857D]">
+                      Critic Strictness
+                    </p>
+                    <p
+                      className={`text-xs font-black tabular-nums mt-0.5 ${
+                        selectedReview.scoringAudit.criticPersonaDelta < 0
+                          ? 'text-[#FF3530]'
+                          : 'text-[#0A0A0A]'
+                      }`}
+                    >
+                      {selectedReview.scoringAudit.criticPersonaDelta >= 0 ? '+' : ''}
+                      {selectedReview.scoringAudit.criticPersonaDelta.toFixed(2)} pts
+                    </p>
+                  </div>
+                </div>
+
+                {/* Disqualification Reason Banner if missed BNM/BNT */}
+                {selectedReview.scoringAudit.accoladeDisqualificationReason && (
+                  <div className="mb-3 px-3 py-2 bg-white border-l-2 border-[#0A0A0A] text-[11px] text-[#52504C]">
+                    <span className="font-black uppercase tracking-wider text-[#0A0A0A]">
+                      Editorial Board Note:{' '}
+                    </span>
+                    {selectedReview.scoringAudit.accoladeDisqualificationReason}
+                  </div>
+                )}
+
+                {/* Mandatory Gate Checklist */}
+                {!selectedReview.isSundayReview && (
+                  <div className="bg-white border border-[#E6E2DC] divide-y divide-[#E6E2DC]">
+                    {selectedReview.scoringAudit.pitchforkChecklist.map((gate, gIdx) => (
+                      <div
+                        key={gIdx}
+                        className="px-3 py-2 flex items-center justify-between gap-2 text-[11px]"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`w-4 h-4 flex items-center justify-center text-[10px] font-black shrink-0 ${
+                              gate.passed
+                                ? 'bg-[#0A0A0A] text-white'
+                                : 'bg-[#E6E2DC] text-[#52504C]'
+                            }`}
+                          >
+                            {gate.passed ? '✓' : '✕'}
+                          </span>
+                          <span className="font-bold text-[#0A0A0A] truncate">
+                            {gate.label}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 font-mono text-[10px] tabular-nums">
+                          <span
+                            className={`font-black ${
+                              gate.passed ? 'text-[#0A0A0A]' : 'text-[#FF3530]'
+                            }`}
+                          >
+                            {gate.currentValue}
+                          </span>
+                          <span className="text-[#8A857D]">/ Req {gate.requiredValue}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Longform Editorial Essay Paragraphs */}
             <div className="px-5 py-5 space-y-4 border-b border-[#E6E2DC]">

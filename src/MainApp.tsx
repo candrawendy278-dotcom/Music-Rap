@@ -21,6 +21,7 @@ import MetacriticApp from './components/Apps/MetacriticApp';
 import RadioAirplayChartApp from './components/Apps/RadioAirplayChartApp';
 import ArtistMerchStoreApp from './components/Apps/ArtistMerchStoreApp';
 import RiaaCertificationApp from './components/Apps/RiaaCertificationApp';
+import WorldTourApp from './components/Apps/WorldTourApp';
 import AwardCeremonyLiveModal from './components/Modals/AwardCeremonyLiveModal';
 import { resolveCurrentTheme, applyThemeToDocument } from './data/themeSystemEngine';
 
@@ -73,6 +74,7 @@ export default function MainApp() {
       {state.activeApp === 'metacritic' && <MetacriticApp />}
       {state.activeApp === 'merch' && <ArtistMerchStoreApp />}
       {state.activeApp === 'riaa' && <RiaaCertificationApp />}
+      {state.activeApp === 'tour' && <WorldTourApp />}
 
       {activeModalSeason && (
         <AwardCeremonyLiveModal

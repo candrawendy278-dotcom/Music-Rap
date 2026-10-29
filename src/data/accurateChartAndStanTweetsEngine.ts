@@ -153,20 +153,50 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
     const global200Chart = state.billboard?.global200 || [];
     const albums200Chart = state.billboard?.albums200 || [];
 
-    const spGlobalEntry =
-      findExactPlayerChartEntry(spotifyGlobalChart, latestSong.title, artistName, state.date) ||
-      findExactPlayerChartEntry(spotifyGlobalChart, undefined, artistName, state.date);
-    const spUSEntry =
-      findExactPlayerChartEntry(spotifyUSChart, latestSong.title, artistName, state.date) ||
-      findExactPlayerChartEntry(spotifyUSChart, undefined, artistName, state.date);
+    // Strict per-song lookup: NEVER fall back to undefined songTitle (which would steal another song's rank!)
+    const spGlobalEntry = findExactPlayerChartEntry(
+      spotifyGlobalChart,
+      latestSong.title,
+      artistName,
+      state.date
+    );
+    const spUSEntry = findExactPlayerChartEntry(
+      spotifyUSChart,
+      latestSong.title,
+      artistName,
+      state.date
+    );
     const itunesUSEntry =
-      findExactPlayerChartEntry(itunesUSChart, latestSong.title, artistName, state.date) ||
-      findExactPlayerChartEntry(itunesGlobalChart, latestSong.title, artistName, state.date);
-    const ytGlobalEntry = findExactPlayerChartEntry(ytGlobalChart, latestSong.title, artistName, state.date);
-    const hot100Entry =
-      findExactPlayerChartEntry(hot100Chart, latestSong.title, artistName, state.date) ||
-      findExactPlayerChartEntry(hot100Chart, undefined, artistName, state.date);
-    const global200Entry = findExactPlayerChartEntry(global200Chart, latestSong.title, artistName, state.date);
+      findExactPlayerChartEntry(
+        itunesUSChart,
+        latestSong.title,
+        artistName,
+        state.date
+      ) ||
+      findExactPlayerChartEntry(
+        itunesGlobalChart,
+        latestSong.title,
+        artistName,
+        state.date
+      );
+    const ytGlobalEntry = findExactPlayerChartEntry(
+      ytGlobalChart,
+      latestSong.title,
+      artistName,
+      state.date
+    );
+    const hot100Entry = findExactPlayerChartEntry(
+      hot100Chart,
+      latestSong.title,
+      artistName,
+      state.date
+    );
+    const global200Entry = findExactPlayerChartEntry(
+      global200Chart,
+      latestSong.title,
+      artistName,
+      state.date
+    );
 
     const latestMeta = resolveSongMetadataAndCollabCredits(latestSong, artistName, state);
     const creditedArtistDisplay = latestMeta.formattedArtistCredits;
@@ -181,17 +211,23 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
     });
 
     // -------------------------------------------------------------------------
-    // 1. @[handle]charts — 100% Real Multi-Platform Daily Telemetry Report
+    // 1. @[handle]charts — 100% Real Multi-Platform Daily Telemetry Report (Explicit #Rank or OUT)
     // -------------------------------------------------------------------------
-    const spRankLine = spGlobalEntry
-      ? `• Global Spotify Chart: #${spGlobalEntry.rank} ${spGlobalEntry.movementTag}`
-      : spUSEntry
-      ? `• US Spotify Chart: #${spUSEntry.rank} ${spUSEntry.movementTag}`
-      : `• Tracking Day: Day ${daysOut}`;
-
-    const itunesLine = itunesUSEntry
-      ? `• US iTunes Rank: #${itunesUSEntry.rank} ${itunesUSEntry.movementTag} (+${formatNumFull(dailySales)} pure sales)`
-      : `• Pure Digital Sales: +${formatNumFull(dailySales)} today (${formatNumFull(totalSales)} total)`;
+    const spGlobalStatus = spGlobalEntry
+      ? `#${spGlobalEntry.rank} ${spGlobalEntry.movementTag}`
+      : 'OUT';
+    const spUSStatus = spUSEntry
+      ? `#${spUSEntry.rank} ${spUSEntry.movementTag}`
+      : 'OUT';
+    const hot100Status = hot100Entry
+      ? `#${hot100Entry.rank} ${hot100Entry.movementTag}`
+      : 'OUT';
+    const global200Status = global200Entry
+      ? `#${global200Entry.rank} ${global200Entry.movementTag}`
+      : 'OUT';
+    const itunesStatus = itunesUSEntry
+      ? `#${itunesUSEntry.rank} ${itunesUSEntry.movementTag}`
+      : 'OUT';
 
     tweets.push({
       id: `acc-charts-${timestamp}-1`,
@@ -203,11 +239,13 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
       category: 'fanbase',
       timeAgo: 'Just now',
       dateCreated: dateStr,
-      content: `📊 DAILY PERFORMANCE REPORT — "${cleanLatestTitle}" by ${creditedArtistDisplay} (Day ${daysOut}):\n\n• Daily Streams: +${formatNumFull(dailyStreams)} (${formattedPctTag})\n• Total Streams: ${formatNumFull(totalStreams)}\n${spRankLine}\n${itunesLine}\n• Radio Spins: ${formatNumFull(dailyRadio)} spins`,
+      content: `📊 DAILY PERFORMANCE REPORT — "${cleanLatestTitle}" by ${creditedArtistDisplay} (Day ${daysOut}):\n\n• Daily Streams: +${formatNumFull(dailyStreams)} (${formattedPctTag})\n• Total Streams: ${formatNumFull(totalStreams)}\n• Global Spotify Chart: ${spGlobalStatus} (US: ${spUSStatus})\n• Billboard Hot 100: ${hot100Status} (Global 200: ${global200Status})\n• iTunes Chart: ${itunesStatus} (+${formatNumFull(dailySales)} pure sales)\n• Radio Spins: ${formatNumFull(dailyRadio)} spins`,
       image: songCover,
-      mediaBadge: `DAY ${daysOut} TELEMETRY`,
+      mediaBadge: spGlobalEntry
+        ? `GLOBAL SPOTIFY #${spGlobalEntry.rank}`
+        : `DAY ${daysOut} • CHARTS: OUT`,
       mediaTitle: `${cleanLatestTitle} — ${creditedArtistDisplay}`,
-      mediaSubtitle: `+${formatNumFull(dailyStreams)} daily (${formattedPctTag}) • ${formatNumFull(totalStreams)} total`,
+      mediaSubtitle: `+${formatNumFull(dailyStreams)} daily (${formattedPctTag}) • Spotify: ${spGlobalStatus} • Hot 100: ${hot100Status}`,
       likes: Math.max(420, Math.round(followers * 0.048)),
       reposts: Math.max(115, Math.round(followers * 0.014)),
       replies: 52,
@@ -217,12 +255,12 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
     });
 
     // -------------------------------------------------------------------------
-    // 2. @chartdata — Exact Chart Rank, Real Debut or Cumulative Milestone
+    // 2. @chartdata — Exact Chart Rank, Real Debut or Explicit OUT Status
     // -------------------------------------------------------------------------
     if (daysOut === 1) {
       const rankClause = spGlobalEntry
         ? `, debuting at #${spGlobalEntry.rank} on the Global Spotify Chart`
-        : '';
+        : ' (Global Spotify Chart: OUT)';
       tweets.push({
         id: `acc-chartdata-${timestamp}-2`,
         authorName: 'chart data',
@@ -235,7 +273,9 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
         dateCreated: dateStr,
         content: `${artistName}'s "${latestSong.title}" earns ${formatNumFull(dailyStreams)} streams in its first full day of release on Spotify${rankClause} (+${formatNumFull(dailySales)} pure digital sales).`,
         image: songCover,
-        mediaBadge: 'OPENING DAY DEBUT',
+        mediaBadge: spGlobalEntry
+          ? `DEBUT • GLOBAL #${spGlobalEntry.rank}`
+          : 'OPENING DAY • GLOBAL: OUT',
         mediaTitle: latestSong.title,
         mediaSubtitle: `${formatNumFull(dailyStreams)} Day 1 Streams • ${artistName}`,
         likes: Math.max(2600, Math.round(followers * 0.11 + 1400)),
@@ -277,8 +317,9 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
         category: 'chart',
         timeAgo: '35m',
         dateCreated: dateStr,
-        content: `"${latestSong.title}" by ${artistName} has now earned ${formatNumFull(totalStreams)} total streams on Spotify (+${formatNumFull(dailyStreams)} on Day ${daysOut}, ${formattedPctTag}) and ${formatNumFull(totalSales)} pure digital sales.`,
+        content: `"${latestSong.title}" by ${artistName} is currently OUT of the Global Spotify Top Songs Chart (+${formatNumFull(dailyStreams)} streams on Day ${daysOut}, ${formattedPctTag}; ${formatNumFull(totalStreams)} total streams) | Billboard Hot 100: ${hot100Status}.`,
         image: songCover,
+        mediaBadge: 'GLOBAL SPOTIFY: OUT',
         likes: Math.max(1500, Math.round(followers * 0.065 + 800)),
         reposts: Math.max(320, Math.round(followers * 0.018 + 180)),
         replies: 68,
@@ -319,7 +360,7 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
         daysOld: 0
       });
     } else {
-      // Exact live tracking points before Monday chart lock
+      // Song is OUT of the Billboard Hot 100 — report real points vs. #100 cutoff
       const hot100CutoffPts = hot100Chart[99]?.points || 45;
       tweets.push({
         id: `acc-totc-${timestamp}-3`,
@@ -331,9 +372,9 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
         category: 'chart',
         timeAgo: '1h',
         dateCreated: dateStr,
-        content: `Billboard Tracking Week Formula Update:\n\n"${latestSong.title}" — ${artistName} (~${formatNumFull(liveBillboardCalc.totalPoints)} pts)\n• Streaming Points: ${formatNumFull(liveBillboardCalc.audioStreamingPoints)} pts (${formatNumFull(latestSong.weeklyStreams || dailyStreams)} weekly streams)\n• Sales Points: ${formatNumFull(liveBillboardCalc.pureSalesPoints)} pts (${formatNumFull(latestSong.weeklyPureSales || dailySales)} pure sales)\n• Radio Points: ${formatNumFull(liveBillboardCalc.radioPoints)} pts (Top 100 cutoff: ~${formatNumFull(hot100CutoffPts)} pts)`,
+        content: `Billboard Hot 100 Tracking Update:\n\nOUT — "${latestSong.title}" by ${artistName} (~${formatNumFull(liveBillboardCalc.totalPoints)} pts)\n• Streaming Points: ${formatNumFull(liveBillboardCalc.audioStreamingPoints)} pts (${formatNumFull(latestSong.weeklyStreams || dailyStreams)} weekly streams)\n• Sales Points: ${formatNumFull(liveBillboardCalc.pureSalesPoints)} pts (${formatNumFull(latestSong.weeklyPureSales || dailySales)} pure sales)\n• Radio Points: ${formatNumFull(liveBillboardCalc.radioPoints)} pts (Hot 100 #100 cutoff: ~${formatNumFull(hot100CutoffPts)} pts)`,
         image: songCover,
-        mediaBadge: `${liveBillboardCalc.totalPoints} BILLBOARD PTS`,
+        mediaBadge: `HOT 100: OUT • ${liveBillboardCalc.totalPoints} PTS`,
         likes: Math.max(1650, Math.round(followers * 0.07 + 850)),
         reposts: Math.max(380, Math.round(followers * 0.018 + 190)),
         replies: 84,
@@ -352,7 +393,7 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
       const mvLikes = latestSong.mvLikes || 0;
       const ytRankText = ytGlobalEntry
         ? `#${ytGlobalEntry.rank} ${ytGlobalEntry.movementTag} on Global YouTube Music Videos`
-        : `Trending on YouTube Music`;
+        : `OUT on Global YouTube Music Videos Chart`;
 
       tweets.push({
         id: `acc-ytm-${timestamp}-4`,
@@ -364,9 +405,11 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
         category: 'platform',
         timeAgo: '2h',
         dateCreated: dateStr,
-        content: `🎬 Official Music Video Telemetry:\n\n"${latestSong.title}" — ${artistName}\n• Status: ${ytRankText}\n• 24h Velocity: +${formatNumFull(mvDailyViews)} views\n• Cumulative Views: ${formatNumFull(mvViews)} (${formatNumFull(mvLikes)} likes)`,
+        content: `🎬 Official Music Video Telemetry:\n\n"${latestSong.title}" — ${artistName}\n• Chart Status: ${ytRankText}\n• 24h Velocity: +${formatNumFull(mvDailyViews)} views\n• Cumulative Views: ${formatNumFull(mvViews)} (${formatNumFull(mvLikes)} likes)`,
         image: latestSong.mvThumbnail || songCover,
-        mediaBadge: ytGlobalEntry ? `YOUTUBE GLOBAL #${ytGlobalEntry.rank}` : 'YOUTUBE MV DATA',
+        mediaBadge: ytGlobalEntry
+          ? `YOUTUBE GLOBAL #${ytGlobalEntry.rank}`
+          : 'YOUTUBE CHART: OUT',
         mediaTitle: `${artistName} - ${latestSong.title} (Official Music Video)`,
         mediaSubtitle: `+${formatNumFull(mvDailyViews)} today • ${formatNumFull(mvViews)} total views`,
         likes: 2650,
@@ -380,10 +423,11 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
       const top1 = spotifyGlobalChart[0];
       const top2 = spotifyGlobalChart[1];
       const top3 = spotifyGlobalChart[2];
-      const playerExtraLine =
-        spGlobalEntry && spGlobalEntry.rank > 3
+      const playerExtraLine = spGlobalEntry
+        ? spGlobalEntry.rank > 3
           ? `\n#${spGlobalEntry.rank}. ${artistName} — "${latestSong.title}" (${formatNumFull(dailyStreams)})`
-          : '';
+          : ''
+        : `\nOUT. ${artistName} — "${latestSong.title}" (${formatNumFull(dailyStreams)})`;
 
       tweets.push({
         id: `acc-spcharts-${timestamp}-4`,
@@ -508,7 +552,7 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
         daysOld: 0
       });
     } else if (latestProject) {
-      const albEntry = findExactPlayerChartEntry(albums200Chart, latestProject.title, artistName);
+      const albEntry = findExactPlayerChartEntry(albums200Chart, latestProject.title, artistName, state.date);
       const projTotalStreams = (latestProject.songs || []).reduce((acc, ps) => {
         const live = state.songs.find(gs => gs.id === ps.id);
         return acc + (live?.streams || ps.streams || 0);
@@ -528,9 +572,9 @@ export function generateAccurateDailyTweets(state: GameState): XPost[] {
         dateCreated: dateStr,
         content: albEntry
           ? `Billboard 200 Album Update:\n\n#${albEntry.rank} ${albEntry.movementTag} ${artistName} — "${latestProject.title}"\n• Cumulative Streams: ${formatNumFull(projTotalStreams)}\n• Pure Album Sales: ${formatNumFull(projTotalSales)} (+${formatNumFull(projDailySales)} today)`
-          : `${artistName}'s ${latestProject.type.toUpperCase()} "${latestProject.title}" has now accumulated ${formatNumFull(projTotalStreams)} total streams across all tracks and ${formatNumFull(projTotalSales)} pure copies sold (+${formatNumFull(projDailySales)} today).`,
+          : `Billboard 200 Album Update:\n\nOUT — ${artistName} — "${latestProject.title}" (${latestProject.type.toUpperCase()})\n• Cumulative Streams: ${formatNumFull(projTotalStreams)}\n• Pure Album Sales: ${formatNumFull(projTotalSales)} (+${formatNumFull(projDailySales)} today)`,
         image: latestProject.cover || songCover,
-        mediaBadge: albEntry ? `BILLBOARD 200 #${albEntry.rank}` : 'PROJECT TELEMETRY',
+        mediaBadge: albEntry ? `BILLBOARD 200 #${albEntry.rank}` : 'BILLBOARD 200: OUT',
         likes: 2850,
         reposts: 560,
         replies: 110,

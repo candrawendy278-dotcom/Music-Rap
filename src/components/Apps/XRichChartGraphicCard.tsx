@@ -243,9 +243,15 @@ export const XRichChartGraphicCard: React.FC<XRichChartGraphicCardProps> = ({ vi
           </div>
 
           <div className="my-2">
-            <span className="inline-block bg-[#8E44EC] text-white font-black text-base px-2.5 py-0.5 rounded-md leading-tight mb-1.5 shadow-sm">
-              #{sp.rank}
-            </span>
+            {sp.rank !== null && sp.rank > 0 ? (
+              <span className="inline-block bg-[#8E44EC] text-white font-black text-base px-2.5 py-0.5 rounded-md leading-tight mb-1.5 shadow-sm">
+                #{sp.rank}
+              </span>
+            ) : (
+              <span className="inline-block bg-rose-600 text-white font-black text-sm px-2.5 py-0.5 rounded-md leading-tight mb-1.5 shadow-sm tracking-wider">
+                OUT
+              </span>
+            )}
             <div className="font-black text-zinc-950 text-sm leading-tight line-clamp-2">
               {sp.songTitle}
             </div>
@@ -424,9 +430,15 @@ export const XRichChartGraphicCard: React.FC<XRichChartGraphicCardProps> = ({ vi
             </span>
           </div>
           <div className="relative z-10 mt-auto">
-            <div className="font-black text-3xl text-white leading-none tracking-tighter">
-              #{d.itunesRank}
-            </div>
+            {d.itunesRank !== null && d.itunesRank > 0 ? (
+              <div className="font-black text-3xl text-white leading-none tracking-tighter">
+                #{d.itunesRank}
+              </div>
+            ) : (
+              <div className="inline-block px-2 py-0.5 rounded bg-rose-600/90 font-black text-lg text-white leading-tight tracking-wider">
+                OUT
+              </div>
+            )}
             <div className="font-black text-xs uppercase text-white truncate mt-1">
               {d.songTitle}
             </div>
@@ -453,9 +465,15 @@ export const XRichChartGraphicCard: React.FC<XRichChartGraphicCardProps> = ({ vi
             </span>
           </div>
           <div className="relative z-10 mt-auto">
-            <div className="font-black text-3xl text-white leading-none tracking-tighter">
-              #{d.ytRank}
-            </div>
+            {d.ytRank !== null && d.ytRank > 0 ? (
+              <div className="font-black text-3xl text-white leading-none tracking-tighter">
+                #{d.ytRank}
+              </div>
+            ) : (
+              <div className="inline-block px-2 py-0.5 rounded bg-rose-600/90 font-black text-lg text-white leading-tight tracking-wider">
+                OUT
+              </div>
+            )}
             <div className="font-black text-xs uppercase text-white truncate mt-1">
               {d.songTitle}
             </div>

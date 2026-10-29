@@ -9,6 +9,8 @@ export default function AppsTab() {
     return evaluateAllPlayerRiaaItems(state).eligibleItems.length;
   }, [state]);
 
+  const isCurrentlyOnTour = Boolean((state as any).tourState?.activeTour);
+
   const openApp = (app: any) => {
     setState(p => ({ ...p, activeApp: app }));
   };
@@ -17,6 +19,7 @@ export default function AppsTab() {
     {
       name: "Artist Craft & Income",
       apps: [
+        { id: 'tour', name: 'World Tour', icon: 'ph-fill ph-globe-hemisphere-west', color: 'text-amber-400', bg: 'bg-[#17120E] dark:bg-amber-500/20', statusBadge: isCurrentlyOnTour ? 'ON TOUR' : undefined },
         { id: 'merch', name: 'Official Store', icon: 'ph-fill ph-shopping-bag-open', color: 'text-rose-500 dark:text-rose-400', bg: 'bg-rose-500/10 dark:bg-rose-500/20' },
         { id: 'skills', name: 'Mastery Academy', icon: 'ph-fill ph-sparkle', color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-600/10 dark:bg-indigo-500/20' },
         { id: 'jobs', name: 'Jobs & Hustles', icon: 'ph-fill ph-briefcase', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-600/10 dark:bg-emerald-500/20' },
@@ -79,6 +82,11 @@ export default function AppsTab() {
                   {app.badgeCount > 0 && (
                     <span className="absolute top-2.5 right-2.5 px-1.5 py-0.5 rounded-md bg-amber-400 text-zinc-950 text-[10px] font-mono font-black shadow-xs">
                       {app.badgeCount} ELIGIBLE
+                    </span>
+                  )}
+                  {app.statusBadge && (
+                    <span className="absolute top-2.5 right-2.5 px-1.5 py-0.5 rounded-md bg-emerald-400 text-zinc-950 text-[10px] font-mono font-black shadow-xs">
+                      {app.statusBadge}
                     </span>
                   )}
                   <div className={`w-14 h-14 ${app.bg} rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>

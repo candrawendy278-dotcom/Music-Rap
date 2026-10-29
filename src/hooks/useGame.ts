@@ -38,6 +38,7 @@ import { calculateEnhancedMonthlyListenersStep } from '../data/enhancedMonthlyLi
 import { processDailyAwardsCalendarStep } from '../data/awardsFormulaAndSimulationEngine';
 import { generateAwardEventXPosts } from '../data/awardsXAnnouncementEngine';
 import { processDailyMerchWebstoreStep } from '../data/merchWebstoreEngine';
+import { processDailyWorldTourStep } from '../data/worldTourSystemEngine';
 
 syncNpcRealisticReleaseWorkflow('2026-01-01T00:00:00');
 
@@ -637,6 +638,27 @@ export function useGame() {
         nextState.money = (nextState.money || 0) + jobSalaryStep.salaryPaid;
         nextState.dailyIncome = (nextState.dailyIncome || 0) + jobSalaryStep.salaryPaid;
         (nextState as any).jobsState = jobSalaryStep.updatedJobsState;
+
+        // Process Daily World Tour Stop, Boxscore Revenue, Merch Booth Sales & @TouringData X Reports
+        const tourStep = processDailyWorldTourStep(nextState, date);
+        (nextState as any).tourState = tourStep.updatedTourState;
+        nextState.songs = tourStep.updatedSongs;
+        if (tourStep.dailyTourNetIncome !== 0) {
+          nextState.money = Math.max(0, (nextState.money || 0) + tourStep.dailyTourNetIncome);
+          nextState.dailyIncome = (nextState.dailyIncome || 0) + Math.max(0, tourStep.dailyTourNetIncome);
+        }
+        if (tourStep.popGain > 0) {
+          nextState.popularity = Math.min(100, Number(((nextState.popularity || 0) + tourStep.popGain).toFixed(2)));
+        }
+        if (tourStep.hypeGain > 0) {
+          nextState.hype = Math.min(100, Number(((nextState.hype || 0) + tourStep.hypeGain).toFixed(2)));
+        }
+        if (tourStep.fanGain > 0) {
+          nextState.fans = (nextState.fans || 250) + tourStep.fanGain;
+        }
+        if (tourStep.newXPosts.length > 0) {
+          nextState.xPosts = [...tourStep.newXPosts, ...(nextState.xPosts || [])].slice(0, 120);
+        }
 
         // Advance X Social stats daily AFTER all charts are finalized so tweets report 100% accurate live ranks & points
         nextState.xPosts = advanceXSocialDaily(nextState.xPosts || [], nextState);

@@ -25,6 +25,29 @@ export interface PitchforkTrackNote {
   commentary: string;
 }
 
+export interface AccoladeCriterionItem {
+  label: string;
+  passed: boolean;
+  currentValue: string;
+  requiredValue: string;
+}
+
+export interface EditorialScoringAudit {
+  rawAvgTrackQuality: number; // 0 - 100
+  studioMasteryBonus: number; // +0.0 to +11.0
+  weakestTrackTitle: string;
+  weakestTrackScore: number; // 0.0 - 10.0
+  fillerTracksCount: number;
+  fillerPenaltyPoints: number; // 0.0 to -0.9 on P4K scale
+  sequencingPenaltyPoints: number; // 0.0 to -0.7 on P4K scale
+  criticPersonaDelta: number; // -0.35 to +0.20
+  accoladeType: 'BNM' | 'BNT' | 'SUNDAY' | 'NONE';
+  accoladeQualified: boolean;
+  accoladeDisqualificationReason?: string;
+  pitchforkChecklist: AccoladeCriterionItem[];
+  mustPlayChecklist: AccoladeCriterionItem[];
+}
+
 export interface PitchforkReviewItem {
   id: string;
   releaseId: string;
@@ -54,6 +77,7 @@ export interface PitchforkReviewItem {
     originality: number;
   };
   trackNotes: PitchforkTrackNote[];
+  scoringAudit: EditorialScoringAudit;
 }
 
 export interface MetacriticPublicationReview {
@@ -150,7 +174,7 @@ const PITCHFORK_CRITICS: CriticPersona[] = [
     role: 'Senior Editor',
     specialty: 'Pop, Avant-Pop & Internet Culture',
     biasDescription: 'Rewards sharp self-awareness and hook craftsmanship; skeptical of generic trend-chasing.',
-    strictnessOffset: -0.1,
+    strictnessOffset: -0.15,
     prefersCohesion: true,
     prefersExperimental: false
   },
@@ -159,7 +183,7 @@ const PITCHFORK_CRITICS: CriticPersona[] = [
     role: 'Staff Writer',
     specialty: 'Hip-Hop & Regional Rap',
     biasDescription: 'Values raw vocal charisma and idiosyncratic beats over polished radio sheen.',
-    strictnessOffset: -0.25,
+    strictnessOffset: -0.35,
     prefersCohesion: false,
     prefersExperimental: true
   },
@@ -168,7 +192,7 @@ const PITCHFORK_CRITICS: CriticPersona[] = [
     role: 'Contributing Critic',
     specialty: 'R&B, Soul, Hip-Hop & Major Pop',
     biasDescription: 'Appreciates grand thematic ambition, lush arrangements, and emotional resonance.',
-    strictnessOffset: 0.15,
+    strictnessOffset: 0.05,
     prefersCohesion: true,
     prefersExperimental: true
   },
@@ -177,7 +201,7 @@ const PITCHFORK_CRITICS: CriticPersona[] = [
     role: 'Contributing Editor',
     specialty: 'Indie Rock, Folk & Experimental',
     biasDescription: 'Prioritizes lyrical vulnerability, poetic depth, and uncompromising artistic vision.',
-    strictnessOffset: -0.05,
+    strictnessOffset: -0.15,
     prefersCohesion: true,
     prefersExperimental: true
   },
@@ -186,7 +210,7 @@ const PITCHFORK_CRITICS: CriticPersona[] = [
     role: 'Senior Contributor',
     specialty: 'Alternative, Indie & Post-Punk',
     biasDescription: 'Tough on bloated tracklists; rewards dynamic sequencing and memorable choruses.',
-    strictnessOffset: -0.2,
+    strictnessOffset: -0.3,
     prefersCohesion: true,
     prefersExperimental: false
   },
@@ -195,7 +219,7 @@ const PITCHFORK_CRITICS: CriticPersona[] = [
     role: 'Associate Reviews Editor',
     specialty: 'Rap, Electronic & Crossover',
     biasDescription: 'Analyzes cadence, technical delivery, and sonic architecture with clinical precision.',
-    strictnessOffset: 0.0,
+    strictnessOffset: -0.1,
     prefersCohesion: true,
     prefersExperimental: true
   },
@@ -204,7 +228,7 @@ const PITCHFORK_CRITICS: CriticPersona[] = [
     role: 'Contributing Critic',
     specialty: 'Global Pop & Singer-Songwriter',
     biasDescription: 'Focuses on vocal nuance, narrative arc, and how a record sits in contemporary culture.',
-    strictnessOffset: 0.05,
+    strictnessOffset: -0.05,
     prefersCohesion: true,
     prefersExperimental: false
   },
@@ -213,7 +237,7 @@ const PITCHFORK_CRITICS: CriticPersona[] = [
     role: 'Contributing Writer',
     specialty: 'Dance-Pop, Synth & Club Music',
     biasDescription: 'Celebrates kinetic production, euphoric melodies, and fearless sonic maximalism.',
-    strictnessOffset: 0.2,
+    strictnessOffset: 0.1,
     prefersCohesion: false,
     prefersExperimental: false
   }
@@ -681,10 +705,10 @@ function evaluateReleaseEntry(params: {
   const seed = deterministicHash(`${id}-${title}-${artist}`);
   const criticPersona = PITCHFORK_CRITICS[seed % PITCHFORK_CRITICS.length];
 
-  // 1. Compute average track quality & tracklist cohesion
+  // 1. Compute average track quality & strict tracklist cohesion
   const safeTracks =
-    tracks.length > 0 ? tracks : [{ title, quality: 74 }];
-  const qualities = safeTracks.map(t => Math.max(30, Math.min(99, t.quality || 72)));
+    tracks.length > 0 ? tracks : [{ title, quality: 62 }];
+  const qualities = safeTracks.map(t => Math.max(25, Math.min(99, t.quality || 62)));
   const avgQuality =
     qualities.reduce((acc, q) => acc + q, 0) / qualities.length;
 
@@ -694,73 +718,29 @@ function evaluateReleaseEntry(params: {
     qualities.length;
   const stdDev = Math.sqrt(variance);
 
-  // Bloated albums (> 16 tracks with mediocre tracks) get penalized; tight 7-13 track albums get bonus
-  const trackCountPenalty =
-    safeTracks.length > 16 ? (safeTracks.length - 16) * 1.4 : 0;
-  const tightSequencingBonus =
-    releaseType === 'album' && safeTracks.length >= 8 && safeTracks.length <= 13
-      ? 3.5
-      : 0;
-
-  const cohesionRaw = Math.round(
-    Math.max(
-      42,
-      Math.min(
-        98,
-        88 - stdDev * 1.8 - trackCountPenalty + tightSequencingBonus + ((seed % 7) - 3)
-      )
-    )
-  );
-
-  const songwritingSub = Math.round(
-    Math.max(45, Math.min(99, avgQuality * 0.92 + studioSkillBonus * 0.6 + ((seed % 9) - 4)))
-  );
-  const productionSub = Math.round(
-    Math.max(48, Math.min(99, avgQuality * 0.94 + studioSkillBonus * 0.65 + (((seed >> 3) % 9) - 4)))
-  );
-  const originalitySub = Math.round(
-    Math.max(44, Math.min(99, avgQuality * 0.89 + studioSkillBonus * 0.5 + (((seed >> 6) % 11) - 5)))
-  );
-
-  // 2. Pitchfork 0.0 - 10.0 Score Calculation
-  const composite100 =
-    songwritingSub * 0.34 +
-    productionSub * 0.3 +
-    cohesionRaw * 0.22 +
-    originalitySub * 0.14;
-
-  // Pitchfork curve: 7.0-7.8 is solid, 8.3+ is Best New Music, 9.0+ is rare masterpiece
-  let rawP4k = (composite100 / 10) * 0.94 + 0.35 + criticPersona.strictnessOffset;
-  if (criticPersona.prefersCohesion && cohesionRaw >= 88) rawP4k += 0.2;
-  if (criticPersona.prefersCohesion && cohesionRaw < 65) rawP4k -= 0.3;
-  if (releaseType === 'sunday_review') rawP4k = Math.max(8.4, rawP4k + 0.4);
-
-  const p4kScore = Math.round(Math.max(3.4, Math.min(9.8, rawP4k)) * 10) / 10;
-  const isSundayReview = releaseType === 'sunday_review';
-  const isBestNewMusic =
-    !isSundayReview &&
-    (releaseType === 'album' || releaseType === 'ep') &&
-    p4kScore >= 8.3;
-  const isBestNewTrack =
-    !isSundayReview && releaseType === 'single' && p4kScore >= 8.2;
-
-  // Track-by-track notes
+  // Track-by-track evaluation FIRST so filler tracks & weakest link directly impact the album verdict
   let bestTrackTitle = safeTracks[0].title;
   let bestTrackQ = -1;
   let weakestTrackTitle = safeTracks[safeTracks.length - 1].title;
   let weakestTrackQ = 999;
+  let weakestTrackScore = 10.0;
+  let fillerTracksCount = 0;
 
   const trackNotes: PitchforkTrackNote[] = safeTracks.map((tr, idx) => {
     const tSeed = deterministicHash(`${id}-tr-${idx}-${tr.title}`);
+    // Strict track scoring curve: quality 65 -> ~6.1, quality 75 -> ~7.1, quality 85 -> ~8.2, quality 92 -> ~9.0
+    const baseTrack10 =
+      tr.quality >= 82
+        ? 7.9 + (tr.quality - 82) * 0.115
+        : tr.quality >= 68
+        ? 6.3 + (tr.quality - 68) * 0.114
+        : 3.6 + (Math.max(25, tr.quality) - 25) * 0.062;
+
+    const skillNudge = (studioSkillBonus / 11) * 0.25;
+    const jitter = (((tSeed % 7) - 3) * 0.08);
     const trScore =
       Math.round(
-        Math.max(
-          4.0,
-          Math.min(
-            9.9,
-            (tr.quality / 10) * 0.95 + 0.3 + (((tSeed % 7) - 3) * 0.1)
-          )
-        ) * 10
+        Math.max(3.2, Math.min(9.9, baseTrack10 + skillNudge + jitter)) * 10
       ) / 10;
 
     if (tr.quality > bestTrackQ) {
@@ -771,23 +751,34 @@ function evaluateReleaseEntry(params: {
       weakestTrackQ = tr.quality;
       weakestTrackTitle = tr.title;
     }
+    if (trScore < weakestTrackScore) {
+      weakestTrackScore = trScore;
+    }
+    if (trScore < 6.8) {
+      fillerTracksCount++;
+    }
 
-    const isEssential = trScore >= 8.3 || (idx === 0 && trScore >= 7.9);
+    const isEssential = trScore >= 8.4 || (idx === 0 && trScore >= 8.2);
     const notesPool = isEssential
       ? [
           'Standout centerpiece; razor-sharp hook and luminous mixing.',
           'Career-high vocal delivery over an intoxicating, detail-rich arrangement.',
           'Immediate essential listen—bridges intimate lyricism with widescreen momentum.'
         ]
-      : trScore >= 7.2
+      : trScore >= 7.3
       ? [
           'Solid mid-record cut that sustains the project’s sonic atmosphere.',
           'Polished studio execution with a memorable bridge.',
           'Crisp percussion and warm harmonic layering keep the pacing taut.'
         ]
+      : trScore >= 6.5
+      ? [
+          'Serviceable arrangement, though overshadowed by stronger surrounding cuts.',
+          'Slight pacing detour; leans on familiar structural tropes.'
+        ]
       : [
-          'Slight pacing detour; leans on familiar structural tropes.',
-          'Serviceable arrangement, though overshadowed by stronger surrounding cuts.'
+          'Unfocused filler cut; thin percussion and uninspired hook drag down the sequencing.',
+          'Feels like an unfinished demo left on the tracklist to pad streaming runtime.'
         ];
 
     return {
@@ -799,54 +790,211 @@ function evaluateReleaseEntry(params: {
     };
   });
 
-  const { pullQuote, paragraphs } = buildEditorialEssayAndQuote({
-    title,
-    artist,
-    releaseType,
-    score: p4kScore,
-    isBNM: isBestNewMusic,
-    isBNT: isBestNewTrack,
-    cohesion: cohesionRaw,
-    songwriting: songwritingSub,
-    production: productionSub,
-    standoutTrack: bestTrackTitle,
-    weakestTrack: weakestTrackTitle,
-    trackCount: safeTracks.length,
-    criticName: criticPersona.name
-  });
+  // Strict Sequencing & Bloat / Under-Length Penalties
+  let sequencingPenaltyPoints = 0;
+  let trackCountCohesionPenalty = 0;
+  if (releaseType === 'album') {
+    if (safeTracks.length < 7) {
+      // Under-length "album" penalty (trying to pass a short EP/single off as an album)
+      sequencingPenaltyPoints = Math.round((7 - safeTracks.length) * 0.16 * 100) / 100;
+      trackCountCohesionPenalty = (7 - safeTracks.length) * 5.5;
+    } else if (safeTracks.length > 15 && avgQuality < 86) {
+      // Streaming-era bloat penalty
+      sequencingPenaltyPoints = Math.min(0.75, Math.round((safeTracks.length - 15) * 0.12 * 100) / 100);
+      trackCountCohesionPenalty = (safeTracks.length - 15) * 2.8;
+    }
+  } else if (releaseType === 'ep') {
+    if (safeTracks.length < 4) {
+      sequencingPenaltyPoints = Math.round((4 - safeTracks.length) * 0.18 * 100) / 100;
+      trackCountCohesionPenalty = (4 - safeTracks.length) * 6.0;
+    } else if (safeTracks.length > 7) {
+      sequencingPenaltyPoints = 0.25;
+      trackCountCohesionPenalty = 6;
+    }
+  }
 
-  const pitchforkReview: PitchforkReviewItem = {
-    id: `p4k-${id}`,
-    releaseId: id,
-    title,
-    artist,
-    cover,
-    releaseType,
-    isPlayer,
-    genre,
-    labelName,
-    releaseDate,
-    score: p4kScore,
-    isBestNewMusic,
-    isBestNewTrack,
-    isSundayReview,
-    sundayReviewOriginalYear: sundayYear,
-    criticName: criticPersona.name,
-    criticRole: criticPersona.role,
-    criticSpecialty: criticPersona.specialty,
-    criticBiasNote: criticPersona.biasDescription,
-    pullQuote,
-    essayParagraphs: paragraphs,
-    subScores: {
-      songwriting: songwritingSub,
-      production: productionSub,
-      cohesion: cohesionRaw,
-      originality: originalitySub
-    },
-    trackNotes
-  };
+  // Filler track penalty: critics punish albums that pad strong singles with mediocre filler
+  const fillerPenaltyPoints =
+    releaseType === 'single'
+      ? 0
+      : Math.min(0.9, Math.round(fillerTracksCount * 0.22 * 100) / 100);
 
-  // 3. Metacritic 12-Publication Weighted Aggregation
+  const tightSequencingBonus =
+    releaseType === 'album' &&
+    safeTracks.length >= 8 &&
+    safeTracks.length <= 13 &&
+    fillerTracksCount === 0
+      ? 3.0
+      : 0;
+
+  const cohesionRaw = Math.round(
+    Math.max(
+      35,
+      Math.min(
+        98,
+        avgQuality * 0.94 -
+          stdDev * 2.1 -
+          trackCountCohesionPenalty -
+          fillerTracksCount * 4.5 +
+          tightSequencingBonus +
+          ((seed % 5) - 2)
+      )
+    )
+  );
+
+  // Strict Sub-Scores (0 - 100 scale): no free baseline inflation
+  const songwritingSub = Math.round(
+    Math.max(
+      38,
+      Math.min(
+        98,
+        avgQuality * 0.88 + studioSkillBonus * 0.72 - fillerTracksCount * 1.8 + ((seed % 7) - 3)
+      )
+    )
+  );
+  const productionSub = Math.round(
+    Math.max(
+      40,
+      Math.min(
+        98,
+        avgQuality * 0.89 + studioSkillBonus * 0.78 - fillerTracksCount * 1.2 + (((seed >> 3) % 7) - 3)
+      )
+    )
+  );
+  const originalitySub = Math.round(
+    Math.max(
+      36,
+      Math.min(
+        98,
+        avgQuality * 0.85 + studioSkillBonus * 0.65 + (criticPersona.prefersExperimental ? 2 : -1) + (((seed >> 6) % 9) - 4)
+      )
+    )
+  );
+
+  // 2. Pitchfork 0.0 - 10.0 Strict Non-Linear Score Calculation
+  const composite100 =
+    songwritingSub * 0.35 +
+    productionSub * 0.30 +
+    cohesionRaw * 0.20 +
+    originalitySub * 0.15;
+
+  // Non-linear Pitchfork curve:
+  // - Composite 60 -> ~5.6
+  // - Composite 70 -> ~6.7
+  // - Composite 78 -> ~7.5
+  // - Composite 84 -> ~8.3
+  // - Composite 90 -> ~9.0
+  let baseP4k: number;
+  if (composite100 >= 84) {
+    baseP4k = 8.25 + (composite100 - 84) * 0.115;
+  } else if (composite100 >= 72) {
+    baseP4k = 6.85 + (composite100 - 72) * 0.116;
+  } else if (composite100 >= 58) {
+    baseP4k = 5.3 + (composite100 - 58) * 0.11;
+  } else {
+    baseP4k = 3.2 + Math.max(0, composite100 - 35) * 0.09;
+  }
+
+  let criticPersonaDelta = criticPersona.strictnessOffset;
+  if (criticPersona.prefersCohesion && cohesionRaw >= 86 && fillerTracksCount === 0) {
+    criticPersonaDelta += 0.15;
+  } else if (criticPersona.prefersCohesion && cohesionRaw < 70) {
+    criticPersonaDelta -= 0.25;
+  }
+  criticPersonaDelta = Math.round(criticPersonaDelta * 100) / 100;
+
+  let rawP4k =
+    baseP4k +
+    criticPersonaDelta -
+    fillerPenaltyPoints -
+    sequencingPenaltyPoints;
+
+  if (releaseType === 'sunday_review') {
+    rawP4k = Math.max(8.5, rawP4k + 0.35);
+  }
+
+  const p4kScore = Math.round(Math.max(2.8, Math.min(9.8, rawP4k)) * 10) / 10;
+  const isSundayReview = releaseType === 'sunday_review';
+
+  // 3. ULTRA-STRICT ACCOLADE GATES (Best New Music & Best New Track)
+  const isAlbumOrEp = releaseType === 'album' || releaseType === 'ep';
+  const minTracksRequired = releaseType === 'album' ? 7 : releaseType === 'ep' ? 4 : 1;
+  const maxTracksAllowedForTightBNM = releaseType === 'album' ? 16 : releaseType === 'ep' ? 7 : 1;
+
+  const pitchforkChecklist: AccoladeCriterionItem[] = isAlbumOrEp
+    ? [
+        {
+          label: 'Pitchfork Composite Score',
+          passed: p4kScore >= 8.4,
+          currentValue: `${p4kScore.toFixed(1)} / 10`,
+          requiredValue: '≥ 8.4 / 10'
+        },
+        {
+          label: 'Format Tracklist Discipline',
+          passed:
+            safeTracks.length >= minTracksRequired &&
+            safeTracks.length <= maxTracksAllowedForTightBNM,
+          currentValue: `${safeTracks.length} Tracks`,
+          requiredValue:
+            releaseType === 'album' ? '7–16 Tracks (Full LP)' : '4–7 Tracks (EP)'
+        },
+        {
+          label: 'Zero-Filler Floor (Weakest Cut)',
+          passed: weakestTrackScore >= 7.2 && fillerTracksCount === 0,
+          currentValue: `${weakestTrackScore.toFixed(1)} / 10 (${fillerTracksCount} filler)`,
+          requiredValue: 'Weakest ≥ 7.2 (0 Filler)'
+        },
+        {
+          label: 'Album Sequencing & Cohesion',
+          passed: cohesionRaw >= 82,
+          currentValue: `${cohesionRaw} / 100`,
+          requiredValue: '≥ 82 / 100'
+        },
+        {
+          label: 'Songwriting & Production Craft',
+          passed: songwritingSub >= 80 && productionSub >= 80,
+          currentValue: `SW ${songwritingSub} · PROD ${productionSub}`,
+          requiredValue: 'Both ≥ 80 / 100'
+        }
+      ]
+    : [
+        {
+          label: 'Pitchfork Track Score',
+          passed: p4kScore >= 8.5,
+          currentValue: `${p4kScore.toFixed(1)} / 10`,
+          requiredValue: '≥ 8.5 / 10'
+        },
+        {
+          label: 'Songwriting Craftsmanship',
+          passed: songwritingSub >= 83,
+          currentValue: `${songwritingSub} / 100`,
+          requiredValue: '≥ 83 / 100'
+        },
+        {
+          label: 'Production & Sonic Detail',
+          passed: productionSub >= 83,
+          currentValue: `${productionSub} / 100`,
+          requiredValue: '≥ 83 / 100'
+        },
+        {
+          label: 'Originality & Edge',
+          passed: originalitySub >= 78,
+          currentValue: `${originalitySub} / 100`,
+          requiredValue: '≥ 78 / 100'
+        }
+      ];
+
+  const allP4kGatesPassed = pitchforkChecklist.every(c => c.passed);
+
+  const isBestNewMusic =
+    !isSundayReview && isAlbumOrEp && allP4kGatesPassed;
+
+  const isBestNewTrack =
+    !isSundayReview && releaseType === 'single' && allP4kGatesPassed;
+
+  const failedP4kGate = pitchforkChecklist.find(c => !c.passed);
+
+  // 4. Metacritic 12-Publication Weighted Aggregation (Strict Consensus)
   const pubCount = releaseType === 'single' ? 8 : 12;
   const selectedPubs = METACRITIC_PUBLICATIONS.slice(0, pubCount);
 
@@ -856,6 +1004,9 @@ function evaluateReleaseEntry(params: {
   let mixCount = 0;
   let negCount = 0;
 
+  // Penalize overall press baseline if album has filler or sequencing issues
+  const pressPenalty100 = Math.round((fillerPenaltyPoints + sequencingPenaltyPoints) * 8.5);
+
   const criticReviews: MetacriticPublicationReview[] = selectedPubs.map((pub, idx) => {
     const pubSeed = deterministicHash(`${id}-${pub.id}-${idx}`);
     let score100: number;
@@ -863,9 +1014,11 @@ function evaluateReleaseEntry(params: {
     if (pub.id === 'pitchfork') {
       score100 = Math.round(p4kScore * 10);
     } else {
-      const varianceSwing = ((pubSeed % 15) - 7); // -7 to +7
-      const rawPubScore = Math.round(composite100 + pub.biasOffset + varianceSwing);
-      score100 = Math.max(32, Math.min(99, rawPubScore));
+      const varianceSwing = ((pubSeed % 13) - 6); // -6 to +6
+      // Press publications align with the stricter composite minus any bloat/filler penalty
+      const strictPubBase = composite100 - pressPenalty100 - 1.5;
+      const rawPubScore = Math.round(strictPubBase + pub.biasOffset * 0.75 + varianceSwing);
+      score100 = Math.max(28, Math.min(98, rawPubScore));
     }
 
     weightedSum += score100 * pub.weight;
@@ -917,7 +1070,119 @@ function evaluateReleaseEntry(params: {
   const metascore = Math.round(weightedSum / Math.max(1, totalWeight));
   const colorTier = getMetacriticColorTier(metascore);
   const sentimentLabel = getMetacriticSentimentLabel(metascore);
-  const isMustPlay = metascore >= 81 && criticReviews.length >= 7;
+
+  const positiveSharePct = Math.round((posCount / Math.max(1, criticReviews.length)) * 100);
+
+  // Strict 5-Gate Metacritic Must-Play Qualification
+  const mustPlayChecklist: AccoladeCriterionItem[] = [
+    {
+      label: 'Weighted Metascore Threshold',
+      passed: metascore >= 83,
+      currentValue: `${metascore} / 100`,
+      requiredValue: '≥ 83 / 100 (Acclaim)'
+    },
+    {
+      label: 'Full-Length Press Consensus',
+      passed: isAlbumOrEp && criticReviews.length >= 10,
+      currentValue: `${criticReviews.length} Outlets (${releaseType.toUpperCase()})`,
+      requiredValue: 'Album/EP (≥ 10 Outlets)'
+    },
+    {
+      label: 'Zero Negative Critic Reviews',
+      passed: negCount === 0,
+      currentValue: `${negCount} Negative`,
+      requiredValue: '0 Negative Reviews'
+    },
+    {
+      label: 'Positive Critic Consensus Share',
+      passed: positiveSharePct >= 80,
+      currentValue: `${positiveSharePct}% Positive (${posCount}/${criticReviews.length})`,
+      requiredValue: '≥ 80% Positive'
+    },
+    {
+      label: 'High-Prestige Anchor (Pitchfork)',
+      passed: p4kScore >= 8.0,
+      currentValue: `${p4kScore.toFixed(1)} / 10`,
+      requiredValue: '≥ 8.0 / 10'
+    }
+  ];
+
+  const isMustPlay = mustPlayChecklist.every(c => c.passed);
+
+  const scoringAudit: EditorialScoringAudit = {
+    rawAvgTrackQuality: Math.round(avgQuality * 10) / 10,
+    studioMasteryBonus: Math.round(studioSkillBonus * 10) / 10,
+    weakestTrackTitle,
+    weakestTrackScore,
+    fillerTracksCount,
+    fillerPenaltyPoints,
+    sequencingPenaltyPoints,
+    criticPersonaDelta,
+    accoladeType: isBestNewMusic
+      ? 'BNM'
+      : isBestNewTrack
+      ? 'BNT'
+      : isSundayReview
+      ? 'SUNDAY'
+      : 'NONE',
+    accoladeQualified: isBestNewMusic || isBestNewTrack || isSundayReview,
+    accoladeDisqualificationReason:
+      isBestNewMusic || isBestNewTrack || isSundayReview
+        ? undefined
+        : failedP4kGate
+        ? `Missed ${isAlbumOrEp ? 'Best New Music' : 'Best New Track'}: ${failedP4kGate.label} (${failedP4kGate.currentValue} vs required ${failedP4kGate.requiredValue}).`
+        : undefined,
+    pitchforkChecklist,
+    mustPlayChecklist
+  };
+
+  const { pullQuote, paragraphs } = buildEditorialEssayAndQuote({
+    title,
+    artist,
+    releaseType,
+    score: p4kScore,
+    isBNM: isBestNewMusic,
+    isBNT: isBestNewTrack,
+    cohesion: cohesionRaw,
+    songwriting: songwritingSub,
+    production: productionSub,
+    standoutTrack: bestTrackTitle,
+    weakestTrack: weakestTrackTitle,
+    trackCount: safeTracks.length,
+    criticName: criticPersona.name
+  });
+
+  const pitchforkReview: PitchforkReviewItem = {
+    id: `p4k-${id}`,
+    releaseId: id,
+    title,
+    artist,
+    cover,
+    releaseType,
+    isPlayer,
+    genre,
+    labelName,
+    releaseDate,
+    score: p4kScore,
+    isBestNewMusic,
+    isBestNewTrack,
+    isSundayReview,
+    sundayReviewOriginalYear: sundayYear,
+    criticName: criticPersona.name,
+    criticRole: criticPersona.role,
+    criticSpecialty: criticPersona.specialty,
+    criticBiasNote: criticPersona.biasDescription,
+    pullQuote,
+    essayParagraphs: paragraphs,
+    subScores: {
+      songwriting: songwritingSub,
+      production: productionSub,
+      cohesion: cohesionRaw,
+      originality: originalitySub
+    },
+    trackNotes,
+    scoringAudit
+  };
 
   // 4. User Score (0.0 - 10.0) & Rival Review Bombing / Stan Rally Simulation
   let baseUser10 = Math.min(9.6, Math.max(4.2, (metascore / 10) * 0.92 + 0.7));
@@ -1076,8 +1341,8 @@ export function getCriticsAndAggregatorData(state: GameState): CriticsHubSummary
       mastery.averages.recording +
       mastery.averages.production) /
     3;
-  // Studio skill bonus scales from 0 to +15 quality points
-  const studioSkillBonus = Math.min(15, Math.max(0, (avgSkillLevel - 1) * 2.2));
+  // Studio skill bonus scales strictly from 0 to +11 quality points based on real trained studio mastery
+  const studioSkillBonus = Math.min(11, Math.max(0, (avgSkillLevel - 1) * 1.65));
 
   const rivalState = getEnsuredRivalState(state);
 
@@ -1094,7 +1359,7 @@ export function getCriticsAndAggregatorData(state: GameState): CriticsHubSummary
       );
       return {
         title: ps.title,
-        quality: Math.max(45, Math.min(99, liveSong?.quality || ps.quality || 76))
+        quality: Math.max(30, Math.min(99, liveSong?.quality ?? ps.quality ?? 62))
       };
     });
 
@@ -1103,9 +1368,12 @@ export function getCriticsAndAggregatorData(state: GameState): CriticsHubSummary
       state.artist?.image ||
       resolveAuthenticCover(artistName, proj.title);
 
-    // Classic older player albums with high acclaim can also earn a Sunday Review retrospective if >= 3 projects out
+    // Classic older player albums with genuinely elite acclaim (>= 88 quality & >= 7 tracks) can earn a Sunday Review retrospective if >= 4 projects out
     const isRetroSunday =
-      releasedProjects.length >= 3 && idx === 0 && (proj.songs?.[0]?.quality || 78) >= 82;
+      releasedProjects.length >= 4 &&
+      idx === 0 &&
+      projSongs.length >= 7 &&
+      (projSongs[0]?.quality || 62) >= 88;
 
     const entry = evaluateReleaseEntry({
       id: `player-proj-${proj.id}`,
@@ -1124,7 +1392,7 @@ export function getCriticsAndAggregatorData(state: GameState): CriticsHubSummary
       tracks:
         projSongs.length > 0
           ? projSongs
-          : [{ title: proj.title, quality: 78 }],
+          : [{ title: proj.title, quality: 62 }],
       studioSkillBonus,
       hasActiveRivalBeef: rivalState.hasActiveRival,
       rivalName: rivalState.rivalName || 'Industry Rival',
@@ -1164,7 +1432,7 @@ export function getCriticsAndAggregatorData(state: GameState): CriticsHubSummary
         tracks: [
           {
             title: song.title,
-            quality: Math.max(45, Math.min(99, song.quality || 76))
+            quality: Math.max(30, Math.min(99, song.quality ?? 62))
           }
         ],
         studioSkillBonus,
