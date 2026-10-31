@@ -1581,14 +1581,11 @@ export function signArtistToPlayerImprint(
   }
 
   const dateStr = state.date ? String(state.date).split('T')[0] : new Date().toISOString().split('T')[0];
-  const initialDailyStreams = Math.round(
-    (candidate.popularity * 1450 + candidate.potential * 380) *
-      (labelState.imprint.distributionPartnerId === 'major_umg_jv' ? 1.25 : 1.0)
-  );
 
   const newSignedArtist: ImprintSignedArtist = {
     id: candidate.id,
     name: candidate.name,
+    stageName: candidate.name,
     initials: candidate.initials,
     genre: candidate.genre,
     country: candidate.country,
@@ -1600,14 +1597,19 @@ export function signArtistToPlayerImprint(
     unrecoupedAdvance: advanceToWire,
     imprintRoyaltyCutPct: Math.max(35, Math.min(75, imprintRoyaltyCutPct)),
     albumsCommitted,
-    albumsReleased: 1,
+    albumsReleased: 0,
+    singlesCommitted: Math.max(2, albumsCommitted * 2),
+    singlesReleased: 0,
     daysUntilNextRelease: 24,
     totalStreamsGenerated: 0,
-    dailyStreams: initialDailyStreams,
+    dailyStreams: 0,
+    monthlyListeners: 0,
     totalGrossGenerated: 0,
     totalNetProfitForImprint: 0,
-    latestReleaseTitle: `${candidate.name} — Debut Single`,
-    latestReleaseQuality: Math.min(96, Math.round(candidate.potential * 0.92)),
+    latestReleaseTitle: 'No Releases Yet',
+    latestReleaseQuality: 0,
+    songs: [],
+    projects: [],
   };
 
   const nextRoster = [...labelState.imprint.signedRoster, newSignedArtist];

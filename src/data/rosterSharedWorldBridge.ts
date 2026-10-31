@@ -464,16 +464,22 @@ export function simulateRosterArtistAsPlayerDaily(
   }
 
   const netForImprintToday = imprintShare + recoupFromArtist;
-  const latestReleasedSong = updatedSongs.find((s) => s.status === 'released');
+  const releasedSongsAfterStep = updatedSongs.filter((s) => s.status === 'released');
+  const releasedProjectsAfterStep = updatedProjects.filter((p) => p.status === 'released');
+  const latestReleasedSong = releasedSongsAfterStep[0];
+  const hasReleasedCatalog =
+    releasedSongsAfterStep.length > 0 || releasedProjectsAfterStep.length > 0;
 
   const updatedArtist: ImprintSignedArtist = {
     ...art,
     popularity: nextPop,
     hype: nextHype,
     fans: nextFans,
-    monthlyListeners: listenerStep.listeners,
-    dailyStreams: totalDailyStreams,
-    totalStreamsGenerated: (art.totalStreamsGenerated || 0) + totalDailyStreams,
+    monthlyListeners: hasReleasedCatalog ? listenerStep.listeners : 0,
+    dailyStreams: hasReleasedCatalog ? totalDailyStreams : 0,
+    totalStreamsGenerated: hasReleasedCatalog
+      ? (art.totalStreamsGenerated || 0) + totalDailyStreams
+      : 0,
     unrecoupedAdvance: nextUnrecouped,
     totalGrossGenerated: (art.totalGrossGenerated || 0) + rawCatalogRevenue,
     totalNetProfitForImprint: (art.totalNetProfitForImprint || 0) + netForImprintToday,
@@ -483,17 +489,12 @@ export function simulateRosterArtistAsPlayerDaily(
     contractExpired: isContractExpired,
     willingToRenew,
     promoCooldownDaysLeft: nextPromoCooldown,
-    singlesReleased: updatedSongs.filter((s) => s.status === 'released').length,
-    albumsReleased: Math.max(
-      art.albumsReleased || 0,
-      updatedProjects.filter((p) => p.status === 'released').length
-    ),
+    singlesReleased: releasedSongsAfterStep.length,
+    albumsReleased: releasedProjectsAfterStep.length,
     latestReleaseTitle: latestReleasedSong
       ? `${stageName} — ${latestReleasedSong.title}`
-      : art.latestReleaseTitle,
-    latestReleaseQuality: latestReleasedSong
-      ? latestReleasedSong.quality
-      : art.latestReleaseQuality,
+      : 'No Releases Yet',
+    latestReleaseQuality: latestReleasedSong ? latestReleasedSong.quality || 0 : 0,
     songs: updatedSongs,
     projects: updatedProjects,
   };

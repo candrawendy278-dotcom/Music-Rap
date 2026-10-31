@@ -71,7 +71,10 @@ export default function SpotifyApp() {
   };
 
   const topSongs = useMemo(() => {
-    return [...state.songs].filter(s => s.status === 'released').sort((a,b) => (b.dailyStreams || 0) - (a.dailyStreams || 0)).slice(0, 5);
+    return [...state.songs]
+      .filter(s => s.status === 'released')
+      .sort((a, b) => (b.dailyStreams || 0) - (a.dailyStreams || 0) || (b.streams || 0) - (a.streams || 0))
+      .slice(0, 10);
   }, [state.songs]);
 
   const allReleases = useMemo(() => {

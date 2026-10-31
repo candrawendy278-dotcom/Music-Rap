@@ -183,53 +183,18 @@ export function ensureRosterArtistFullFields(
   const realName = art.realName || `${stageName} (Legal Name)`;
   const avatarUrl = art.avatarUrl || buildRosterArtistAvatarSvg(stageName);
   const pop = Number(art.popularity) || 32;
-  const hype = Number(art.hype) || 40;
-  const fans =
-    typeof art.fans === 'number' && art.fans > 0
-      ? art.fans
-      : Math.round(pop * 4200 + (art.totalStreamsGenerated || 15000) * 0.04);
-  const monthlyListeners =
-    typeof art.monthlyListeners === 'number' && art.monthlyListeners > 0
-      ? art.monthlyListeners
-      : Math.max(fans * 2, Math.round((art.dailyStreams || 12000) * 28));
 
-  let songs: Song[] = Array.isArray(art.songs) ? [...art.songs] : [];
-  if (songs.length === 0) {
-    const debutTitle = art.latestReleaseTitle || `${stageName} — Debut Single`;
-    const baseStreams = Math.max(25000, art.totalStreamsGenerated || pop * 6500);
-    const baseSales = Math.round(baseStreams * 0.012);
-    songs = [
-      {
-        id: Math.floor(100000 + Math.random() * 899999),
-        title: debutTitle.replace(`${stageName} — `, ''),
-        genre: art.genre || 'Pop',
-        subgenre: art.genre || 'Pop',
-        collabId: 'none',
-        quality: art.latestReleaseQuality || Math.min(94, Math.round((art.potential || 78) * 0.9)),
-        status: 'released',
-        releaseDate: art.signedDate || currentDateStr,
-        streams: baseStreams,
-        dailyStreams: art.dailyStreams || Math.round(pop * 1200),
-        weeklyStreams: (art.dailyStreams || Math.round(pop * 1200)) * 7,
-        pureSales: baseSales,
-        dailyPureSales: Math.max(15, Math.round((art.dailyStreams || 5000) * 0.008)),
-        weeklyPureSales: Math.max(100, Math.round((art.dailyStreams || 5000) * 0.055)),
-        cover: buildRosterReleaseCoverSvg(stageName, debutTitle, 'Single'),
-        hasMV: false,
-        mvAdsDays: 0,
-        hasLyricVideo: false,
-        hasVisualizer: false,
-        views: 0,
-        dailyViews: 0,
-        weeklyViews: 0,
-        radioPlays: 0,
-        dailyRadioPlays: 0,
-        weeklyRadioPlays: 0,
-        momentum: 1.0,
-        basePotential: art.potential || 80,
-      },
-    ];
-  }
+  // Strip out any legacy auto-seeded debut songs (id < 1000000) that were not written/released by the Player
+  const rawSongs: Song[] = Array.isArray(art.songs) ? [...art.songs] : [];
+  const songs: Song[] = rawSongs.filter((s) => {
+    const isAutoSeededRecruitmentSong =
+      typeof s.id === 'number' &&
+      s.id < 1000000 &&
+      (s.title === 'Midnight Sovereign' ||
+        s.title === 'Debut Single' ||
+        s.title.endsWith('— Debut Single'));
+    return !isAutoSeededRecruitmentSong;
+  });
 
   const projects: Project[] = Array.isArray(art.projects) ? [...art.projects] : [];
   const staffRoster: Partial<Record<StaffRoleId, HiredStaffMember>> =
@@ -238,8 +203,36 @@ export function ensureRosterArtistFullFields(
     ? [...art.riaaCertifications]
     : [];
 
-  const singlesReleasedCount = songs.filter((s) => s.status === 'released').length;
-  const albumsReleasedCount = projects.filter((p) => p.status === 'released').length;
+  const releasedSongs = songs.filter((s) => s.status === 'released');
+  const releasedProjects = projects.filter((p) => p.status === 'released');
+  const singlesReleasedCount = releasedSongs.length;
+  const albumsReleasedCount = releasedProjects.length;
+
+  const hasAnyReleasedMusic = singlesReleasedCount > 0 || albumsReleasedCount > 0;
+  const computedDailyStreams = hasAnyReleasedMusic
+    ? releasedSongs.reduce((acc, s) => acc + (Number(s.dailyStreams) || 0), 0) ||
+      Number(art.dailyStreams) ||
+      0
+    : 0;
+  const computedTotalStreams = hasAnyReleasedMusic
+    ? Math.max(
+        Number(art.totalStreamsGenerated) || 0,
+        releasedSongs.reduce((acc, s) => acc + (Number(s.streams) || 0), 0)
+      )
+    : 0;
+
+  const fans =
+    typeof art.fans === 'number' && art.fans > 0
+      ? art.fans
+      : Math.round(pop * 4200 + computedTotalStreams * 0.04);
+
+  const monthlyListeners = hasAnyReleasedMusic
+    ? typeof art.monthlyListeners === 'number' && art.monthlyListeners > 0
+      ? art.monthlyListeners
+      : Math.max(fans * 2, Math.round(computedDailyStreams * 28))
+    : 0;
+
+  const latestReleasedSong = releasedSongs[0];
 
   return {
     ...art,
@@ -249,6 +242,8 @@ export function ensureRosterArtistFullFields(
     avatarUrl,
     fans,
     monthlyListeners,
+    dailyStreams: computedDailyStreams,
+    totalStreamsGenerated: computedTotalStreams,
     contractRef:
       art.contractRef ||
       `IMP-${stageName.slice(0, 3).toUpperCase()}-${new Date().getFullYear()}`,
@@ -257,7 +252,11 @@ export function ensureRosterArtistFullFields(
     ancillary360CutPct: typeof art.ancillary360CutPct === 'number' ? art.ancillary360CutPct : 15,
     singlesCommitted: art.singlesCommitted || Math.max(2, (art.albumsCommitted || 2) * 2),
     singlesReleased: singlesReleasedCount,
-    albumsReleased: Math.max(art.albumsReleased || 0, albumsReleasedCount),
+    albumsReleased: albumsReleasedCount,
+    latestReleaseTitle: latestReleasedSong
+      ? `${stageName} — ${latestReleasedSong.title}`
+      : 'No Releases Yet',
+    latestReleaseQuality: latestReleasedSong ? latestReleasedSong.quality || 0 : 0,
     songs,
     projects,
     staffRoster,
@@ -615,43 +614,7 @@ export function executeRosterArtistPaperContract(
   const avatarUrl =
     proposal.customAvatarUrl || buildRosterArtistAvatarSvg(stageName);
 
-  const initialDailyStreams = Math.round(
-    (pop * 1450 + pot * 380) *
-      (labelState.imprint.distributionPartnerId === 'major_umg_jv' ? 1.25 : 1.0)
-  );
   const initialFans = Math.round(pop * 4800 + pot * 650);
-  const initialMonthlyListeners = Math.round(initialDailyStreams * 28);
-
-  const debutTitle = `${stageName} — Debut Single`;
-  const debutSong: Song = {
-    id: Math.floor(100000 + Math.random() * 899999),
-    title: 'Midnight Sovereign',
-    genre,
-    subgenre: genre,
-    collabId: 'none',
-    quality: Math.min(96, Math.round(pot * 0.92)),
-    status: 'released',
-    releaseDate: dateStr,
-    streams: initialDailyStreams * 4,
-    dailyStreams: initialDailyStreams,
-    weeklyStreams: initialDailyStreams * 7,
-    pureSales: Math.round(initialDailyStreams * 0.04),
-    dailyPureSales: Math.round(initialDailyStreams * 0.008),
-    weeklyPureSales: Math.round(initialDailyStreams * 0.05),
-    cover: buildRosterReleaseCoverSvg(stageName, 'Midnight Sovereign', 'Single'),
-    hasMV: false,
-    mvAdsDays: 0,
-    hasLyricVideo: false,
-    hasVisualizer: false,
-    views: 0,
-    dailyViews: 0,
-    weeklyViews: 0,
-    radioPlays: 0,
-    dailyRadioPlays: 0,
-    weeklyRadioPlays: 0,
-    momentum: 1.0,
-    basePotential: pot,
-  };
 
   const newSignedArtist: ImprintSignedArtist = {
     id: artistId,
@@ -667,7 +630,7 @@ export function executeRosterArtistPaperContract(
       `Signed recording artist on ${labelState.imprint.imprintName}.`,
     popularity: pop,
     fans: initialFans,
-    monthlyListeners: initialMonthlyListeners,
+    monthlyListeners: 0,
     hype: 52,
     potential: pot,
     signedDate: dateStr,
@@ -681,15 +644,15 @@ export function executeRosterArtistPaperContract(
     albumsCommitted: proposal.albumsCommitted,
     albumsReleased: 0,
     singlesCommitted: proposal.singlesCommitted,
-    singlesReleased: 1,
+    singlesReleased: 0,
     daysUntilNextRelease: 24,
-    totalStreamsGenerated: debutSong.streams || 0,
-    dailyStreams: initialDailyStreams,
+    totalStreamsGenerated: 0,
+    dailyStreams: 0,
     totalGrossGenerated: 0,
     totalNetProfitForImprint: 0,
-    latestReleaseTitle: debutTitle,
-    latestReleaseQuality: debutSong.quality,
-    songs: [debutSong],
+    latestReleaseTitle: 'No Releases Yet',
+    latestReleaseQuality: 0,
+    songs: [],
     projects: [],
     staffRoster: {},
     riaaCertifications: [],

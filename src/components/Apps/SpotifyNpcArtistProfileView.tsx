@@ -173,6 +173,7 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
     const combined: Array<{
       title: string;
       streams: number;
+      dailyStreams: number;
       cover?: string;
       artist: string;
       isPlayerPrimary?: boolean;
@@ -191,6 +192,7 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
         combined.push({
           title: meta.cleanTitle,
           streams: Math.floor(s.streams ?? 0),
+          dailyStreams: Math.floor((s as any).dailyStreams ?? 0),
           cover: s.cover,
           artist: meta.formattedArtistCredits,
           isPlayerPrimary: false,
@@ -202,6 +204,28 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
       }
     });
 
+    (enrichedNpc.albums || []).forEach(alb => {
+      (alb.tracks || []).forEach(t => {
+        const meta = resolveSongMetadataAndCollabCredits(t, enrichedNpc.name, state);
+        const key = meta.cleanTitle.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          combined.push({
+            title: meta.cleanTitle,
+            streams: Math.floor(t.streams ?? 0),
+            dailyStreams: Math.floor((t as any).dailyStreams ?? 0),
+            cover: (t as any).cover || alb.cover,
+            artist: meta.formattedArtistCredits,
+            isPlayerPrimary: false,
+            hasMV: meta.hasMusicVideo,
+            isExplicit: meta.isExplicit,
+            trackType: t.trackType || 'b_side',
+            rawSong: t
+          });
+        }
+      });
+    });
+
     bilateralCollabs.forEach(c => {
       const key = c.title.toLowerCase();
       if (!seen.has(key)) {
@@ -209,6 +233,7 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
         combined.push({
           title: c.title,
           streams: Math.floor(c.streams || 0),
+          dailyStreams: Math.floor(c.dailyStreams || 0),
           cover: c.cover,
           artist: c.formattedArtistCredits,
           isPlayerPrimary: c.isPlayerPrimary,
@@ -220,8 +245,14 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
       }
     });
 
-    return combined.sort((a, b) => b.streams - a.streams).slice(0, 10);
-  }, [enrichedNpc.songs, enrichedNpc.name, bilateralCollabs, state]);
+    return combined
+      .sort(
+        (a, b) =>
+          (b.dailyStreams || 0) - (a.dailyStreams || 0) ||
+          (b.streams || 0) - (a.streams || 0)
+      )
+      .slice(0, 10);
+  }, [enrichedNpc.songs, enrichedNpc.albums, enrichedNpc.name, bilateralCollabs, state]);
 
   const allReleases = useMemo<NpcReleaseItem[]>(() => {
     const releases: NpcReleaseItem[] = [];
