@@ -1,21 +1,40 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      (function () {
+        var isViteWsError = function (msg) {
+          var s = String(msg || '');
+          return s.indexOf('WebSocket closed without opened') !== -1 || s.indexOf('[vite] failed to connect to websocket') !== -1;
+        };
+        window.addEventListener(
+          'unhandledrejection',
+          function (event) {
+            var reason = event && event.reason;
+            var msg = reason && (reason.message || reason.stack || reason);
+            if (isViteWsError(msg)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+        window.addEventListener(
+          'error',
+          function (event) {
+            var msg = (event && event.message) || (event && event.error && event.error.message);
+            if (isViteWsError(msg)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+      })();
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Music Rap</title>
-    <script>
-      window.addEventListener('unhandledrejection', function (event) {
-        if (event && event.reason && String(event.reason.message || event.reason).includes('WebSocket closed without opened')) {
-          event.preventDefault();
-        }
-      });
-      window.addEventListener('error', function (event) {
-        if (event && String(event.message || '').includes('WebSocket closed without opened')) {
-          event.preventDefault();
-        }
-      });
-    </script>
     <meta name="description" content="Music Rap - The Simulator: Define your musical legacy from zero" />
     <meta name="theme-color" content="#09090b" />
     <meta name="mobile-web-app-capable" content="yes" />

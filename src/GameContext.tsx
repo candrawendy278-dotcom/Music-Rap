@@ -1,8 +1,8 @@
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useGame } from './hooks/useGame';
 
-type GameContextType = ReturnType<typeof useGame>;
-const GameContext = createContext<GameContextType | null>(null);
+export type GameContextType = ReturnType<typeof useGame>;
+export const GameContext = createContext<GameContextType | null>(null);
 
 export function GameProvider({ children }: { children: ReactNode }) {
   const game = useGame();

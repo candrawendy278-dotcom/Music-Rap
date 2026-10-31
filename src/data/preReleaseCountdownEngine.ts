@@ -221,12 +221,16 @@ export function calculateInitialProjectPreSaves(
   strategyId: string = 'indie'
 ): number {
   const distroMult =
-    distributorId === 'global'
-      ? 1.65
-      : distributorId === 'major'
-      ? 1.35
-      : distributorId === 'boutique'
-      ? 1.15
+    distributorId === 'global' || distributorId === 'republic_umg'
+      ? 1.70
+      : distributorId === 'major' || distributorId === 'the_orchard'
+      ? 1.42
+      : distributorId === 'empire'
+      ? 1.28
+      : distributorId === 'boutique' || distributorId === 'awal'
+      ? 1.16
+      : distributorId === 'tunecore'
+      ? 1.06
       : 1.0;
 
   const promoMult =

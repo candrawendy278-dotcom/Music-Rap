@@ -134,6 +134,10 @@ export interface RiaaLeaderboardArtistEntry {
   name: string;
   avatar: string;
   isPlayer: boolean;
+  isRosterArtist?: boolean;
+  rosterArtistId?: string;
+  isFormerRoster?: boolean;
+  labelName?: string;
   genre: string;
   totalCertifiedUnits: number;
   diamondCount: number;
@@ -1319,9 +1323,98 @@ export function buildGlobalRiaaLeaderboard(
   const rawNpcs: NPC[] =
     state.npcs && state.npcs.length > 0 ? state.npcs : DETAILED_NPCS;
   const playerLower = (state.artist?.name || '').trim().toLowerCase();
+  const suppressedNames = new Set<string>();
+  if (playerLower) suppressedNames.add(playerLower);
+
+  // Include all Signed & Former Roster Artists from the Player's Record Label Imprint!
+  const imprint = (state as any).recordLabelState?.imprint;
+  const signedRoster: any[] = Array.isArray(imprint?.signedRoster)
+    ? imprint.signedRoster
+    : [];
+
+  for (const rArt of signedRoster) {
+    const stageName = (rArt.stageName || rArt.name || '').trim();
+    if (!stageName) continue;
+    suppressedNames.add(stageName.toLowerCase());
+    if (rArt.name) suppressedNames.add(String(rArt.name).trim().toLowerCase());
+
+    const certs: RiaaCertifiedRecord[] = Array.isArray(rArt.riaaCertifications)
+      ? rArt.riaaCertifications
+      : [];
+    let certUnitsSum = 0;
+    let dCount = 0;
+    let mpCount = 0;
+    let pCount = 0;
+    let gCount = 0;
+
+    for (const c of certs) {
+      certUnitsSum += c.certifiedUnitsAtAudit || 0;
+      const tierDef = RIAA_CERTIFICATION_TIERS.find(t => t.id === c.highestTierId);
+      if (tierDef && tierDef.diamondCount > 0) {
+        dCount += tierDef.diamondCount;
+      } else if (c.metalClass === 'diamond') {
+        dCount += 1;
+      }
+      if (c.metalClass === 'multi_platinum' || c.metalClass === 'diamond') {
+        mpCount += 1;
+      } else if (c.metalClass === 'platinum') {
+        pCount += 1;
+      } else if (c.metalClass === 'gold') {
+        gCount += 1;
+      }
+    }
+
+    // Also compute live RIAA-eligible units across the Roster Artist's released catalog so active roster stars rank accurately
+    const rSongs: Song[] = Array.isArray(rArt.songs) ? rArt.songs : [];
+    const rProjects: Project[] = Array.isArray(rArt.projects) ? rArt.projects : [];
+    const liveSongUnits = rSongs
+      .filter(s => s.status === 'released')
+      .reduce(
+        (sum, s) =>
+          sum +
+          Math.floor(((s.streams || 0) + (s.views || 0)) / 150) +
+          (s.pureSales || 0),
+        0
+      );
+    const liveProjUnits = rProjects
+      .filter(p => p.status === 'released')
+      .reduce((sum, p) => sum + (p.pureSales || 0), 0);
+
+    const totalRosterUnits = Math.max(certUnitsSum, liveSongUnits + liveProjUnits);
+    const topCert = certs[0];
+    const topSong = [...rSongs].sort((a, b) => (b.streams || 0) - (a.streams || 0))[0];
+
+    entries.push({
+      id: `roster_${rArt.id}`,
+      name: stageName,
+      avatar: rArt.avatarUrl || getNpcAvatar(stageName),
+      isPlayer: false,
+      isRosterArtist: true,
+      rosterArtistId: rArt.id,
+      isFormerRoster: Boolean(
+        rArt.isFormerRoster ||
+          rArt.contractExpired ||
+          (typeof rArt.daysRemaining === 'number' && rArt.daysRemaining <= 0)
+      ),
+      labelName: imprint?.imprintName || 'Player Record Label',
+      genre: rArt.genre || 'Pop',
+      totalCertifiedUnits: totalRosterUnits,
+      diamondCount: dCount,
+      multiPlatinumCount: mpCount,
+      platinumCount: pCount,
+      goldCount: gCount,
+      totalPlaques: certs.length,
+      legacyScore: dCount * 200 + mpCount * 55 + pCount * 35 + gCount * 15,
+      signatureDiamondTitle: topCert
+        ? `${topCert.title} (${topCert.shortBadge})`
+        : topSong
+        ? `${topSong.title} (Active Catalog)`
+        : `${stageName} Debut Catalog`
+    });
+  }
 
   rawNpcs
-    .filter(npc => npc.name.trim().toLowerCase() !== playerLower)
+    .filter(npc => !suppressedNames.has(npc.name.trim().toLowerCase()))
     .forEach(npc => {
       const lower = npc.name.toLowerCase();
       const preset = ICONIC_RIAA_BASELINES[lower];

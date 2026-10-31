@@ -29,6 +29,7 @@ import {
   calculateCalibratedPlayerTerritoryMetrics,
   getPlayerHomeMarketAffinityMultiplier
 } from './homeCountryAndMarketStabilityImprover';
+import { getActiveSharedWorldRosterArtists } from './rosterSharedWorldBridge';
 
 export interface RealNpcSinglesChartParams {
   platform: 'spotify' | 'billboard' | 'itunes' | 'youtube';
@@ -551,6 +552,145 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
       }
     });
 
+  // 3b. Evaluate Signed Record Label Roster Artists' Released Songs using the EXACT SAME Player metric rules
+  const sharedRosterArtists = getActiveSharedWorldRosterArtists();
+  sharedRosterArtists.forEach(rosterArt => {
+    const rName = rosterArt.stageName || rosterArt.name || 'Roster Artist';
+    const rCountry = rosterArt.country || 'US';
+    const rPop = rosterArt.popularity || 35;
+    const rHype = rosterArt.hype || 45;
+
+    (rosterArt.songs || [])
+      .filter(s => s.status === 'released')
+      .forEach(s => {
+        if (platform === 'youtube' && !s.hasMV && !s.hasLyricVideo && !s.hasVisualizer) return;
+
+        let rawPts = 0;
+        let stats = {
+          streams: s.weeklyStreams || s.dailyStreams || 0,
+          sales: s.weeklyPureSales || s.dailyPureSales || 0,
+          radio: s.weeklyRadioPlays || s.dailyRadioPlays || 0
+        };
+
+        const totalDailyViews =
+          (s.dailyViews || 0) +
+          (s.dailyLyricVideoViews || 0) +
+          (s.dailyVisualizerViews || 0);
+        const totalWeeklyViews =
+          (s.weeklyViews && s.weeklyViews > 0 ? s.weeklyViews : (s.dailyViews || 0) * 7) +
+          (s.dailyLyricVideoViews || 0) * 7 +
+          (s.dailyVisualizerViews || 0) * 7;
+
+        if (isGlobal) {
+          if (platform === 'billboard') {
+            const weeklySales =
+              s.weeklyPureSales && s.weeklyPureSales > 0
+                ? s.weeklyPureSales
+                : (s.dailyPureSales || 0) * 7;
+            const weeklyStreams =
+              s.weeklyStreams && s.weeklyStreams > 0
+                ? s.weeklyStreams
+                : (s.dailyStreams || 0) * 7;
+            const weeklyRadio =
+              s.weeklyRadioPlays && s.weeklyRadioPlays > 0
+                ? s.weeklyRadioPlays
+                : (s.dailyRadioPlays || 0) * 7;
+            rawPts = calculateAuthenticBillboardPoints({
+              weeklyAudioStreams: weeklyStreams,
+              weeklyVideoViews: totalWeeklyViews,
+              weeklyPureSales: weeklySales,
+              weeklyRadioPlays: weeklyRadio,
+              isGlobal: true
+            });
+            stats = { streams: weeklyStreams, sales: weeklySales, radio: 0 };
+          } else if (platform === 'spotify') {
+            rawPts = isWeekly
+              ? s.weeklyStreams && s.weeklyStreams > 0
+                ? s.weeklyStreams
+                : (s.dailyStreams || 0) * 7
+              : s.dailyStreams || 0;
+            stats = {
+              streams: rawPts,
+              sales: isWeekly ? s.weeklyPureSales || 0 : s.dailyPureSales || 0,
+              radio: s.dailyRadioPlays || 0
+            };
+          } else if (platform === 'youtube') {
+            rawPts = totalDailyViews;
+            stats = {
+              streams: rawPts,
+              sales: s.dailyPureSales || 0,
+              radio: 0
+            };
+          } else if (platform === 'itunes') {
+            rawPts = s.dailyPureSales || 0;
+            stats = {
+              streams: s.dailyStreams || 0,
+              sales: rawPts,
+              radio: 0
+            };
+          }
+        } else {
+          const calibratedTerritory = calculateCalibratedPlayerTerritoryMetrics({
+            song: {
+              ...s,
+              dailyViews: totalDailyViews,
+              weeklyViews: totalWeeklyViews
+            },
+            platform,
+            region,
+            playerCountry: rCountry,
+            playerPopularity: rPop,
+            playerHype: rHype,
+            isWeekly: Boolean(isWeekly),
+            topGlobalNpcScore,
+            topRegionNpcScore
+          });
+
+          rawPts = calibratedTerritory.points;
+          stats = {
+            streams: platform === 'youtube' ? calibratedTerritory.views : calibratedTerritory.streams,
+            sales: calibratedTerritory.sales,
+            radio: calibratedTerritory.radio
+          };
+        }
+
+        const finalRosterPts = Math.round(rawPts);
+        if (finalRosterPts > 0) {
+          const weeksOut = Math.max(1, Math.ceil(Math.max(1, s.daysSinceRelease || 1) / 7));
+          const meta = resolveSongMetadataAndCollabCredits(s, rName);
+          candidates.push({
+            id: `roster_single_${region}_${rosterArt.id}_${s.id}`,
+            title: s.title,
+            artist: meta.formattedArtistCredits,
+            primaryArtist: rName,
+            featuredArtists: meta.featuredArtists,
+            collabId: s.collabId,
+            hasMV: Boolean(s.hasMV || s.hasLyricVideo || s.hasVisualizer),
+            genre: s.genre || rosterArt.genre,
+            isExplicit: meta.isExplicit,
+            daysSinceRelease: s.daysSinceRelease || 1,
+            isPlayer: false,
+            isRosterArtist: true,
+            rosterArtistId: rosterArt.id,
+            cover:
+              platform === 'youtube'
+                ? s.mvThumbnail || s.lyricVideoThumbnail || s.visualizerThumbnail || s.cover
+                : s.cover || resolveRealWorldCoverArt(rName, s.title, false),
+            points: finalRosterPts,
+            score: finalRosterPts,
+            streams: stats.streams,
+            sales: stats.sales,
+            radio: stats.radio,
+            weeksOnChart: weeksOut,
+            weeks: weeksOut,
+            lastPosition: null,
+            peakPosition: 1,
+            stats
+          } as any);
+        }
+      });
+  });
+
   // 4. Sort strictly descending by real points and take top `limit`
   candidates.sort((a, b) => b.points - a.points);
 
@@ -659,6 +799,73 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
         });
       }
     });
+
+  // 1b. Add Signed Record Label Roster Artists' released projects using the EXACT SAME Player metric rules
+  const sharedRosterForAlbums = getActiveSharedWorldRosterArtists();
+  sharedRosterForAlbums.forEach(rosterArt => {
+    const rName = rosterArt.stageName || rosterArt.name || 'Roster Artist';
+    const rCountry = rosterArt.country || 'US';
+    const rSongs = rosterArt.songs || [];
+
+    (rosterArt.projects || [])
+      .filter(p => p.status === 'released')
+      .forEach(p => {
+        const projSongs = rSongs.filter(
+          s => p.songs && p.songs.some(ps => ps.id === s.id)
+        );
+        const effectiveProjSongs = projSongs.length > 0 ? projSongs : (p.songs || []);
+        const projWeeklyStreams = effectiveProjSongs.reduce(
+          (acc, s) => acc + (s.weeklyStreams || (s.dailyStreams || 0) * 7),
+          0
+        );
+        const trackEquivAlbumsDaily = Math.round(
+          effectiveProjSongs.reduce((acc, s) => acc + (s.dailyPureSales || 0), 0) / 10
+        );
+        const projDailySales = (p.dailyPureSales || 0) + Math.min(4500, trackEquivAlbumsDaily);
+        const projWeeklySales =
+          p.weeklyPureSales && p.weeklyPureSales > 0
+            ? p.weeklyPureSales
+            : projDailySales * 7;
+
+        const seaUnits = Math.round(projWeeklyStreams / 1500);
+        const totalWeeklyUnits = Math.max(0, seaUnits + Math.round(projWeeklySales));
+
+        let points =
+          platform === 'billboard' ? totalWeeklyUnits : Math.round(projDailySales);
+
+        if (!isGlobal) {
+          const isHome = rCountry === region;
+          const homeAffinity = isHome ? getPlayerHomeMarketAffinityMultiplier(rCountry) : 1.05;
+          const share = Math.min(0.76, marketFraction * homeAffinity);
+          points = Math.round(points * share);
+        }
+
+        if (points > 0) {
+          albums.push({
+            id: `roster_album_${region}_${rosterArt.id}_${p.id}`,
+            title: p.title,
+            artist: rName,
+            isPlayer: false,
+            isRosterArtist: true,
+            rosterArtistId: rosterArt.id,
+            cover: p.cover,
+            points,
+            score: points,
+            streams: projWeeklyStreams,
+            sales: platform === 'billboard' ? Math.round(projWeeklySales) : points,
+            radio: 0,
+            lastPosition: null,
+            peakPosition: 1,
+            weeksOnChart: 1,
+            stats: {
+              streams: projWeeklyStreams,
+              sales: Math.round(projWeeklySales),
+              radio: 0
+            }
+          } as any);
+        }
+      });
+  });
 
   // 2. Add all released NPC albums directly from REAL_WORLD_NPCS (`npc.albums`)
   REAL_WORLD_NPCS.forEach(npc => {

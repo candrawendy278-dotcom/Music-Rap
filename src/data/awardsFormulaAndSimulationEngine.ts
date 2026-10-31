@@ -16,6 +16,8 @@ import {
   getCategoriesForShow,
   doesGenreMatchCategory
 } from './awardsCategoriesConfig';
+import { getEnsuredRecordLabelState } from './recordLabelSystemEngine';
+import { ensureRosterArtistFullFields } from './recordLabelCeoEngine';
 
 export interface NomineeScoreBreakdown {
   qualityAndCraft: number;    // 0 - 100
@@ -1144,6 +1146,214 @@ function collectUnifiedCandidates(
       tier: state.artist?.tier || 3,
       isPreferredByPlayer: true,
       alreadyNominatedBna: priorBnaArtists.has(playerName.trim().toLowerCase())
+    });
+  }
+
+  // 3b. ADD SIGNED RECORD LABEL ROSTER ARTISTS' SONGS, VIDEOS, COLLABS, ALBUMS & ARTIST CANDIDATES
+  const labelStateForAwards = getEnsuredRecordLabelState(state);
+  const dateStrForAwards = state.date ? String(state.date).split('T')[0] : '2026-01-01';
+  if (labelStateForAwards?.imprint?.isFounded && Array.isArray(labelStateForAwards.imprint.signedRoster)) {
+    labelStateForAwards.imprint.signedRoster.forEach(rawRosterArt => {
+      const rArt = ensureRosterArtistFullFields(rawRosterArt, dateStrForAwards);
+      const rName = rArt.stageName || rArt.name || 'Roster Artist';
+      const rAvatar =
+        rArt.avatarUrl ||
+        `https://placehold.co/400x400/18181B/F59E0B?text=${encodeURIComponent(rName.charAt(0))}`;
+      const rCraftScore = clamp100(Math.round((rArt.potential || 80) * 0.88));
+      const rPop = rArt.popularity || 35;
+      const rHype = rArt.hype || 45;
+      const rFans = rArt.fans || 50000;
+      const rTier = rPop >= 75 ? 1 : rPop >= 45 ? 2 : 3;
+
+      const eligibleRosterSongs = (rArt.songs || []).filter(s => {
+        if (!s || s.status !== 'released') return false;
+        const wk = (s.title || '').trim().toLowerCase();
+        if (!wk || priorNominatedWorks.has(wk)) return false;
+        return isReleaseEligibleForAwardSeason(s.releaseDate, show, year);
+      });
+
+      eligibleRosterSongs.forEach(song => {
+        const songTitle = song.title || 'Untitled';
+        const key = `${rName.toLowerCase()}::${songTitle.toLowerCase()}`;
+        const chartInfo = songPeakMap.get(key);
+        const hasCollab = Boolean(song.collabId && song.collabId !== 'none' && song.collabId !== '');
+        const collabNpc = hasCollab
+          ? REAL_WORLD_NPCS.find(n => n.id === song.collabId || n.name === song.collabId)
+          : null;
+        const collabPartnerName = hasCollab
+          ? collabNpc
+            ? collabNpc.name
+            : String(song.collabId)
+          : '';
+        const fullRosterSongArtistName =
+          hasCollab && collabPartnerName ? `${rName} & ${collabPartnerName}` : rName;
+
+        candidates.push({
+          id: `roster_song_${rArt.id}_${song.id}`,
+          artistName: fullRosterSongArtistName,
+          isPlayer: false,
+          avatar: rAvatar,
+          workTitle: songTitle,
+          secondaryLabel: `${labelStateForAwards.imprint.imprintName} · ${song.genre || rArt.genre || 'Pop'}`,
+          coverArt: song.cover || rAvatar,
+          genre: song.genre || rArt.genre || 'Pop',
+          subjectType: 'song',
+          isCollab: hasCollab,
+          hasMV: Boolean(song.hasMV),
+          qualityScore: clamp100(song.quality || 76),
+          craftMasteryScore: rCraftScore,
+          streams: Math.max(0, song.streams || 0),
+          views: Math.max(0, song.views || 0),
+          sales: Math.max(0, song.pureSales || 0),
+          chartPeak: chartInfo?.peak || null,
+          weeksOnChart: chartInfo?.weeks || 0,
+          popularity: rPop,
+          hype: rHype,
+          fans: rFans,
+          tier: rTier
+        });
+
+        if (hasCollab) {
+          candidates.push({
+            id: `roster_collab_${rArt.id}_${song.id}`,
+            artistName: fullRosterSongArtistName,
+            isPlayer: false,
+            avatar: rAvatar,
+            workTitle: songTitle,
+            secondaryLabel: `Official Collaboration · ${song.genre || rArt.genre || 'Pop'}`,
+            coverArt: song.cover || rAvatar,
+            genre: song.genre || rArt.genre || 'Pop',
+            subjectType: 'collab',
+            isCollab: true,
+            hasMV: Boolean(song.hasMV),
+            qualityScore: clamp100((song.quality || 76) + 3),
+            craftMasteryScore: rCraftScore,
+            streams: Math.max(0, song.streams || 0),
+            views: Math.max(0, song.views || 0),
+            sales: Math.max(0, song.pureSales || 0),
+            chartPeak: chartInfo?.peak || null,
+            weeksOnChart: chartInfo?.weeks || 0,
+            popularity: rPop,
+            hype: rHype,
+            fans: rFans,
+            tier: rTier
+          });
+        }
+
+        if (song.hasMV) {
+          candidates.push({
+            id: `roster_video_${rArt.id}_${song.id}`,
+            artistName: fullRosterSongArtistName,
+            isPlayer: false,
+            avatar: rAvatar,
+            workTitle: songTitle,
+            secondaryLabel: `${song.mvDistributor === 'vevo' ? 'VEVO Official Video' : 'Official Music Video'} · ${labelStateForAwards.imprint.imprintName}`,
+            coverArt: song.mvThumbnail || song.cover || rAvatar,
+            genre: song.genre || rArt.genre || 'Pop',
+            subjectType: 'video',
+            isCollab: hasCollab,
+            hasMV: true,
+            qualityScore: clamp100((song.quality || 76) + (song.mvDistributor === 'vevo' ? 4 : 0)),
+            craftMasteryScore: rCraftScore,
+            streams: Math.max(0, song.streams || 0),
+            views: Math.max(0, song.views || 0),
+            sales: Math.max(0, song.pureSales || 0),
+            chartPeak: chartInfo?.peak || null,
+            weeksOnChart: chartInfo?.weeks || 0,
+            popularity: rPop,
+            hype: rHype,
+            fans: rFans,
+            tier: rTier
+          });
+        }
+      });
+
+      const eligibleRosterProjects = (rArt.projects || []).filter(p => {
+        if (!p || p.status !== 'released' || (p.type !== 'album' && p.type !== 'ep')) return false;
+        const wk = (p.title || '').trim().toLowerCase();
+        if (!wk || priorNominatedWorks.has(wk)) return false;
+        return isReleaseEligibleForAwardSeason(p.releaseDate, show, year);
+      });
+
+      eligibleRosterProjects.forEach(proj => {
+        const projTitle = proj.title || 'Untitled Project';
+        const key = `${rName.toLowerCase()}::${projTitle.toLowerCase()}`;
+        const chartInfo = albumPeakMap.get(key);
+        const primaryGenre = proj.songs?.[0]?.genre || rArt.genre || 'Pop';
+        const totalStreams =
+          proj.totalStreams ||
+          (proj.songs || []).reduce((acc, s) => acc + (s?.streams || 0), 0);
+        const totalViews = (proj.songs || []).reduce((acc, s) => acc + (s?.views || 0), 0);
+
+        candidates.push({
+          id: `roster_album_${rArt.id}_${proj.id}`,
+          artistName: rName,
+          isPlayer: false,
+          avatar: rAvatar,
+          workTitle: projTitle,
+          secondaryLabel: `${labelStateForAwards.imprint.imprintName} · ${proj.type === 'album' ? 'Studio Album' : 'EP'}`,
+          coverArt: proj.cover || rAvatar,
+          genre: primaryGenre,
+          subjectType: 'album',
+          isCollab: false,
+          hasMV: false,
+          qualityScore: clamp100(proj.quality || 78),
+          craftMasteryScore: rCraftScore,
+          streams: Math.max(0, totalStreams),
+          views: Math.max(0, totalViews),
+          sales: Math.max(0, proj.pureSales || 0),
+          chartPeak: chartInfo?.peak || null,
+          weeksOnChart: chartInfo?.weeks || 0,
+          popularity: rPop,
+          hype: rHype,
+          fans: rFans,
+          tier: rTier
+        });
+      });
+
+      if (eligibleRosterSongs.length > 0 || eligibleRosterProjects.length > 0) {
+        const totalStreams = eligibleRosterSongs.reduce((acc, s) => acc + (s.streams || 0), 0);
+        const totalViews = eligibleRosterSongs.reduce((acc, s) => acc + (s.views || 0), 0);
+        const totalSales =
+          eligibleRosterSongs.reduce((acc, s) => acc + (s.pureSales || 0), 0) +
+          eligibleRosterProjects.reduce((acc, p) => acc + (p.pureSales || 0), 0);
+        const bestQuality =
+          eligibleRosterSongs.length > 0
+            ? Math.max(...eligibleRosterSongs.map(s => s.quality || 75))
+            : Math.max(...eligibleRosterProjects.map(p => p.quality || 75));
+        const bestPeak = eligibleRosterSongs.reduce<number | null>((best, s) => {
+          const k = `${rName.toLowerCase()}::${(s.title || '').toLowerCase()}`;
+          const pk = songPeakMap.get(k)?.peak || null;
+          if (pk === null) return best;
+          return best === null ? pk : Math.min(best, pk);
+        }, null);
+
+        candidates.push({
+          id: `roster_artist_${rArt.id}`,
+          artistName: rName,
+          isPlayer: false,
+          avatar: rAvatar,
+          workTitle: rName,
+          secondaryLabel: `${labelStateForAwards.imprint.imprintName} · ${rArt.genre || 'Pop'}`,
+          coverArt: rAvatar,
+          genre: rArt.genre || 'Pop',
+          subjectType: 'artist',
+          isCollab: false,
+          hasMV: eligibleRosterSongs.some(s => s.hasMV),
+          qualityScore: clamp100(bestQuality),
+          craftMasteryScore: rCraftScore,
+          streams: totalStreams,
+          views: totalViews,
+          sales: totalSales,
+          chartPeak: bestPeak,
+          weeksOnChart: 6,
+          popularity: rPop,
+          hype: rHype,
+          fans: rFans,
+          tier: rTier,
+          alreadyNominatedBna: priorBnaArtists.has(rName.trim().toLowerCase())
+        });
+      }
     });
   }
 

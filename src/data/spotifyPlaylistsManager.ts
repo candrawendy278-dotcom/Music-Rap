@@ -5,6 +5,7 @@
 import { ChartItem, Song } from '../types';
 import { REAL_WORLD_NPCS, resolveRealWorldCoverArt } from './realWorldArtistCatalog';
 import { isNpcMatchingPlayerName, syncPlayerNameNpcDeduplication } from './npcPlayerDeduplicationEngine';
+import { getActiveSharedWorldRosterArtists } from './rosterSharedWorldBridge';
 
 export interface PlaylistTrackItem extends ChartItem {
   streams?: number;
@@ -123,6 +124,49 @@ export function generateCuratedSpotifyPlaylists(
 
         finalRoster.splice(insertIdx, 0, playerEntry);
       });
+
+    // Also insert Signed Record Label Roster Artists' placed or eligible tracks into the playlist
+    const rosterArtists = getActiveSharedWorldRosterArtists();
+    rosterArtists.forEach((rArt, rIdx) => {
+      const rName = rArt.stageName || rArt.name || 'Roster Artist';
+      (rArt.songs || [])
+        .filter(s => s.status === 'released')
+        .forEach((song, sIdx) => {
+          const isExplicitlyPlaced = song.playlistPlacements?.includes(plId);
+          const matchesTheme = matchesPlaylistTheme(plId, song.genre || rArt.genre, rIdx + plIdx, sIdx);
+          if (!isExplicitlyPlaced && !matchesTheme) return;
+
+          const key = `${rName.toLowerCase()}::${song.title.toLowerCase()}`;
+          if (seenKeys.has(key)) return;
+          seenKeys.add(key);
+
+          const rosterStreams = song.streams || 0;
+          const targetRank = computePlayerTrackPlaylistRank(
+            song,
+            plId,
+            npcScores,
+            rArt.popularity || 35
+          );
+          const insertIdx = Math.max(0, Math.min(finalRoster.length, targetRank - 1));
+
+          const rosterEntry: PlaylistTrackItem = {
+            id: song.id,
+            title: song.title,
+            artist: rName,
+            points: rosterStreams,
+            streams: rosterStreams,
+            isPlayer: false,
+            cover: song.cover || resolveRealWorldCoverArt(rName, song.title, false),
+            lastPosition: null,
+            duration: '3:18',
+            collabId: song.collabId,
+            hasMV: song.hasMV,
+            isExplicit: song.isExplicit
+          };
+
+          finalRoster.splice(insertIdx, 0, rosterEntry);
+        });
+    });
 
     result[plId] = finalRoster.slice(0, 50);
   });

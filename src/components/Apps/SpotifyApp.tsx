@@ -35,6 +35,11 @@ import {
 import { SpotifyAppearsOnSection } from './SpotifyAppearsOnSection';
 import { SpotifyArtistMerchShelf } from './SpotifyArtistMerchShelf';
 import { getTrackRoleBadgeMeta, SINGLE_ROLE_OPTIONS } from '../../data/preReleaseCountdownEngine';
+import {
+  findRosterArtistByNameOrId,
+  convertRosterArtistToDetailedNpc
+} from '../../data/rosterSharedWorldBridge';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
 
 export default function SpotifyApp() {
   const { state, setState } = useGameContext();
@@ -51,6 +56,19 @@ export default function SpotifyApp() {
   const [chartType, setChartType] = useState<'daily' | 'weekly'>('daily');
 
   const handleClose = () => setState(p => ({ ...p, activeApp: 'none' }));
+
+  const openArtistProfileByName = (artName: string) => {
+    const rosterMatch = findRosterArtistByNameOrId(artName, state);
+    if (rosterMatch) {
+      const labelState = getEnsuredRecordLabelState(state);
+      const impName = labelState?.imprint?.imprintName || 'Record Label';
+      const dateStr = state?.date ? String(state.date).split('T')[0] : '2026-01-01';
+      setSelectedNpc(convertRosterArtistToDetailedNpc(rosterMatch, impName, dateStr));
+      return;
+    }
+    const npcObj = getDetailedNPC(artName);
+    if (npcObj) setSelectedNpc(npcObj);
+  };
 
   const topSongs = useMemo(() => {
     return [...state.songs].filter(s => s.status === 'released').sort((a,b) => (b.dailyStreams || 0) - (a.dailyStreams || 0)).slice(0, 5);
@@ -364,8 +382,7 @@ export default function SpotifyApp() {
                           setSelectedPlaylist(null);
                           setActiveTab('profile');
                         } else {
-                          const npcObj = getDetailedNPC(displayArtist);
-                          if (npcObj) setSelectedNpc(npcObj);
+                          openArtistProfileByName(displayArtist);
                         }
                       }}
                       className={`flex items-center py-2 px-2 rounded-lg hover:bg-white/10 transition group cursor-pointer ${
@@ -415,8 +432,7 @@ export default function SpotifyApp() {
                                 setSelectedPlaylist(null);
                                 setActiveTab('profile');
                               } else {
-                                const npcObj = getDetailedNPC(artName);
-                                if (npcObj) setSelectedNpc(npcObj);
+                                openArtistProfileByName(artName);
                               }
                             }}
                           />
@@ -682,8 +698,7 @@ export default function SpotifyApp() {
                        setActiveTab('profile');
                      }
                    } else {
-                     const npcObj = getDetailedNPC(displayArtist);
-                     if (npcObj) setSelectedNpc(npcObj);
+                     openArtistProfileByName(displayArtist);
                    }
                  }}
                  className={`flex items-center py-2 px-2 rounded-[6px] hover:bg-white/10 transition group cursor-pointer ${
@@ -745,8 +760,7 @@ export default function SpotifyApp() {
                          if (isPl) {
                            setActiveTab('profile');
                          } else {
-                           const npcObj = getDetailedNPC(artName);
-                           if (npcObj) setSelectedNpc(npcObj);
+                           openArtistProfileByName(artName);
                          }
                        }}
                      />
@@ -898,8 +912,7 @@ export default function SpotifyApp() {
             onSelectRelease={rel => setSelectedRelease(rel)}
             onSelectCollaboratorArtist={(artName, isPl) => {
               if (!isPl) {
-                const npcObj = getDetailedNPC(artName);
-                if (npcObj) setSelectedNpc(npcObj);
+                openArtistProfileByName(artName);
               }
             }}
           />
@@ -1224,12 +1237,16 @@ export default function SpotifyApp() {
         </button>
       </div>
 
-      {selectedRelease ? renderReleaseDetail() : selectedPlaylist ? renderPlaylistDetail() : (
-          <>
-             {activeTab === 'home' && renderHome()}
-             {activeTab === 'chart' && renderChart()}
-             {activeTab === 'profile' && renderProfile()}
-          </>
+      {selectedRelease ? (
+        renderReleaseDetail()
+      ) : selectedPlaylist ? (
+        renderPlaylistDetail()
+      ) : (
+        <>
+          {activeTab === 'home' && renderHome()}
+          {activeTab === 'chart' && renderChart()}
+          {activeTab === 'profile' && renderProfile()}
+        </>
       )}
 
       {selectedNpc && (

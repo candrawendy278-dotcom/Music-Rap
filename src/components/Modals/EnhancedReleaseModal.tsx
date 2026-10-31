@@ -5,82 +5,59 @@ import { getEnsuredSkillState } from '../../data/skillSystemEngine';
 import { getDetailedFanDemographics } from '../../data/fansSystemEngine';
 import {
   triggerRivalCounterReleaseOnPlayerDrop,
-  injectRivalCounterReleaseIntoNpcCatalog,
-  getEnsuredRivalState
+  injectRivalCounterReleaseIntoNpcCatalog
 } from '../../data/rivalBeefSystemEngine';
 import {
   SINGLE_ROLE_OPTIONS,
   ExtendedTrackRole,
   calculateInitialProjectPreSaves
 } from '../../data/preReleaseCountdownEngine';
+import {
+  REAL_WORLD_DISTRIBUTORS,
+  AUDIO_DELIVERY_FORMATS,
+  PHYSICAL_RETAIL_TIERS,
+  PRIORITY_TERRITORY_OPTIONS,
+  RealDistributorId,
+  AudioDeliveryFormatId,
+  PhysicalRetailTierId,
+  PriorityTerritoryOption,
+  getRealDistributorById,
+  getAudioDeliveryFormatById,
+  getPhysicalRetailTierById,
+  evaluateDistributorEligibility,
+  calculateDistributorAdvanceOffer,
+  generateAuthenticISRC,
+  generateAuthenticUPC
+} from '../../data/realWorldMusicDistributionEngine';
 
 interface EnhancedReleaseModalProps {
   onClose: () => void;
 }
 
-const DISTRIBUTORS = [
-  {
-    id: 'indie',
-    name: 'Independent Distro',
-    cost: 0,
-    hypeMult: 1.0,
-    potMult: 1.0,
-    badge: 'Free · 100% Independent',
-    desc: 'Direct-to-DSP upload. Standard algorithmic discovery with zero upfront fee.'
-  },
-  {
-    id: 'boutique',
-    name: 'Boutique Indie Label',
-    cost: 1000,
-    hypeMult: 1.15,
-    potMult: 1.08,
-    badge: '$1,000 · Editorial Pitching',
-    desc: 'Curated indie playlist pitching and blog coverage (+15% Hype & +8% Reach).'
-  },
-  {
-    id: 'major',
-    name: 'Major Record Label',
-    cost: 5000,
-    hypeMult: 1.35,
-    potMult: 1.18,
-    badge: '$5,000 · DSP Frontpage',
-    desc: 'Priority Spotify & Apple Music New Music Friday placement (+35% Hype & +18% Reach).'
-  },
-  {
-    id: 'global',
-    name: 'Global Music Conglomerate',
-    cost: 20000,
-    hypeMult: 1.75,
-    potMult: 1.32,
-    badge: '$20,000 · Worldwide Syndicate',
-    desc: 'Global radio syndication, banner takeovers & physical retail push (+75% Hype & +32% Reach).'
-  }
-] as const;
-
 const MARKETING_CAMPAIGNS = [
   {
     id: 'indie',
-    name: 'Organic Social Drop',
+    name: 'Organic Social & Fanbase Drop',
     cost: 0,
     baseHypeBoost: 10,
     badge: 'Free · +10 Base Hype',
-    desc: 'Word-of-mouth rollout driven by your existing fanbase and X timeline.'
+    desc: 'Word-of-mouth rollout driven by your core listeners, X timeline, and organic discovery.'
   },
   {
     id: 'ad_campaign',
-    name: 'Viral Digital & Short-Form Ads',
+    name: 'Viral Digital, Pre-Save & Creator Sound Ads',
     cost: 8000,
     baseHypeBoost: 35,
     badge: '$8,000 · +35 Base Hype',
-    desc: 'Targeted algorithmic audio ads, creator sound trends, and pre-save campaigns.'
+    desc: 'Targeted algorithmic audio ads, short-form creator sound trends, and DSP marquee banners.'
   },
   {
     id: 'major_push',
-    name: 'Global Press, Times Square & Radio Blitz',
+    name: 'Global Press, Times Square & Radio Syndicate Blitz',
     cost: 30000,
     baseHypeBoost: 70,
     badge: '$30,000 · +70 Base Hype',
-    desc: 'Full-scale blockbuster era rollout: billboards, late-night press & pop radio impact.'
+    desc: 'Full-scale blockbuster era rollout: global outdoor billboards, late-night press & commercial radio impact.'
   }
 ] as const;
 
@@ -88,13 +65,13 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
   const { state, setState, setInfoModal } = useGameContext();
 
   const todayStr = state.date.split('T')[0];
+  const artistCountry = state.artist?.country || 'US';
 
   const releaseItems = useMemo(() => {
     const singles = state.songs
       .filter(s => {
         if (s.status === 'recorded' || s.status === 'packaged') return true;
         if (s.status === 'released' && s.trackType === 'b_side') return true;
-        // Also allow tracks inside a scheduled Album/EP to be dropped early as Pre-Release / Promo Singles while countdown runs!
         if (s.status === 'scheduled') {
           const parentProj = state.projects.find(
             p => p.status === 'scheduled' && p.songs?.some(ps => ps.id === s.id)
@@ -132,7 +109,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
           cover: s.cover || parentProj?.cover,
           quality: Math.round(s.quality || 50),
           trackCount: 1,
-          hasCollab: s.collabId && s.collabId !== 'none',
+          hasCollab: Boolean(s.collabId && s.collabId !== 'none'),
           parentProjectId: parentProj?.id,
           parentProjectTitle: parentProj?.title,
           defaultRole
@@ -159,7 +136,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
     return [...projects, ...singles];
   }, [state.songs, state.projects]);
 
-  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [releaseTarget, setReleaseTarget] = useState<string>(
     releaseItems.length > 0 ? releaseItems[0].key : ''
   );
@@ -167,7 +144,12 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
     releaseItems.length > 0 ? releaseItems[0].defaultRole : 'single'
   );
   const [focusTrackId, setFocusTrackId] = useState<number | 'none'>('none');
-  const [distributor, setDistributor] = useState<string>('indie');
+  const [distributorId, setDistributorId] = useState<RealDistributorId>('distrokid');
+  const [takeAdvance, setTakeAdvance] = useState<boolean>(true);
+  const [audioFormat, setAudioFormat] = useState<AudioDeliveryFormatId>('standard');
+  const [contentIdEnabled, setContentIdEnabled] = useState<boolean>(true);
+  const [priorityRegion, setPriorityRegion] = useState<PriorityTerritoryOption>('auto');
+  const [physicalRetailPush, setPhysicalRetailPush] = useState<PhysicalRetailTierId>('none');
   const [strategy, setStrategy] = useState<string>('indie');
   const [releaseDate, setReleaseDate] = useState<string>(todayStr);
 
@@ -177,13 +159,61 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
     return state.projects.find(p => p.id === selectedItem.id) || null;
   }, [selectedItem, state.projects]);
 
-  const activeDistro = DISTRIBUTORS.find(d => d.id === distributor) || DISTRIBUTORS[0];
+  const activeDistro = getRealDistributorById(distributorId);
+  const activeAudioFormat = getAudioDeliveryFormatById(audioFormat);
+  const activeRetailTier = getPhysicalRetailTierById(physicalRetailPush);
   const activeCampaign = MARKETING_CAMPAIGNS.find(c => c.id === strategy) || MARKETING_CAMPAIGNS[0];
   const activeSingleRoleMeta =
     SINGLE_ROLE_OPTIONS.find(r => r.id === singleRole) || SINGLE_ROLE_OPTIONS[3];
 
-  const totalCost = activeDistro.cost + activeCampaign.cost;
+  const availableAdvanceOffer = useMemo(() => {
+    if (!selectedItem) return 0;
+    return calculateDistributorAdvanceOffer({
+      distributor: activeDistro,
+      kind: selectedItem.kind,
+      projectType: selectedProjectObj?.type,
+      artistPopularity: state.popularity || 2,
+      artistHype: state.hype || 15,
+      masterQuality: selectedItem.quality || 60
+    });
+  }, [selectedItem, selectedProjectObj, activeDistro, state.popularity, state.hype]);
+
+  const effectiveAdvanceTaken =
+    availableAdvanceOffer > 0 && takeAdvance ? availableAdvanceOffer : 0;
+
+  const audioFormatCost = useMemo(() => {
+    if (!selectedItem) return 0;
+    if (selectedItem.kind === 'single') return activeAudioFormat.costPerTrack;
+    return Math.min(
+      activeAudioFormat.costCapProject,
+      activeAudioFormat.costPerTrack * Math.max(1, selectedItem.trackCount)
+    );
+  }, [selectedItem, activeAudioFormat]);
+
+  const retailCost = useMemo(() => {
+    if (!selectedItem) return 0;
+    return selectedItem.kind === 'project'
+      ? activeRetailTier.costProject
+      : activeRetailTier.costSingle;
+  }, [selectedItem, activeRetailTier]);
+
+  const grossRolloutCost =
+    activeDistro.upfrontFee + audioFormatCost + retailCost + activeCampaign.cost;
+  const netCashImpact = effectiveAdvanceTaken - grossRolloutCost;
   const isImmediateRelease = releaseDate <= todayStr;
+
+  const previewCodes = useMemo(() => {
+    if (!selectedItem) return { isrc: 'US-DK4-26-10001', upc: '198004100001' };
+    const isrc = generateAuthenticISRC(
+      selectedItem.id,
+      selectedItem.title,
+      artistCountry,
+      distributorId,
+      2026
+    );
+    const upc = generateAuthenticUPC(selectedItem.id, selectedItem.title, distributorId);
+    return { isrc, upc };
+  }, [selectedItem, artistCountry, distributorId]);
 
   // Commercial & Hype Forecast Calculation
   const forecast = useMemo(() => {
@@ -199,7 +229,10 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
     }
 
     const roleHypeExtra = selectedItem.kind === 'single' ? activeSingleRoleMeta.hypeBonus : 0;
-    const rawHypeBoost = activeCampaign.baseHypeBoost * activeDistro.hypeMult + roleHypeExtra;
+    const rawHypeBoost =
+      activeCampaign.baseHypeBoost * activeDistro.hypeMultiplier +
+      roleHypeExtra +
+      activeAudioFormat.playlistBonus * 0.4;
     const projectedHype = Math.min(100, Number(((state.hype || 0) + rawHypeBoost).toFixed(1)));
     const hypeGain = Number((projectedHype - (state.hype || 0)).toFixed(1));
 
@@ -209,16 +242,28 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
 
     const rawPot =
       selectedItem.kind === 'single'
-        ? ((selectedItem.quality * 0.5) + ((state.popularity || 0) * 0.3) + (projectedHype * 0.2) + collabBonus) *
+        ? ((selectedItem.quality * 0.5) +
+            ((state.popularity || 0) * 0.3) +
+            (projectedHype * 0.2) +
+            collabBonus) *
           tierMultiplier *
-          activeDistro.potMult *
+          activeDistro.potentialMultiplier *
+          activeAudioFormat.streamRetentionMult *
           singleRoleMult
-        : ((selectedItem.quality * 0.5) + ((state.popularity || 0) * 0.4) + (projectedHype * 0.15)) *
+        : ((selectedItem.quality * 0.5) +
+            ((state.popularity || 0) * 0.4) +
+            (projectedHype * 0.15)) *
           tierMultiplier *
-          activeDistro.potMult;
+          activeDistro.potentialMultiplier *
+          activeAudioFormat.streamRetentionMult;
 
     const skills = getEnsuredSkillState(state.skills);
-    const fanDemo = getDetailedFanDemographics(state.fans ?? 250, state.popularity || 0, projectedHype, skills);
+    const fanDemo = getDetailedFanDemographics(
+      state.fans ?? 250,
+      state.popularity || 0,
+      projectedHype,
+      skills
+    );
 
     const singleDayStreamEst = Math.round(
       (rawPot * 950 + fanDemo.dailyStreamingFloor) * (1 + projectedHype / 120)
@@ -228,10 +273,19 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
         ? Math.round(singleDayStreamEst * Math.min(selectedItem.trackCount, 12) * 0.68)
         : singleDayStreamEst;
 
+    const retailDay1Bonus =
+      selectedItem.kind === 'project'
+        ? activeRetailTier.bonusFirstDayUnitsProject
+        : activeRetailTier.bonusFirstDayUnitsSingle;
+
     const estFirstWeekPureSales = Math.round(
-      (fanDemo.superfansStans * 0.42 + rawPot * 45) *
+      ((fanDemo.superfansStans * 0.42 + rawPot * 45) *
         fanDemo.pureSalesMultiplier *
-        (selectedItem.kind === 'project' ? 1.65 : 0.75 * activeSingleRoleMeta.salesMult)
+        activeDistro.pureSalesConversionMult *
+        activeAudioFormat.pureSalesMult *
+        activeRetailTier.firstWeekSalesBoostMult *
+        (selectedItem.kind === 'project' ? 1.65 : 0.75 * activeSingleRoleMeta.salesMult)) +
+        retailDay1Bonus
     );
 
     const estInitialPreSaves =
@@ -241,7 +295,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
             state.popularity || 2,
             projectedHype,
             state.fans || 250,
-            distributor,
+            distributorId,
             strategy
           )
         : 0;
@@ -259,9 +313,11 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
     selectedProjectObj,
     activeCampaign,
     activeDistro,
+    activeAudioFormat,
+    activeRetailTier,
     activeSingleRoleMeta,
     isImmediateRelease,
-    distributor,
+    distributorId,
     strategy,
     state.hype,
     state.popularity,
@@ -273,14 +329,18 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
   const handleSubmit = () => {
     if (!selectedItem) return;
 
-    if (state.money < totalCost) {
+    // Note: if the distributor pays an upfront Advance, that advance can cover the rollout & marketing expenses!
+    if (state.money + effectiveAdvanceTaken < grossRolloutCost) {
+      const neededOutOfPocket = grossRolloutCost - effectiveAdvanceTaken;
       return setInfoModal({
         title: 'Insufficient Funds',
-        desc: `You need ${formatMoney(totalCost)} for this distribution and marketing rollout (Available: ${formatMoney(state.money)}).`
+        desc: `You need ${formatMoney(neededOutOfPocket)} out-of-pocket after your ${formatMoney(
+          effectiveAdvanceTaken
+        )} distributor advance (Available: ${formatMoney(state.money)}).`
       });
     }
 
-    const newMoney = state.money - totalCost;
+    const newMoney = Math.max(0, state.money + netCashImpact);
     const newHype = forecast.projectedHype;
     const tierMultiplier = state.artist?.tier === 1 ? 1.4 : state.artist?.tier === 2 ? 1.7 : 1.0;
     const targetStatus = isImmediateRelease ? 'released' : 'scheduled';
@@ -299,7 +359,8 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
             const calcPot =
               ((s.quality * 0.5) + (state.popularity * 0.3) + (newHype * 0.2) + collabBonus) *
               tierMultiplier *
-              activeDistro.potMult *
+              activeDistro.potentialMultiplier *
+              activeAudioFormat.streamRetentionMult *
               activeSingleRoleMeta.streamMult;
             updatedSongPot = Math.max(s.basePotential || 0, calcPot);
             return {
@@ -308,13 +369,24 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
               releaseDate: s.status === 'released' ? (s.releaseDate || releaseDate) : releaseDate,
               trackType: chosenTrackType,
               basePotential: updatedSongPot,
-              momentum: Math.max(s.momentum || 1.0, 1.08)
+              momentum: Math.max(s.momentum || 1.0, 1.08),
+              distributorId,
+              royaltyArtistShare: activeDistro.artistRoyaltyPercent,
+              advanceAmount: effectiveAdvanceTaken,
+              unrecoupedAdvance: effectiveAdvanceTaken,
+              totalRoyaltiesEarned: s.totalRoyaltiesEarned || 0,
+              isrcCode: previewCodes.isrc,
+              upcCode: previewCodes.upc,
+              audioFormat,
+              contentIdEnabled,
+              priorityRegion,
+              physicalRetailPush
             };
           }
           return s;
         });
 
-        // Also synchronize this song inside any parent project's songs list and boost parent project Pre-Saves!
+        // Synchronize inside parent project if applicable
         nextP.projects = nextP.projects.map(pr => {
           if (!pr.songs || !pr.songs.some(ps => ps.id === id)) return pr;
           const preSaveBonus =
@@ -331,7 +403,15 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                     status: targetStatus,
                     releaseDate: ps.status === 'released' ? (ps.releaseDate || releaseDate) : releaseDate,
                     trackType: chosenTrackType,
-                    basePotential: updatedSongPot || ps.basePotential
+                    basePotential: updatedSongPot || ps.basePotential,
+                    distributorId,
+                    royaltyArtistShare: activeDistro.artistRoyaltyPercent,
+                    isrcCode: previewCodes.isrc,
+                    upcCode: previewCodes.upc,
+                    audioFormat,
+                    contentIdEnabled,
+                    priorityRegion,
+                    physicalRetailPush
                   }
                 : ps
             )
@@ -348,7 +428,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                 state.popularity || 2,
                 newHype,
                 state.fans || 250,
-                distributor,
+                distributorId,
                 strategy
               )
             : 0;
@@ -358,7 +438,8 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
             projBasePot =
               ((pr.quality * 0.5) + (state.popularity * 0.4) + (newHype * 0.15)) *
               tierMultiplier *
-              activeDistro.potMult;
+              activeDistro.potentialMultiplier *
+              activeAudioFormat.streamRetentionMult;
             return {
               ...pr,
               status: targetStatus,
@@ -366,7 +447,17 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
               basePotential: projBasePot,
               preSaves: initialPreSaves,
               dailyPreSaves: Math.round(initialPreSaves * 0.18),
-              distributor,
+              distributor: distributorId,
+              distributorId,
+              royaltyArtistShare: activeDistro.artistRoyaltyPercent,
+              advanceAmount: effectiveAdvanceTaken,
+              unrecoupedAdvance: Math.round(effectiveAdvanceTaken * 0.35),
+              totalRoyaltiesEarned: pr.totalRoyaltiesEarned || 0,
+              upcCode: previewCodes.upc,
+              audioFormat,
+              contentIdEnabled,
+              priorityRegion,
+              physicalRetailPush,
               marketingStrategy: strategy,
               focusTrackId: focusTrackId !== 'none' ? focusTrackId : pr.focusTrackId
             };
@@ -376,6 +467,10 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
 
         if (project) {
           const projSongIds = project.songs.map(s => s.id);
+          const perTrackAdvanceShare =
+            projSongIds.length > 0
+              ? Math.round((effectiveAdvanceTaken * 0.65) / projSongIds.length)
+              : 0;
           let hasAssignedLeadSingle = nextP.songs.some(
             s => projSongIds.includes(s.id) && s.trackType === 'lead_single'
           );
@@ -383,13 +478,18 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
           nextP.songs = nextP.songs.map(s => {
             if (projSongIds.includes(s.id)) {
               const isFocusTrack = focusTrackId !== 'none' && s.id === focusTrackId;
+              const trackIsrc =
+                s.isrcCode ||
+                generateAuthenticISRC(s.id, s.title, artistCountry, distributorId, 2026);
               if (s.status !== 'released') {
                 const resolvedTrackType: ExtendedTrackRole =
                   project.type === 'single_pack'
                     ? 'single'
                     : isFocusTrack
                     ? 'single'
-                    : (s.trackType && s.trackType !== 'b_side' ? s.trackType : 'b_side');
+                    : s.trackType && s.trackType !== 'b_side'
+                    ? s.trackType
+                    : 'b_side';
                 return {
                   ...s,
                   status: targetStatus,
@@ -400,11 +500,19 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                     (project.type === 'single_pack' || isFocusTrack
                       ? 0.98
                       : 0.58 + (s.quality / 100) * 0.25 + (s.collabId !== 'none' ? 0.2 : 0.0)),
-                  cover: project.cover
+                  cover: project.cover,
+                  distributorId,
+                  royaltyArtistShare: activeDistro.artistRoyaltyPercent,
+                  advanceAmount: (s.advanceAmount || 0) + perTrackAdvanceShare,
+                  unrecoupedAdvance: (s.unrecoupedAdvance || 0) + perTrackAdvanceShare,
+                  isrcCode: trackIsrc,
+                  upcCode: previewCodes.upc,
+                  audioFormat,
+                  contentIdEnabled,
+                  priorityRegion,
+                  physicalRetailPush
                 };
               } else {
-                // Preserve explicit single roles (lead_single, pre_release_single, promotional_single, single)
-                // Only assign lead_single to the first pre-released track if no trackType was explicitly chosen!
                 let preservedRole: ExtendedTrackRole = s.trackType || 'single';
                 if (!s.trackType || s.trackType === 'b_side') {
                   if (!hasAssignedLeadSingle) {
@@ -416,7 +524,15 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                 }
                 return {
                   ...s,
-                  trackType: preservedRole
+                  trackType: preservedRole,
+                  distributorId: s.distributorId || distributorId,
+                  royaltyArtistShare: s.royaltyArtistShare ?? activeDistro.artistRoyaltyPercent,
+                  isrcCode: trackIsrc,
+                  upcCode: previewCodes.upc,
+                  audioFormat: s.audioFormat || audioFormat,
+                  contentIdEnabled: s.contentIdEnabled ?? contentIdEnabled,
+                  priorityRegion:
+                    priorityRegion !== 'auto' ? priorityRegion : s.priorityRegion || 'auto'
                 };
               }
             }
@@ -438,7 +554,15 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                     trackType: updatedGlobalSong?.trackType || ps.trackType,
                     basePotential:
                       ps.status !== 'released' ? projBasePot * 0.75 : ps.basePotential,
-                    cover: pr.cover
+                    cover: pr.cover,
+                    distributorId,
+                    royaltyArtistShare: activeDistro.artistRoyaltyPercent,
+                    isrcCode: updatedGlobalSong?.isrcCode,
+                    upcCode: previewCodes.upc,
+                    audioFormat,
+                    contentIdEnabled,
+                    priorityRegion,
+                    physicalRetailPush
                   };
                 })
               };
@@ -448,7 +572,6 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
         }
       }
 
-      // Trigger Rival Chart-Block Counter-Release only if there is an active rivalry or a high-profile release collision!
       if (isImmediateRelease) {
         const rivalDrop = triggerRivalCounterReleaseOnPlayerDrop(
           nextP,
@@ -475,16 +598,21 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
         )
       : null;
 
+    const advanceMsg =
+      effectiveAdvanceTaken > 0
+        ? ` You received a ${formatMoney(effectiveAdvanceTaken)} recoupable advance (${activeDistro.artistRoyaltyPercent}/${activeDistro.distributorCutPercent} royalty split).`
+        : ` You retain ${activeDistro.artistRoyaltyPercent}% of master royalties.`;
+
     if (isImmediateRelease) {
       if (previewDrop && previewDrop.didTriggerCounterDrop) {
         setInfoModal({
           title: 'Worldwide Release Live & Rival Chart Alert!',
-          desc: `"${selectedItem.title}" is now out globally (+${forecast.hypeGain}% Hype)! 🚨 CHART BLOCK ALERT: ${previewDrop.updatedRivalState.rivalName} just surprise-dropped on the exact same day to try and block you from #1 on the charts!`
+          desc: `"${selectedItem.title}" is now out globally via ${activeDistro.name} (+${forecast.hypeGain}% Hype)!${advanceMsg} CHART BLOCK ALERT: ${previewDrop.updatedRivalState.rivalName} just surprise-dropped on the same day!`
         });
       } else {
         setInfoModal({
-          title: 'Worldwide Release Live!',
-          desc: `"${selectedItem.title}" is now out globally via ${activeDistro.name} (+${forecast.hypeGain}% Hype)! Advance the day to track your debut streams and chart rankings.`
+          title: 'Worldwide DSP Delivery Live!',
+          desc: `"${selectedItem.title}" (${activeAudioFormat.shortLabel} · ISRC ${previewCodes.isrc}) is now live via ${activeDistro.name} (+${forecast.hypeGain}% Hype).${advanceMsg}`
         });
       }
     } else {
@@ -495,12 +623,10 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
             : 'Global Single Release Scheduled',
         desc:
           selectedItem.kind === 'project'
-            ? `"${selectedItem.title}" is scheduled for ${releaseDate} with ${formatNumFull(
+            ? `"${selectedItem.title}" (UPC ${previewCodes.upc}) is scheduled for ${releaseDate} via ${activeDistro.name} with ${formatNumFull(
                 forecast.estInitialPreSaves
-              )} initial Spotify Pre-Saves! Visit your Artist Profile on Spotify to view the live Upcoming Release Countdown and drop Pre-Release Singles anytime before launch.`
-            : `"${selectedItem.title}" (${activeSingleRoleMeta.label}) is locked in for ${releaseDate} via ${activeDistro.name}. Pre-release Hype surged to ${newHype.toFixed(
-                1
-              )}% (+${forecast.hypeGain}%).`
+              )} initial Spotify Pre-Saves!${advanceMsg}`
+            : `"${selectedItem.title}" (${activeSingleRoleMeta.label} · ISRC ${previewCodes.isrc}) is scheduled for ${releaseDate} via ${activeDistro.name}.${advanceMsg}`
       });
     }
 
@@ -509,19 +635,31 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
 
   return (
     <div className="fixed inset-0 bg-neutral-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 animate-in fade-in duration-200">
-      <div className="bg-[#FAF9F7] w-full max-w-lg rounded-2xl shadow-2xl border border-neutral-200/90 flex flex-col max-h-[92vh] overflow-hidden">
+      <div className="bg-[#FAF9F7] w-full max-w-xl rounded-2xl shadow-2xl border border-neutral-200/90 flex flex-col max-h-[92vh] overflow-hidden">
         {/* Header */}
         <div className="px-5 py-4 border-b border-neutral-200/80 bg-white flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
-                Global Distribution
-              </span>
-              <span className="text-neutral-300">·</span>
-              <span className="text-xs font-semibold text-neutral-600">Step {currentStep} of 2</span>
+            <div className="flex items-center gap-2 text-xs text-neutral-500">
+              <span className="font-semibold text-emerald-700">Global DSP Distribution</span>
+              <span aria-hidden="true">·</span>
+              <span>Step {currentStep} of 3</span>
+              {selectedItem && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-mono tabular-nums text-neutral-600">
+                    {selectedItem.kind === 'project'
+                      ? `UPC ${previewCodes.upc}`
+                      : `ISRC ${previewCodes.isrc}`}
+                  </span>
+                </>
+              )}
             </div>
-            <h3 className="text-lg font-bold text-neutral-900 tracking-tight mt-1">
-              {currentStep === 1 ? 'Select Master & Release Date' : 'Distributor & Marketing Rollout'}
+            <h3 className="text-lg font-bold text-neutral-900 tracking-tight mt-0.5">
+              {currentStep === 1
+                ? '01. Select Master, Role & Schedule'
+                : currentStep === 2
+                ? '02. Distributor Contract, Split & Advance'
+                : '03. DSP Technical Specs, Territory & Rollout'}
             </h3>
           </div>
           <button
@@ -532,19 +670,20 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
           </button>
         </div>
 
-        {/* Stepper */}
+        {/* 3-Step Navigation Bar */}
         <div className="px-5 pt-3 pb-2.5 bg-white border-b border-neutral-100">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-2.5">
             {[
-              { num: 1, name: 'Master Selection & Date' },
-              { num: 2, name: 'Distribution & Campaign' }
+              { num: 1, name: 'Master & Date' },
+              { num: 2, name: 'Distributor & Split' },
+              { num: 3, name: 'DSP Specs & Push' }
             ].map(s => {
               const isCurrent = currentStep === s.num;
               const isPast = currentStep > s.num;
               return (
                 <button
                   key={s.num}
-                  onClick={() => setCurrentStep(s.num as 1 | 2)}
+                  onClick={() => setCurrentStep(s.num as 1 | 2 | 3)}
                   className="text-left cursor-pointer"
                 >
                   <div className="h-1.5 rounded-full overflow-hidden bg-neutral-100 mb-1.5">
@@ -555,10 +694,18 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                     />
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className={`text-[10px] font-bold ${isCurrent ? 'text-neutral-900' : 'text-neutral-400'}`}>
+                    <span
+                      className={`text-[10px] font-mono tabular-nums font-bold ${
+                        isCurrent ? 'text-neutral-900' : 'text-neutral-400'
+                      }`}
+                    >
                       0{s.num}
                     </span>
-                    <span className={`text-[11px] font-semibold ${isCurrent ? 'text-neutral-900' : 'text-neutral-500'}`}>
+                    <span
+                      className={`text-[11px] font-semibold truncate ${
+                        isCurrent ? 'text-neutral-900' : 'text-neutral-500'
+                      }`}
+                    >
                       {s.name}
                     </span>
                   </div>
@@ -573,7 +720,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
             <div className="w-12 h-12 bg-neutral-100 rounded-full flex items-center justify-center text-neutral-400 text-xl mx-auto">
               <i className="ph-bold ph-rocket-launch"></i>
             </div>
-            <h4 className="font-bold text-neutral-900 text-sm">No Masters Ready for Release</h4>
+            <h4 className="font-bold text-neutral-900 text-sm">No Masters Ready for Distribution</h4>
             <p className="text-xs text-neutral-500 max-w-xs mx-auto">
               Finish recording a song in the Recording Studio or package a project in Create Project before launching a release.
             </p>
@@ -587,15 +734,16 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
         ) : (
           <>
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* STEP 1: MASTER SELECTION, SINGLE ROLE & SCHEDULE */}
               {currentStep === 1 && (
                 <div className="space-y-4 animate-in fade-in duration-150">
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
-                        Select Recorded Single or Packaged Project ({releaseItems.length})
+                      <label className="text-xs font-bold text-neutral-700">
+                        Select Recorded Master or Packaged Project ({releaseItems.length})
                       </label>
                     </div>
-                    <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                    <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
                       {releaseItems.map(item => {
                         const isSelected = releaseTarget === item.key;
                         return (
@@ -608,37 +756,37 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                             }}
                             className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center gap-3.5 ${
                               isSelected
-                                ? 'bg-white border-neutral-900 ring-2 ring-neutral-900/10 shadow-sm'
+                                ? 'bg-white border-neutral-900 ring-2 ring-neutral-900/10 shadow-xs'
                                 : 'bg-white border-neutral-200/80 hover:border-neutral-300'
                             }`}
                           >
                             <img
                               src={item.cover}
                               alt={item.title}
+                              referrerPolicy="no-referrer"
                               className="w-14 h-14 rounded-xl object-cover bg-neutral-100 shrink-0 border border-neutral-200/60"
                             />
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm font-bold text-neutral-900 truncate">{item.title}</span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/60 shrink-0">
+                                <span className="text-sm font-bold text-neutral-900 truncate">
+                                  {item.title}
+                                </span>
+                                <span className="text-xs font-mono tabular-nums font-bold text-emerald-700 shrink-0">
                                   Master {item.quality}/100
                                 </span>
                               </div>
                               <div className="text-xs text-neutral-500 mt-0.5">{item.subtitle}</div>
-                              <div className="flex items-center gap-2 mt-1">
-                                <span
-                                  className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                                    item.kind === 'project'
-                                      ? 'bg-blue-50 text-blue-700'
-                                      : 'bg-purple-50 text-purple-700'
-                                  }`}
-                                >
+                              <div className="flex items-center gap-2 mt-1 text-[11px] text-neutral-500">
+                                <span className="font-semibold text-neutral-700">
                                   {item.kind === 'project' ? 'Project Release' : 'Single Release'}
                                 </span>
                                 {item.hasCollab && (
-                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                                    Feat. Collab (+25 Pot)
-                                  </span>
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="font-semibold text-amber-700">
+                                      Feat. Collaborator (+25 Pot)
+                                    </span>
+                                  </>
                                 )}
                               </div>
                             </div>
@@ -648,7 +796,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                     </div>
                   </div>
 
-                  {/* Single Rollout Type Selector (Lead Single vs Pre-Release Single vs Promo Single vs Standalone Single) */}
+                  {/* Single Rollout Type Selector */}
                   {selectedItem?.kind === 'single' && (
                     <div className="p-4 bg-white rounded-xl border border-neutral-200/80 space-y-2.5">
                       <div className="flex items-center justify-between">
@@ -657,10 +805,10 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                             Single Rollout Classification
                           </div>
                           <div className="text-[11px] text-neutral-500">
-                            Choose how this track is billed on Spotify & album tracklists
+                            Choose how this single is serviced to DSPs, playlists & radio
                           </div>
                         </div>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200">
+                        <span className="text-xs font-semibold text-neutral-700">
                           {activeSingleRoleMeta.shortBadge}
                         </span>
                       </div>
@@ -675,17 +823,15 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                               onClick={() => setSingleRole(opt.id)}
                               className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
                                 isChosen
-                                  ? 'bg-neutral-900 text-white border-neutral-900 shadow-xs'
+                                  ? 'bg-neutral-900 text-white border-neutral-900'
                                   : 'bg-neutral-50 text-neutral-800 border-neutral-200 hover:border-neutral-300'
                               }`}
                             >
                               <div className="flex items-center justify-between gap-1">
                                 <span className="text-xs font-bold">{opt.label}</span>
                                 <span
-                                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                    isChosen
-                                      ? 'bg-emerald-500/20 text-emerald-300'
-                                      : 'bg-neutral-200 text-neutral-700'
+                                  className={`text-[10px] font-mono tabular-nums font-semibold ${
+                                    isChosen ? 'text-emerald-300' : 'text-neutral-600'
                                   }`}
                                 >
                                   +{opt.hypeBonus}% Hype
@@ -705,19 +851,17 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                     </div>
                   )}
 
-                  {/* Project Focus Single Selector (so an Album/EP can launch with an official Focus Single instead of only B-Sides) */}
+                  {/* Project Focus Single Selector */}
                   {selectedItem?.kind === 'project' &&
                     selectedProjectObj &&
                     selectedProjectObj.type !== 'single_pack' && (
                       <div className="p-4 bg-white rounded-xl border border-neutral-200/80 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="text-xs font-bold text-neutral-900">
-                              Focus Single / Title Track on Release Day
-                            </div>
-                            <div className="text-[11px] text-neutral-500">
-                              Select an unreleased album track to push as an Official Single (not B-Side) when the project drops
-                            </div>
+                        <div>
+                          <div className="text-xs font-bold text-neutral-900">
+                            Focus Single / Title Track on Release Day
+                          </div>
+                          <div className="text-[11px] text-neutral-500">
+                            Select an unreleased album track to push as an Official Single when the project drops
                           </div>
                         </div>
                         <select
@@ -748,20 +892,14 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-xs font-bold text-neutral-900">
-                          Release Schedule & Spotify Pre-Release Countdown
+                          DSP Release Schedule & Spotify Pre-Release Countdown
                         </div>
                         <div className="text-[11px] text-neutral-500">
-                          Schedule a future date to activate a Spotify Countdown & collect Pre-Saves
+                          Schedule ahead to activate a Spotify Countdown & collect Pre-Saves
                         </div>
                       </div>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          isImmediateRelease
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-blue-50 text-blue-700 border border-blue-200'
-                        }`}
-                      >
-                        {isImmediateRelease ? 'Immediate Drop' : `Countdown: ${releaseDate}`}
+                      <span className="text-xs font-mono tabular-nums font-semibold text-emerald-700">
+                        {isImmediateRelease ? 'Immediate Drop' : `Scheduled: ${releaseDate}`}
                       </span>
                     </div>
 
@@ -808,41 +946,316 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                         value={releaseDate}
                         min={todayStr}
                         onChange={e => setReleaseDate(e.target.value || todayStr)}
-                        className="bg-neutral-50 border border-neutral-300 text-neutral-900 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-neutral-900"
+                        className="bg-neutral-50 border border-neutral-300 text-neutral-900 rounded-xl px-3 py-1.5 text-xs font-mono font-bold focus:outline-none focus:border-neutral-900"
                       />
                     </div>
                   </div>
                 </div>
               )}
 
+              {/* STEP 2: REAL-WORLD DISTRIBUTOR ROSTER, ROYALTY SPLIT & RECOUPABLE ADVANCE */}
               {currentStep === 2 && (
                 <div className="space-y-4 animate-in fade-in duration-150">
-                  {/* Digital Distributor Selection */}
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-1.5">
-                      Digital Distribution Partner
-                    </label>
-                    <div className="grid grid-cols-1 gap-2">
-                      {DISTRIBUTORS.map(d => {
-                        const isSelected = distributor === d.id;
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-bold text-neutral-700">
+                        Select Music Distributor or Label Services Partner
+                      </label>
+                      <span className="text-[11px] font-mono tabular-nums text-neutral-500">
+                        Artist Pop: {Math.round(state.popularity || 0)}/100
+                      </span>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {REAL_WORLD_DISTRIBUTORS.map(d => {
+                        const isSelected = distributorId === d.id;
+                        const elig = evaluateDistributorEligibility(
+                          d,
+                          state.popularity || 0,
+                          selectedItem?.quality || 60
+                        );
+                        const estAdv = calculateDistributorAdvanceOffer({
+                          distributor: d,
+                          kind: selectedItem?.kind || 'single',
+                          projectType: selectedProjectObj?.type,
+                          artistPopularity: state.popularity || 2,
+                          artistHype: state.hype || 15,
+                          masterQuality: selectedItem?.quality || 60
+                        });
+
                         return (
                           <div
                             key={d.id}
-                            onClick={() => setDistributor(d.id)}
-                            className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                            onClick={() => {
+                              if (!elig.eligible) return;
+                              setDistributorId(d.id);
+                            }}
+                            className={`p-3.5 rounded-xl border transition-all ${
+                              !elig.eligible
+                                ? 'bg-neutral-100/80 border-neutral-200/70 opacity-65 cursor-not-allowed'
+                                : isSelected
+                                ? 'bg-white border-neutral-900 ring-2 ring-neutral-900/10 cursor-pointer'
+                                : 'bg-white border-neutral-200/80 hover:border-neutral-300 cursor-pointer'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs sm:text-sm font-bold text-neutral-900">
+                                    {d.name}
+                                  </span>
+                                  <span className="text-neutral-300" aria-hidden="true">·</span>
+                                  <span className="text-[11px] text-neutral-500">
+                                    {d.tierLabel}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-neutral-500 mt-0.5">
+                                  {d.dspPartnersSummary}
+                                </div>
+                              </div>
+
+                              <div className="text-right font-mono tabular-nums shrink-0">
+                                <div className="text-xs font-bold text-emerald-700">
+                                  {d.artistRoyaltyPercent}% Artist / {d.distributorCutPercent}% Distro
+                                </div>
+                                <div className="text-[11px] text-neutral-600">
+                                  {estAdv > 0
+                                    ? `Advance: +${formatMoney(estAdv)}`
+                                    : `Upload Fee: ${formatMoney(d.upfrontFee)}`}
+                                </div>
+                              </div>
+                            </div>
+
+                            <p className="text-[11px] text-neutral-600 mt-1.5 leading-relaxed">
+                              {d.description}
+                            </p>
+
+                            <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-neutral-100 text-[11px] font-mono tabular-nums">
+                              <div className="text-neutral-600">
+                                <span>Reach x{d.potentialMultiplier.toFixed(2)}</span>
+                                <span className="mx-1.5" aria-hidden="true">·</span>
+                                <span>Hype x{d.hypeMultiplier.toFixed(2)}</span>
+                                <span className="mx-1.5" aria-hidden="true">·</span>
+                                <span>Radio x{d.radioSyndicationMult.toFixed(2)}</span>
+                              </div>
+                              <span
+                                className={
+                                  elig.eligible
+                                    ? 'text-emerald-700 font-sans font-semibold'
+                                    : 'text-amber-700 font-sans font-semibold'
+                                }
+                              >
+                                {elig.reason}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Recoupable Cash Advance Option (for Indie/Major Distributors) */}
+                  {availableAdvanceOffer > 0 && (
+                    <div className="p-4 bg-white rounded-xl border border-neutral-200/80 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-bold text-neutral-900">
+                            Upfront Recoupable Label Advance Offer
+                          </div>
+                          <div className="text-[11px] text-neutral-500">
+                            {activeDistro.name} offers {formatMoney(availableAdvanceOffer)} upfront, recouped from your {activeDistro.artistRoyaltyPercent}% royalty share
+                          </div>
+                        </div>
+                        <span className="font-mono tabular-nums text-xs font-bold text-emerald-700">
+                          {takeAdvance ? `+${formatMoney(availableAdvanceOffer)} Now` : '$0 Advance'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setTakeAdvance(true)}
+                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                            takeAdvance
+                              ? 'bg-neutral-900 text-white border-neutral-900'
+                              : 'bg-neutral-50 text-neutral-800 border-neutral-200'
+                          }`}
+                        >
+                          <div className="text-xs font-bold font-mono tabular-nums">
+                            Accept {formatMoney(availableAdvanceOffer)} Advance
+                          </div>
+                          <div
+                            className={`text-[10px] mt-0.5 ${
+                              takeAdvance ? 'text-neutral-300' : 'text-neutral-500'
+                            }`}
+                          >
+                            Paid immediately to your cash balance; future royalties recoup this balance first
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setTakeAdvance(false)}
+                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                            !takeAdvance
+                              ? 'bg-neutral-900 text-white border-neutral-900'
+                              : 'bg-neutral-50 text-neutral-800 border-neutral-200'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">
+                            Decline Advance (Immediate Daily Royalties)
+                          </div>
+                          <div
+                            className={`text-[10px] mt-0.5 ${
+                              !takeAdvance ? 'text-neutral-300' : 'text-neutral-500'
+                            }`}
+                          >
+                            Start collecting your {activeDistro.artistRoyaltyPercent}% net royalties from Day 1 with zero recoupment debt
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 3: DSP DELIVERY SPECS (ISRC/UPC, DOLBY ATMOS, PRIORITY TERRITORY, PHYSICAL RETAIL & MARKETING) */}
+              {currentStep === 3 && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  {/* ISRC / UPC & Content ID Registry Bar */}
+                  <div className="p-3.5 bg-white rounded-xl border border-neutral-200/80 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[11px] text-neutral-500">
+                        <span>ISRC & Barcode Metadata Registry</span>
+                        <span className="mx-1.5" aria-hidden="true">·</span>
+                        <span className="font-mono tabular-nums text-neutral-800 font-semibold">
+                          ISRC {previewCodes.isrc}
+                        </span>
+                        <span className="mx-1.5" aria-hidden="true">·</span>
+                        <span className="font-mono tabular-nums text-neutral-800 font-semibold">
+                          UPC {previewCodes.upc}
+                        </span>
+                      </div>
+                      <div className="text-xs font-bold text-neutral-900 mt-0.5">
+                        YouTube Content ID & Short-Form UGC Monetization
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setContentIdEnabled(v => !v)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                        contentIdEnabled
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                      }`}
+                    >
+                      {contentIdEnabled ? 'Content ID Enabled' : 'Content ID Off'}
+                    </button>
+                  </div>
+
+                  {/* Audio Mastering & Spatial Format */}
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-700 mb-1.5">
+                      DSP Audio Mastering & Spatial Delivery Format
+                    </label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {AUDIO_DELIVERY_FORMATS.map(fmt => {
+                        const isSelected = audioFormat === fmt.id;
+                        const itemFmtCost =
+                          selectedItem?.kind === 'project'
+                            ? Math.min(
+                                fmt.costCapProject,
+                                fmt.costPerTrack * Math.max(1, selectedItem.trackCount)
+                              )
+                            : fmt.costPerTrack;
+                        return (
+                          <div
+                            key={fmt.id}
+                            onClick={() => setAudioFormat(fmt.id)}
+                            className={`p-3 rounded-xl border transition-all cursor-pointer ${
                               isSelected
-                                ? 'bg-white border-neutral-900 ring-2 ring-neutral-900/10 shadow-xs'
+                                ? 'bg-white border-neutral-900 ring-2 ring-neutral-900/10'
                                 : 'bg-white border-neutral-200/80 hover:border-neutral-300'
                             }`}
                           >
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-bold text-neutral-900">{d.name}</span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-neutral-100 text-neutral-800 border border-neutral-200">
-                                  {d.badge}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-neutral-500 mt-0.5">{d.desc}</p>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-neutral-900">{fmt.name}</span>
+                              <span className="text-xs font-mono tabular-nums font-semibold text-neutral-700">
+                                {itemFmtCost > 0 ? formatMoney(itemFmtCost) : 'Included'}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-neutral-500 mt-0.5">
+                              {fmt.description}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Priority International Territory Focus */}
+                  <div className="p-3.5 bg-white rounded-xl border border-neutral-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-neutral-900">
+                          Territorial DSP & Regional Breakout Focus
+                        </div>
+                        <div className="text-[11px] text-neutral-500">
+                          Concentrate international playlist & store pitching into a priority region (+35% regional weight)
+                        </div>
+                      </div>
+                    </div>
+                    <select
+                      value={priorityRegion}
+                      onChange={e => setPriorityRegion(e.target.value as PriorityTerritoryOption)}
+                      className="w-full bg-neutral-50 border border-neutral-300 text-neutral-900 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-neutral-900"
+                    >
+                      {PRIORITY_TERRITORY_OPTIONS.map(opt => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-neutral-500">
+                      {
+                        (
+                          PRIORITY_TERRITORY_OPTIONS.find(o => o.id === priorityRegion) ||
+                          PRIORITY_TERRITORY_OPTIONS[0]
+                        ).desc
+                      }
+                    </p>
+                  </div>
+
+                  {/* Physical & Retail Store Allocation */}
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-700 mb-1.5">
+                      Physical & Retail Store Distribution (CD / Vinyl / Target / HMV)
+                    </label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {PHYSICAL_RETAIL_TIERS.map(tier => {
+                        const isSelected = physicalRetailPush === tier.id;
+                        const tierCost =
+                          selectedItem?.kind === 'project' ? tier.costProject : tier.costSingle;
+                        return (
+                          <div
+                            key={tier.id}
+                            onClick={() => setPhysicalRetailPush(tier.id)}
+                            className={`p-3 rounded-xl border transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-white border-neutral-900 ring-2 ring-neutral-900/10'
+                                : 'bg-white border-neutral-200/80 hover:border-neutral-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-neutral-900">
+                                {tier.name}
+                              </span>
+                              <span className="text-xs font-mono tabular-nums font-semibold text-neutral-700">
+                                {tierCost > 0 ? formatMoney(tierCost) : 'Digital Only'}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-neutral-500 mt-0.5">
+                              {tier.description}
                             </div>
                           </div>
                         );
@@ -852,8 +1265,8 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
 
                   {/* Marketing Campaign Selection */}
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-1.5">
-                      Marketing & Promotional Rollout
+                    <label className="block text-xs font-bold text-neutral-700 mb-1.5">
+                      Global Marketing & Promotional Rollout
                     </label>
                     <div className="grid grid-cols-1 gap-2">
                       {MARKETING_CAMPAIGNS.map(c => {
@@ -862,70 +1275,80 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                           <div
                             key={c.id}
                             onClick={() => setStrategy(c.id)}
-                            className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                            className={`p-3 rounded-xl border transition-all cursor-pointer ${
                               isSelected
-                                ? 'bg-white border-neutral-900 ring-2 ring-neutral-900/10 shadow-xs'
+                                ? 'bg-white border-neutral-900 ring-2 ring-neutral-900/10'
                                 : 'bg-white border-neutral-200/80 hover:border-neutral-300'
                             }`}
                           >
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-bold text-neutral-900">{c.name}</span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-200/60">
-                                  {c.badge}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-neutral-500 mt-0.5">{c.desc}</p>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-neutral-900">{c.name}</span>
+                              <span className="text-xs font-mono tabular-nums font-semibold text-orange-700">
+                                {c.badge}
+                              </span>
                             </div>
+                            <p className="text-[11px] text-neutral-500 mt-0.5">{c.desc}</p>
                           </div>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Real-Time Commercial Forecast Card */}
-                  <div className="bg-neutral-900 text-white rounded-xl p-4 border border-neutral-800 space-y-3 shadow-md">
-                    <div className="flex items-center justify-between">
+                  {/* Live Commercial & Financial Rollout Summary */}
+                  <div className="bg-neutral-900 text-white rounded-xl p-4 border border-neutral-800 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
                       <div>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
-                          Commercial Rollout Forecast
-                        </span>
-                        <div className="text-xs text-neutral-300 mt-0.5">
-                          {selectedItem?.title} · {activeDistro.name}
-                          {selectedItem?.kind === 'single' ? ` · ${activeSingleRoleMeta.label}` : ''}
+                        <div className="text-[11px] text-neutral-400">
+                          <span>Distribution & Financial Summary</span>
+                          <span className="mx-1.5" aria-hidden="true">·</span>
+                          <span>{activeDistro.name}</span>
+                          <span className="mx-1.5" aria-hidden="true">·</span>
+                          <span className="font-mono tabular-nums">
+                            {activeDistro.artistRoyaltyPercent}/{activeDistro.distributorCutPercent} Split
+                          </span>
+                        </div>
+                        <div className="text-xs font-bold text-white mt-0.5">
+                          {selectedItem?.title} · {activeAudioFormat.shortLabel}
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-sm font-black text-emerald-400">
-                          Hype: {(state.hype || 0).toFixed(0)}% → {forecast.projectedHype}% (+{forecast.hypeGain}%)
-                        </span>
-                        <div className="text-[10px] text-neutral-400">
-                          Total Budget: {totalCost > 0 ? formatMoney(totalCost) : 'Free'}
+                      <div className="text-right font-mono tabular-nums">
+                        <div className="text-xs font-bold text-emerald-400">
+                          Hype: {(state.hype || 0).toFixed(0)}% → {forecast.projectedHype}% (+
+                          {forecast.hypeGain}%)
+                        </div>
+                        <div className="text-[11px] text-neutral-300">
+                          {netCashImpact >= 0
+                            ? `Net Advance Payout: +${formatMoney(netCashImpact)}`
+                            : `Net Out-of-Pocket: -${formatMoney(Math.abs(netCashImpact))}`}
                         </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-neutral-800 text-center">
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-neutral-800 text-center font-mono tabular-nums">
                       <div className="bg-neutral-800/70 rounded-lg p-2">
-                        <div className="text-[10px] text-neutral-400">Est. Day 1 Streams</div>
-                        <div className="text-xs font-black text-white mt-0.5">
+                        <div className="text-[10px] font-sans text-neutral-400">
+                          Est. Day 1 Streams
+                        </div>
+                        <div className="text-xs font-bold text-white mt-0.5">
                           ~{formatNumFull(forecast.estFirstDayStreams)}
                         </div>
                       </div>
                       <div className="bg-neutral-800/70 rounded-lg p-2">
-                        <div className="text-[10px] text-neutral-400">Est. Week 1 Sales</div>
-                        <div className="text-xs font-black text-emerald-400 mt-0.5">
+                        <div className="text-[10px] font-sans text-neutral-400">
+                          Est. Week 1 Sales
+                        </div>
+                        <div className="text-xs font-bold text-emerald-400 mt-0.5">
                           ~{formatNumFull(forecast.estFirstWeekPureSales)}
                         </div>
                       </div>
                       <div className="bg-neutral-800/70 rounded-lg p-2">
-                        <div className="text-[10px] text-neutral-400">
-                          {forecast.estInitialPreSaves > 0 ? 'Initial Pre-Saves' : 'Hit Potential'}
+                        <div className="text-[10px] font-sans text-neutral-400">
+                          {forecast.estInitialPreSaves > 0 ? 'Initial Pre-Saves' : 'Advance Taken'}
                         </div>
-                        <div className="text-xs font-black text-amber-300 mt-0.5">
+                        <div className="text-xs font-bold text-amber-300 mt-0.5">
                           {forecast.estInitialPreSaves > 0
                             ? `~${formatNumFull(forecast.estInitialPreSaves)}`
-                            : `${forecast.basePotential} Pts`}
+                            : formatMoney(effectiveAdvanceTaken)}
                         </div>
                       </div>
                     </div>
@@ -938,8 +1361,8 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
             <div className="px-5 py-3.5 border-t border-neutral-200/80 bg-white flex items-center justify-between gap-3">
               {currentStep > 1 ? (
                 <button
-                  onClick={() => setCurrentStep(1)}
-                  className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-semibold text-xs rounded-xl active:scale-95 transition cursor-pointer flex items-center gap-1.5"
+                  onClick={() => setCurrentStep((currentStep - 1) as 1 | 2 | 3)}
+                  className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-semibold text-xs rounded-xl active:scale-95 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0"
                 >
                   <i className="ph-bold ph-arrow-left"></i>
                   <span>Back</span>
@@ -948,23 +1371,28 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                 <div />
               )}
 
-              {currentStep === 1 ? (
+              {currentStep < 3 ? (
                 <button
-                  onClick={() => setCurrentStep(2)}
-                  className="px-5 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white font-semibold text-xs rounded-xl active:scale-95 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                  onClick={() => setCurrentStep((currentStep + 1) as 1 | 2 | 3)}
+                  className="px-5 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white font-semibold text-xs rounded-xl active:scale-95 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0"
                 >
-                  <span>Next: Distribution & Promo</span>
+                  <span>
+                    {currentStep === 1 ? 'Next: Choose Distributor' : 'Next: DSP Delivery Specs'}
+                  </span>
                   <i className="ph-bold ph-arrow-right"></i>
                 </button>
               ) : (
                 <button
                   onClick={handleSubmit}
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl active:scale-95 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl active:scale-95 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0"
                 >
                   <i className="ph-fill ph-rocket-launch text-white text-sm"></i>
                   <span>
-                    {isImmediateRelease ? 'Launch Worldwide Now' : 'Confirm Scheduled Drop'} (
-                    {totalCost > 0 ? formatMoney(totalCost) : 'Free'})
+                    {isImmediateRelease ? 'Deliver & Launch Now' : 'Confirm DSP Delivery'} (
+                    {netCashImpact >= 0
+                      ? `+${formatMoney(netCashImpact)} Net`
+                      : formatMoney(Math.abs(netCashImpact))}
+                    )
                   </span>
                 </button>
               )}

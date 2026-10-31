@@ -18,13 +18,36 @@ import {
   buildGlobalRiaaLeaderboard
 } from '../../data/riaaCertificationEngine';
 import { RiaaPlaqueVisual, RiaaCertBadge } from './RiaaPlaqueVisual';
+import { RosterArtistSwitcherBar } from '../Common/RosterArtistSwitcherBar';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
+import {
+  ensureRosterArtistFullFields,
+  evaluateRosterArtistRiaaItems,
+  claimRosterArtistRiaaPlaque
+} from '../../data/recordLabelCeoEngine';
 
 export default function RiaaCertificationApp() {
   const { state, setState } = useGameContext();
-  const artistName = state.artist?.name || 'Artist';
+  const [selectedRiaaArtistId, setSelectedRiaaArtistId] = useState<'player' | string>('player');
+
+  const rlState = useMemo(() => getEnsuredRecordLabelState(state), [state]);
+  const selectedRosterArtist = useMemo(() => {
+    if (selectedRiaaArtistId === 'player') return null;
+    const raw = rlState.imprint.signedRoster.find(a => a.id === selectedRiaaArtistId);
+    return raw ? ensureRosterArtistFullFields(raw) : null;
+  }, [rlState.imprint.signedRoster, selectedRiaaArtistId]);
+
+  const artistName = selectedRosterArtist
+    ? selectedRosterArtist.stageName || selectedRosterArtist.name
+    : state.artist?.name || 'Artist';
 
   const riaaState = useMemo(() => ensureRiaaState(state), [state]);
-  const playerEval = useMemo(() => evaluateAllPlayerRiaaItems(state), [state]);
+  const basePlayerEval = useMemo(() => evaluateAllPlayerRiaaItems(state), [state]);
+  const rosterEval = useMemo(
+    () => (selectedRosterArtist ? evaluateRosterArtistRiaaItems(selectedRosterArtist) : null),
+    [selectedRosterArtist]
+  );
+  const playerEval = rosterEval || basePlayerEval;
   const leaderboard = useMemo(() => buildGlobalRiaaLeaderboard(state), [state]);
 
   const [activeTab, setActiveTab] = useState<
@@ -118,6 +141,24 @@ export default function RiaaCertificationApp() {
 
   const handleConfirmAuditSubmission = () => {
     if (!activeAuditModalItem) return;
+
+    if (selectedRosterArtist) {
+      const res = claimRosterArtistRiaaPlaque(state, selectedRosterArtist.id, activeAuditModalItem.key, {
+        frameStyle: customFrame,
+        matboardStyle: customMatboard,
+        discLayout: customDiscLayout,
+        recipientLine: customRecipient,
+        dedicationNote: customDedication
+      });
+      if (!res.success) {
+        triggerToast(res.message || 'Could not complete RIAA audit.', 'err');
+        return;
+      }
+      setState(res.nextState);
+      setActiveAuditModalItem(null);
+      triggerToast(res.message, 'ok');
+      return;
+    }
 
     const res = submitRiaaCertificationAudit({
       state,
@@ -275,6 +316,14 @@ export default function RiaaCertificationApp() {
           ))}
         </div>
       </header>
+
+      {/* Roster Artist Switcher Bar */}
+      <RosterArtistSwitcherBar
+        gameState={state}
+        selectedArtistId={selectedRiaaArtistId}
+        onSelectArtist={setSelectedRiaaArtistId}
+        accentColor="#FBBF24"
+      />
 
       {/* TOAST FEEDBACK */}
       {toastMsg && (
@@ -629,31 +678,45 @@ export default function RiaaCertificationApp() {
             TAB 3: GLOBAL ARTIST LEADERBOARD (PLAYER VS. NPC SUPERSTARS)
            ===================================================================== */}
         {activeTab === 'leaderboard' && (() => {
-          const playerRankIndex = sortedLeaderboard.findIndex(e => e.isPlayer);
-          const playerEntry = sortedLeaderboard[playerRankIndex];
+          const activeTargetIndex = sortedLeaderboard.findIndex(e =>
+            selectedRosterArtist
+              ? e.rosterArtistId === selectedRosterArtist.id
+              : e.isPlayer
+          );
+          const activeTargetEntry =
+            activeTargetIndex >= 0
+              ? sortedLeaderboard[activeTargetIndex]
+              : sortedLeaderboard.find(e => e.isPlayer);
+          const displayRank =
+            activeTargetIndex >= 0
+              ? activeTargetIndex + 1
+              : sortedLeaderboard.findIndex(e => e.isPlayer) + 1;
           return (
           <div className="px-4 mt-4 space-y-3.5">
-            {playerEntry && (
+            {activeTargetEntry && (
               <div className="p-3 rounded-xl bg-gradient-to-r from-amber-500/15 via-[#181622] to-[#13131C] border border-amber-400/40 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className="px-2 py-1 rounded-lg bg-amber-400 text-zinc-950 font-mono text-xs font-black shrink-0">
-                    #{playerRankIndex + 1}
+                    #{displayRank}
                   </div>
                   <div className="min-w-0">
                     <div className="text-xs font-black text-white truncate">
-                      {playerEntry.name} (Your Global Standing)
+                      {activeTargetEntry.name}{' '}
+                      {activeTargetEntry.isRosterArtist
+                        ? '(Label Roster Standing)'
+                        : '(Your Global Standing)'}
                     </div>
                     <div className="text-[10px] text-zinc-300 font-mono tabular-nums">
-                      {playerEntry.diamondCount} Diamond · {playerEntry.multiPlatinumCount} Multi-Plat · {playerEntry.goldCount} Gold
+                      {activeTargetEntry.diamondCount} Diamond · {activeTargetEntry.multiPlatinumCount} Multi-Plat · {activeTargetEntry.goldCount} Gold
                     </div>
                   </div>
                 </div>
                 <div className="text-right font-mono tabular-nums shrink-0">
                   <div className="text-xs font-black text-amber-300">
-                    {formatNum(playerEntry.totalCertifiedUnits)} u
+                    {formatNum(activeTargetEntry.totalCertifiedUnits)} u
                   </div>
                   <div className="text-[10px] text-zinc-400">
-                    {playerEntry.totalPlaques} plaques
+                    {activeTargetEntry.totalPlaques} plaques
                   </div>
                 </div>
               </div>
@@ -685,12 +748,18 @@ export default function RiaaCertificationApp() {
             </div>
 
             <div className="space-y-2">
-              {sortedLeaderboard.map((entry, idx) => (
+              {sortedLeaderboard.map((entry, idx) => {
+                const isSelectedRoster =
+                  Boolean(selectedRosterArtist) &&
+                  entry.rosterArtistId === selectedRosterArtist?.id;
+                return (
                 <div
                   key={entry.id}
                   className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
-                    entry.isPlayer
+                    entry.isPlayer || isSelectedRoster
                       ? 'bg-amber-500/10 border-amber-400/50'
+                      : entry.isRosterArtist
+                      ? 'bg-amber-500/5 border-amber-400/25'
                       : 'bg-[#13131C] border-white/10'
                   }`}
                 >
@@ -721,13 +790,18 @@ export default function RiaaCertificationApp() {
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs font-black text-white truncate">
                           {entry.name}
                         </span>
                         {entry.isPlayer && (
                           <span className="text-[9px] font-mono font-bold uppercase text-amber-300">
                             YOU
+                          </span>
+                        )}
+                        {entry.isRosterArtist && (
+                          <span className="text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300 border border-amber-400/30">
+                            {entry.isFormerRoster ? 'FORMER ROSTER' : 'LABEL ROSTER'}
                           </span>
                         )}
                       </div>
@@ -759,7 +833,8 @@ export default function RiaaCertificationApp() {
                     </div>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </div>
           );

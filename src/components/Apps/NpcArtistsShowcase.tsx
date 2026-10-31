@@ -3,6 +3,11 @@ import { DETAILED_NPCS, DetailedNPC } from '../../data/npcAssets';
 import { OfficialArtworkImg } from '../Common/OfficialArtworkImg';
 import { useGameContext } from '../../GameContext';
 import { isNpcMatchingPlayerName } from '../../data/npcPlayerDeduplicationEngine';
+import {
+  getActiveSharedWorldRosterArtists,
+  convertRosterArtistToDetailedNpc
+} from '../../data/rosterSharedWorldBridge';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
 
 interface NpcArtistsShowcaseProps {
   onSelectNpc: (npc: DetailedNPC) => void;
@@ -16,19 +21,35 @@ export const NpcArtistsShowcase: React.FC<NpcArtistsShowcaseProps> = ({ onSelect
   const [selectedGenre, setSelectedGenre] = useState('All');
   const playerName = state?.artist?.name || '';
 
+  const allWorldArtists = useMemo(() => {
+    const labelState = state ? getEnsuredRecordLabelState(state) : null;
+    const imprintName = labelState?.imprint?.imprintName || 'Record Label';
+    const dateStr = state?.date ? String(state.date).split('T')[0] : '2026-01-01';
+    const rosterList = getActiveSharedWorldRosterArtists(state).map(rArt =>
+      convertRosterArtistToDetailedNpc(rArt, imprintName, dateStr)
+    );
+    return [...rosterList, ...DETAILED_NPCS];
+  }, [state?.recordLabelState, state?.date]);
+
   const filteredNpcs = useMemo(() => {
-    return DETAILED_NPCS.filter(npc => {
+    return allWorldArtists.filter(npc => {
       if (isNpcMatchingPlayerName(npc.name, playerName)) return false;
       const matchesSearch =
         !searchQuery.trim() ||
         npc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        npc.genre.toLowerCase().includes(searchQuery.toLowerCase());
+        npc.genre.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        Boolean(
+          (npc as any).imprintName &&
+            String((npc as any).imprintName)
+              .toLowerCase()
+              .includes(searchQuery.toLowerCase())
+        );
       const matchesGenre =
         selectedGenre === 'All' ||
         npc.genre.toLowerCase().includes(selectedGenre.toLowerCase());
       return matchesSearch && matchesGenre;
     });
-  }, [searchQuery, selectedGenre, playerName]);
+  }, [allWorldArtists, searchQuery, selectedGenre, playerName]);
 
   return (
     <div className="mt-8">
@@ -36,7 +57,7 @@ export const NpcArtistsShowcase: React.FC<NpcArtistsShowcaseProps> = ({ onSelect
         <div>
           <h2 className="text-xl font-black text-white tracking-tight">Global Artists Directory</h2>
           <p className="text-[11px] text-gray-400">
-            {DETAILED_NPCS.length} Verified Real-World Artists • Official Discographies
+            {allWorldArtists.length} Verified Global & Label Roster Artists • Official Discographies
           </p>
         </div>
         <span className="text-xs text-[#1DB954] font-bold bg-[#1DB954]/10 px-2.5 py-1 rounded-full border border-[#1DB954]/30">
@@ -52,7 +73,7 @@ export const NpcArtistsShowcase: React.FC<NpcArtistsShowcaseProps> = ({ onSelect
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search real-world artists (Taylor Swift, Drake, Kendrick, Bad Bunny...)"
+            placeholder="Search any artist or your signed Roster Artists by name..."
             className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
           />
         </div>
@@ -74,33 +95,46 @@ export const NpcArtistsShowcase: React.FC<NpcArtistsShowcaseProps> = ({ onSelect
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        {filteredNpcs.map(npc => (
-          <div
-            key={npc.id}
-            onClick={() => onSelectNpc(npc)}
-            className="flex flex-col items-center p-3 rounded-2xl bg-[#1A1A1A] hover:bg-[#242424] transition cursor-pointer group border border-white/5"
-          >
-            <div className="relative mb-2">
-              <OfficialArtworkImg
-                artist={npc.name}
-                explicitSrc={npc.avatar}
-                isArtistPortrait={true}
-                alt={npc.name}
-                className="w-20 h-20 rounded-full object-cover shadow-lg group-hover:scale-105 transition duration-200 border-2 border-white/10 bg-zinc-800"
-              />
-              <span className="absolute bottom-0 right-0 bg-[#1DB954] text-black text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-md">
-                ✓
+        {filteredNpcs.map(npc => {
+          const isRoster = Boolean((npc as any).isRosterArtist);
+          return (
+            <div
+              key={npc.id}
+              onClick={() => onSelectNpc(npc)}
+              className={`flex flex-col items-center p-3 rounded-2xl transition cursor-pointer group border ${
+                isRoster
+                  ? 'bg-gradient-to-b from-[#1DB954]/15 to-[#1A1A1A] hover:from-[#1DB954]/25 border-[#1DB954]/35'
+                  : 'bg-[#1A1A1A] hover:bg-[#242424] border-white/5'
+              }`}
+            >
+              <div className="relative mb-2">
+                <OfficialArtworkImg
+                  artist={npc.name}
+                  explicitSrc={npc.avatar}
+                  isArtistPortrait={true}
+                  alt={npc.name}
+                  className="w-20 h-20 rounded-full object-cover shadow-lg group-hover:scale-105 transition duration-200 border-2 border-white/10 bg-zinc-800"
+                />
+                <span className="absolute bottom-0 right-0 bg-[#1DB954] text-black text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-md">
+                  ✓
+                </span>
+              </div>
+              <h4 className="font-bold text-xs text-white text-center truncate w-full group-hover:text-[#1DB954] transition">
+                {npc.name}
+              </h4>
+              <span className="text-[10px] text-gray-400 text-center truncate w-full mt-0.5">
+                {npc.genre.split('/')[0]}
               </span>
+              {isRoster && (
+                <span className="mt-1 px-1.5 py-0.5 rounded-full bg-[#1DB954]/20 border border-[#1DB954]/40 text-[#1DB954] text-[8px] font-black uppercase tracking-wider truncate max-w-full">
+                  {(npc as any).imprintName || 'Your Label'}
+                </span>
+              )}
             </div>
-            <h4 className="font-bold text-xs text-white text-center truncate w-full group-hover:text-[#1DB954] transition">
-              {npc.name}
-            </h4>
-            <span className="text-[10px] text-gray-400 text-center truncate w-full mt-0.5">
-              {npc.genre.split('/')[0]}
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 };
+

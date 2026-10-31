@@ -171,9 +171,16 @@ export function calculateStabilizedStreamsAndViewsHold(
       maxStreamGrowth = 1.08;
     }
 
-    const floorStreams = Math.round(prevStreams * Math.min(0.99, minStreamRetention));
-    const ceilStreams = Math.round(prevStreams * maxStreamGrowth);
-    stabilizedStreams = Math.max(floorStreams, Math.min(Math.max(stabilizedStreams, floorStreams), Math.max(ceilStreams, stabilizedStreams)));
+    const realisticMaxTrackStreams = Math.round(
+      95000 + Math.pow(Math.max(4, artistPopularity), 2.32) * 380
+    );
+    const safePrevStreams = Math.min(prevStreams, realisticMaxTrackStreams);
+    const floorStreams = Math.round(safePrevStreams * Math.min(0.99, minStreamRetention));
+    const ceilStreams = Math.round(safePrevStreams * maxStreamGrowth);
+    stabilizedStreams = Math.min(
+      realisticMaxTrackStreams,
+      Math.max(floorStreams, Math.min(ceilStreams, stabilizedStreams))
+    );
   }
 
   // Stabilize YouTube daily MV views with the same realistic Day 2 & Week 1-4 hold
@@ -249,8 +256,10 @@ export function calculateStabilizedDailyPureSales(
     const multiWeekHold = 0.92 - weeksOut * 0.20; // 0.92 -> 0.72 across Weeks 2-4
     targetConversionRate = (0.00172 + popNorm * 0.00028 + qualityNorm * 0.00028) * multiWeekHold;
   } else if (daysSinceRelease <= 60) {
-    // Weeks 5-8: Extended catalog iTunes presence for hits
-    targetConversionRate = (0.00135 + qualityNorm * 0.00025) * Math.max(0.55, song.momentum || 0.65);
+    // Weeks 5-8: Extended catalog iTunes presence for hits (clamp momentum to 0.55..1.20)
+    const safeMom =
+      song.momentum && song.momentum <= 2.5 ? Math.min(1.2, song.momentum) : 0.75;
+    targetConversionRate = (0.00135 + qualityNorm * 0.00025) * Math.max(0.55, safeMom);
   } else {
     targetConversionRate = 0.00105 + qualityNorm * 0.00020;
   }
@@ -292,8 +301,13 @@ export function calculateStabilizedDailyPureSales(
       minSalesRetention = 0.92 * organicVariance;
     }
 
-    const salesFloor = Math.round(prevSales * Math.min(0.98, minSalesRetention));
-    finalSales = Math.max(finalSales, salesFloor);
+    const maxRealisticPrevSales = Math.max(150, Math.round(stabilizedDailyStreams * 0.0045));
+    const safePrevSales = Math.min(prevSales, maxRealisticPrevSales);
+    const salesFloor = Math.round(safePrevSales * Math.min(0.98, minSalesRetention));
+    finalSales = Math.min(
+      Math.max(250, Math.round(stabilizedDailyStreams * 0.006)),
+      Math.max(finalSales, salesFloor)
+    );
   }
 
   return Math.max(0, finalSales);

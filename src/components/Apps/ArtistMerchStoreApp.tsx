@@ -33,11 +33,18 @@ import {
   removeMerchProductFromStore
 } from '../../data/merchWebstoreEngine';
 import { MerchVisualPreview } from './MerchVisualPreview';
+import { RecordLabelMerchStoreView } from './RecordLabelMerchStoreView';
+import { ensureRecordLabelMerchStoreState } from '../../data/recordLabelMerchEngine';
 
 export default function ArtistMerchStoreApp() {
   const { state, setState } = useGameContext();
   const store = useMemo(() => ensureMerchStoreState(state), [state]);
+  const labelStore = useMemo(() => ensureRecordLabelMerchStoreState(state), [state]);
   const artistName = state.artist?.name || 'Artist';
+  const imprint = (state as any).recordLabelState?.imprint;
+  const imprintName = imprint?.imprintName || `${artistName} Records`;
+
+  const [storeOwnerMode, setStoreOwnerMode] = useState<'player' | 'label'>('player');
 
   const [activeMainView, setActiveMainView] = useState<
     'storefront' | 'campaigns' | 'backstage'
@@ -534,60 +541,100 @@ export default function ArtistMerchStoreApp() {
             </button>
             <div className="min-w-0">
               <h1 className="text-sm font-black tracking-wider uppercase truncate">
-                {artistName} Official Store
+                {storeOwnerMode === 'label'
+                  ? `${imprintName} Label Store`
+                  : `${artistName} Official Store`}
               </h1>
               <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400 font-mono tabular-nums">
                 <span>Cash: ${formatNum(state.money)}</span>
                 <span>·</span>
                 <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                  +${formatNum(store.dailyRevenue)}/day
+                  +$
+                  {formatNum(
+                    storeOwnerMode === 'label'
+                      ? labelStore.dailyRevenue
+                      : store.dailyRevenue
+                  )}
+                  /day
                 </span>
               </div>
             </div>
           </div>
 
+          {storeOwnerMode === 'player' && (
+            <button
+              onClick={() => setShowDesignerModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-950 text-xs font-bold flex items-center gap-1.5 shadow-sm hover:opacity-90 active:scale-95 transition cursor-pointer shrink-0 whitespace-nowrap"
+            >
+              <i className="ph-bold ph-plus text-xs"></i>
+              <span>New Drop</span>
+            </button>
+          )}
+        </div>
+
+        {/* 2-Way Switcher: Player Official Store vs Record Label Roster Store */}
+        <div className="grid grid-cols-2 gap-1.5 mt-2.5 p-1 bg-zinc-100 dark:bg-[#191922] rounded-xl border border-zinc-200/80 dark:border-white/10">
           <button
-            onClick={() => setShowDesignerModal(true)}
-            className="px-3 py-1.5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-950 text-xs font-bold flex items-center gap-1.5 shadow-sm hover:opacity-90 active:scale-95 transition cursor-pointer shrink-0 whitespace-nowrap"
+            type="button"
+            onClick={() => setStoreOwnerMode('player')}
+            className={`py-1.5 px-2.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer truncate ${
+              storeOwnerMode === 'player'
+                ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-950 shadow-xs'
+                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+            }`}
           >
-            <i className="ph-bold ph-plus text-xs"></i>
-            <span>New Drop</span>
+            <i className="ph-bold ph-user-circle text-xs shrink-0"></i>
+            <span className="truncate">{artistName} Store</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStoreOwnerMode('label')}
+            className={`py-1.5 px-2.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer truncate ${
+              storeOwnerMode === 'label'
+                ? 'bg-amber-400 text-zinc-950 shadow-xs'
+                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+            }`}
+          >
+            <i className="ph-bold ph-buildings text-xs shrink-0"></i>
+            <span className="truncate">Record Label Store ({labelStore.items.length})</span>
           </button>
         </div>
 
-        {/* 3-Mode Storefront / Campaigns / Backstage Switcher */}
-        <div className="grid grid-cols-3 gap-1 mt-3 p-1 bg-zinc-100 dark:bg-[#191922] rounded-lg">
-          <button
-            onClick={() => setActiveMainView('storefront')}
-            className={`py-1.5 text-[11px] font-bold rounded-md transition cursor-pointer whitespace-nowrap ${
-              activeMainView === 'storefront'
-                ? 'bg-white dark:bg-[#272734] text-zinc-900 dark:text-white shadow-xs'
-                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-            }`}
-          >
-            Storefront ({store.items.length})
-          </button>
-          <button
-            onClick={() => setActiveMainView('campaigns')}
-            className={`py-1.5 text-[11px] font-bold rounded-md transition cursor-pointer whitespace-nowrap ${
-              activeMainView === 'campaigns'
-                ? 'bg-white dark:bg-[#272734] text-zinc-900 dark:text-white shadow-xs'
-                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-            }`}
-          >
-            Chart & Promo
-          </button>
-          <button
-            onClick={() => setActiveMainView('backstage')}
-            className={`py-1.5 text-[11px] font-bold rounded-md transition cursor-pointer whitespace-nowrap ${
-              activeMainView === 'backstage'
-                ? 'bg-white dark:bg-[#272734] text-zinc-900 dark:text-white shadow-xs'
-                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-            }`}
-          >
-            Warehouse & P&L
-          </button>
-        </div>
+        {/* 3-Mode Storefront / Campaigns / Backstage Switcher (Player Store) */}
+        {storeOwnerMode === 'player' && (
+          <div className="grid grid-cols-3 gap-1 mt-2.5 p-1 bg-zinc-100 dark:bg-[#191922] rounded-lg">
+            <button
+              onClick={() => setActiveMainView('storefront')}
+              className={`py-1.5 text-[11px] font-bold rounded-md transition cursor-pointer whitespace-nowrap ${
+                activeMainView === 'storefront'
+                  ? 'bg-white dark:bg-[#272734] text-zinc-900 dark:text-white shadow-xs'
+                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              Storefront ({store.items.length})
+            </button>
+            <button
+              onClick={() => setActiveMainView('campaigns')}
+              className={`py-1.5 text-[11px] font-bold rounded-md transition cursor-pointer whitespace-nowrap ${
+                activeMainView === 'campaigns'
+                  ? 'bg-white dark:bg-[#272734] text-zinc-900 dark:text-white shadow-xs'
+                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              Chart & Promo
+            </button>
+            <button
+              onClick={() => setActiveMainView('backstage')}
+              className={`py-1.5 text-[11px] font-bold rounded-md transition cursor-pointer whitespace-nowrap ${
+                activeMainView === 'backstage'
+                  ? 'bg-white dark:bg-[#272734] text-zinc-900 dark:text-white shadow-xs'
+                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              Warehouse & P&L
+            </button>
+          </div>
+        )}
       </header>
 
       {/* TOAST BANNER */}
@@ -605,6 +652,14 @@ export default function ArtistMerchStoreApp() {
 
       {/* MAIN SCROLLABLE VIEWPORT */}
       <div className="flex-1 overflow-y-auto pb-24">
+        {storeOwnerMode === 'label' ? (
+          <RecordLabelMerchStoreView
+            state={state}
+            setState={setState}
+            showToast={triggerToast}
+          />
+        ) : (
+          <>
         {activeMainView === 'storefront' && (
           <div>
             {/* EDITORIAL CAMPAIGN LOOKBOOK HERO */}
@@ -1184,6 +1239,8 @@ export default function ArtistMerchStoreApp() {
               )}
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
 

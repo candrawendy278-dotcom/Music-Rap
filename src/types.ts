@@ -71,6 +71,17 @@ export interface Song {
   collabRoyaltyPaidToday?: number;
   collabRoyaltyPaidTotal?: number;
   isExplicit?: boolean;
+  distributorId?: string;
+  royaltyArtistShare?: number;
+  advanceAmount?: number;
+  unrecoupedAdvance?: number;
+  totalRoyaltiesEarned?: number;
+  isrcCode?: string;
+  upcCode?: string;
+  audioFormat?: 'standard' | 'hires_lossless' | 'dolby_atmos';
+  contentIdEnabled?: boolean;
+  priorityRegion?: string;
+  physicalRetailPush?: 'none' | 'indie_record_stores' | 'global_retail_chains';
 }
 
 export interface Project {
@@ -95,6 +106,16 @@ export interface Project {
   preSaves?: number;
   dailyPreSaves?: number;
   distributor?: string;
+  distributorId?: string;
+  royaltyArtistShare?: number;
+  advanceAmount?: number;
+  unrecoupedAdvance?: number;
+  totalRoyaltiesEarned?: number;
+  upcCode?: string;
+  audioFormat?: 'standard' | 'hires_lossless' | 'dolby_atmos';
+  contentIdEnabled?: boolean;
+  priorityRegion?: string;
+  physicalRetailPush?: 'none' | 'indie_record_stores' | 'global_retail_chains';
   marketingStrategy?: string;
   recordLabel?: string;
   focusTrackId?: number;
@@ -211,7 +232,7 @@ export interface GameState {
   xPosts?: XPost[];
   xProfile?: XProfile;
   activeTab: 'dashboard' | 'studio' | 'apps' | 'settings';
-  activeApp: 'none' | 'spotify' | 'youtube' | 'billboard' | 'radio' | 'itunes' | 'statistic' | 'skills' | 'x' | 'jobs' | 'grammys' | 'vmas' | 'vanguard' | 'pitchfork' | 'metacritic' | 'merch' | 'riaa' | 'tour';
+  activeApp: 'none' | 'spotify' | 'youtube' | 'billboard' | 'radio' | 'itunes' | 'statistic' | 'skills' | 'x' | 'jobs' | 'grammys' | 'vmas' | 'vanguard' | 'pitchfork' | 'metacritic' | 'merch' | 'riaa' | 'tour' | 'staff' | 'label';
   gameMode?: 'normal' | 'realtime';
   lastRealTimeUpdate?: number;
   currentStreamRate?: number;
@@ -227,6 +248,8 @@ export interface GameState {
   riaaState?: any;
   tourState?: any;
   radioEcosystemState?: any;
+  staffState?: any;
+  recordLabelState?: any;
 }
 
 export interface NPC {

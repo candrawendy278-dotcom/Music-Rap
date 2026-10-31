@@ -97,41 +97,51 @@ export function processDailyFanGrowth(params: {
   );
 
   // 2. Sources of daily new fans:
-  // - Streaming discovery (roughly 1 new fan per 120-250 unique streams for developing artists)
+  // - Streaming discovery (realistic listener-to-fan conversion curve)
   const streamDiscoveryFans = dailyStreams > 0 
-    ? Math.pow(dailyStreams, 0.52) * 0.45 * fanConversionRate
+    ? Math.pow(dailyStreams, 0.48) * 0.34 * fanConversionRate
     : 0;
 
   // - YouTube MV visual engagement
   const videoDiscoveryFans = dailyViews > 0
-    ? Math.pow(dailyViews, 0.48) * 0.35
+    ? Math.pow(dailyViews, 0.45) * 0.24
     : 0;
 
-  // - Pure digital buyers are instant devoted superfans
-  const buyerSuperfans = dailyPureSales * 0.85;
+  // - Pure digital buyers: most pure sales come from existing fans, with a realistic fraction of new collector converts
+  const buyerSuperfans = dailyPureSales > 0
+    ? Math.pow(dailyPureSales, 0.62) * 1.35
+    : 0;
 
   // - Organic viral word-of-mouth from Hype & Popularity
-  const organicWordOfMouth = Math.pow(hp / 10, 1.4) * (1 + pop / 30) * 1.8;
+  const organicWordOfMouth = Math.pow(hp / 10, 1.32) * (1 + pop / 35) * 1.4;
 
   // - Release momentum bonus
-  const releaseBonus = hasRecentRelease ? (35 + hp * 1.5) : 0;
+  const releaseBonus = hasRecentRelease ? (25 + hp * 1.2) : 0;
 
   const rawGains = streamDiscoveryFans + videoDiscoveryFans + buyerSuperfans + organicWordOfMouth + releaseBonus;
 
   // 3. Realistic Market Saturation & Diminishing Returns:
-  // As requested: "semakin besar semakin dikit nambah fansnya tapi pokoknya bikin serealistic mungkin"
-  // When an artist is small, almost every listener is an unconverted prospective fan (efficiency = ~1.0).
-  // As fanbase reaches millions/tens of millions, addressable market saturates and acquisition slows down naturally.
+  // When an artist is small, listener conversion is brisk; as fanbase reaches millions, addressable market saturates naturally.
   const marketSaturationFactor = currentFans <= 15000 
     ? 1.0 
-    : Math.max(0.08, 1 / (1 + Math.pow(currentFans / 850000, 0.44)));
+    : Math.max(0.06, 1 / (1 + Math.pow(currentFans / 650000, 0.48)));
 
   // Natural minor listener attrition / casual drift when artist has huge inactive fanbase without recent drops
   const naturalChurn = (!hasRecentRelease && currentFans > 50000)
     ? Math.round(currentFans * 0.00018 * Math.max(0.1, 1 - (pop / 100)))
     : 0;
 
-  const totalEffectiveGain = Math.max(0, Math.round(rawGains * marketSaturationFactor) - naturalChurn);
+  // Realistic daily ceiling scaled by artist popularity, hype, and active streaming reach
+  // Prevents any single-day百万 (million+) fan spike exploit while allowing viral smash eras to grow strongly
+  const realisticDailyCap = Math.round(
+    350 +
+      Math.pow(Math.max(1, pop), 1.68) * 16 +
+      Math.min(38000, Math.pow(Math.max(0, dailyStreams), 0.56) * 1.45) +
+      (hasRecentRelease ? 2500 : 0)
+  );
+
+  const unclampedGain = Math.max(0, Math.round(rawGains * marketSaturationFactor) - naturalChurn);
+  const totalEffectiveGain = Math.min(realisticDailyCap, unclampedGain);
   const dailyGain = totalEffectiveGain;
 
   const updatedFans = Math.max(25, currentFans + dailyGain);

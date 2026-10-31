@@ -6,11 +6,11 @@ export function useRealTimeEngine(
   setState: any
 ) {
   useEffect(() => {
-    if (!state.isStarted || state.gameMode !== 'realtime') return;
+    if (!state?.isStarted || state?.gameMode !== 'realtime') return;
 
     const interval = setInterval(() => {
-      setState(prev => {
-        if (prev.gameMode !== 'realtime') return prev;
+      setState((prev: GameState) => {
+        if (!prev || prev.gameMode !== 'realtime') return prev;
 
         const now = Date.now();
         const lastUpdate = prev.lastRealTimeUpdate || now;
@@ -113,5 +113,5 @@ export function useRealTimeEngine(
     }, 2500);
 
     return () => clearInterval(interval);
-  }, [state.isStarted, state.gameMode]);
+  }, [state?.isStarted, state?.gameMode]);
 }

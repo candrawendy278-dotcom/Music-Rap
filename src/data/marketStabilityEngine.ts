@@ -52,6 +52,12 @@ import {
   calculateStabilizedStreamsAndViewsHold,
   calculateStabilizedDailyPureSales
 } from './homeCountryAndMarketStabilityImprover';
+import {
+  getRealDistributorById,
+  getAudioDeliveryFormatById,
+  getPhysicalRetailTierById,
+  processDailyDistributionRoyaltySplit
+} from './realWorldMusicDistributionEngine';
 
 export interface MarketDailyUpdateResult {
   updatedSongs: Song[];
@@ -261,12 +267,24 @@ export function processDailyMarketStep(
         daysSinceRelease
       );
 
-      // Stabilize post-debut streams and YouTube views (Soft Day 2 dip, smooth Week 1-4 hold)
-      const { stabilizedDailyStreams: dailyStreams, stabilizedDailyViews: dailyViews } =
+      const distroSpec = getRealDistributorById(
+        song.distributorId || parentProject?.distributorId || parentProject?.distributor
+      );
+      const audioFormatSpec = getAudioDeliveryFormatById(
+        song.audioFormat || parentProject?.audioFormat
+      );
+      const retailSpec = getPhysicalRetailTierById(
+        song.physicalRetailPush || parentProject?.physicalRetailPush
+      );
+
+      // Stabilize post-debut streams and YouTube views (Soft Day 2 dip, smooth Week 1-4 hold + Audio Format retention)
+      const { stabilizedDailyStreams: baseStabilizedStreams, stabilizedDailyViews: dailyViews } =
         calculateStabilizedStreamsAndViewsHold({
           song,
           daysSinceRelease,
-          computedDailyStreams,
+          computedDailyStreams: Math.round(
+            computedDailyStreams * audioFormatSpec.streamRetentionMult
+          ),
           computedDailyViews,
           artistPopularity,
           artistHype,
@@ -274,6 +292,7 @@ export function processDailyMarketStep(
           weekendLift,
           organicVariance: organicVariance * perSongVariance
         });
+      const dailyStreams = baseStabilizedStreams;
       const newViews = (song.views || 0) + dailyViews;
 
       // 2. Organic Commercial Radio Airplay:
@@ -286,12 +305,12 @@ export function processDailyMarketStep(
         skills: playerSkills,
         daysSinceRelease,
         isSingle: trackRole !== 'b_side',
-        radioModifier: distinctProfile.radioModifier,
+        radioModifier: distinctProfile.radioModifier * distroSpec.radioSyndicationMult,
         radioEligibilityMultiplier: trackProfile.radioEligibilityMultiplier
       });
       const dailyRadio = radioRotation.dailySpins;
 
-      // 3. Organic Pure Digital Track Sales (with smooth Week 1 hold & multi-week iTunes longevity):
+      // 3. Organic Pure Digital & Physical Track Sales (with Audio Format & Retail Store Push):
       const effectiveSalesModifier = isSingle
         ? (singleDebut?.debutSalesMultiplier ?? distinctProfile.salesModifier)
         : distinctProfile.salesModifier;
@@ -309,7 +328,7 @@ export function processDailyMarketStep(
         fans: playerFans
       });
       const computedDailySales = Math.max(0, Math.round(rawDailySales * enhancedMetrics.salesMultiplier));
-      const dailySales = calculateStabilizedDailyPureSales({
+      const baseStabilizedSales = calculateStabilizedDailyPureSales({
         song,
         daysSinceRelease,
         stabilizedDailyStreams: dailyStreams,
@@ -320,6 +339,20 @@ export function processDailyMarketStep(
         isSingle,
         organicVariance: organicVariance * perSongVariance
       });
+      const retailSingleMult =
+        isSingle && daysSinceRelease <= 6 ? retailSpec.firstWeekSalesBoostMult : 1.0;
+      const retailDay1Bonus =
+        isSingle && daysSinceRelease === 0 ? retailSpec.bonusFirstDayUnitsSingle : 0;
+      const dailySales = Math.max(
+        0,
+        Math.round(
+          baseStabilizedSales *
+            distroSpec.pureSalesConversionMult *
+            audioFormatSpec.pureSalesMult *
+            retailSingleMult +
+            retailDay1Bonus
+        )
+      );
 
       const newRadioPlays = (song.radioPlays || 0) + dailyRadio;
       const newPureSales = (song.pureSales || 0) + dailySales;
@@ -355,11 +388,24 @@ export function processDailyMarketStep(
       totalStreams += dailyStreams;
       totalViews += dailyViews + combinedExtraDailyViews;
       totalSales += dailySales;
-      // Authentic blended revenue: $0.0038/stream + $0.70/track download + $0.0022/YouTube view
-      totalRevenue +=
+      // Authentic blended gross revenue: $0.0038/stream + $0.70/track download + $0.0022/YouTube view
+      const grossSongRevenue =
         dailyStreams * 0.0038 +
         dailySales * 0.70 +
         (dailyViews + combinedExtraDailyViews) * 0.0022;
+
+      const royaltySplitResult = processDailyDistributionRoyaltySplit({
+        grossBaseRevenue: grossSongRevenue,
+        dailyStreams,
+        dailyViews: dailyViews + combinedExtraDailyViews,
+        distributorId: song.distributorId || parentProject?.distributorId || parentProject?.distributor,
+        royaltyArtistShare: song.royaltyArtistShare ?? parentProject?.royaltyArtistShare,
+        unrecoupedAdvance: song.unrecoupedAdvance || 0,
+        totalRoyaltiesEarned: song.totalRoyaltiesEarned || 0,
+        contentIdEnabled: Boolean(song.contentIdEnabled ?? parentProject?.contentIdEnabled)
+      });
+
+      totalRevenue += royaltySplitResult.netPayableToArtistToday;
 
       // Weekly accumulation (rolling 7-day window for radio so old songs don't accumulate forever!)
       const weeklyStreams = (song.weeklyStreams || 0) + dailyStreams;
@@ -402,7 +448,9 @@ export function processDailyMarketStep(
         weeklyStreams,
         weeklyViews,
         weeklyRadioPlays,
-        weeklyPureSales
+        weeklyPureSales,
+        unrecoupedAdvance: royaltySplitResult.newUnrecoupedAdvance,
+        totalRoyaltiesEarned: royaltySplitResult.newTotalRoyaltiesEarned
       };
     }
     return song;
@@ -448,20 +496,53 @@ export function processDailyMarketStep(
         artistHype,
         proj.type === 'ep'
       );
-      const baseDailySales = computeEnhancedProjectSales(
-        rawAlbumSales,
-        proj,
-        artistHype,
-        projDaysSinceRelease
+      const projDistroSpec = getRealDistributorById(proj.distributorId || proj.distributor);
+      const projAudioSpec = getAudioDeliveryFormatById(proj.audioFormat);
+      const projRetailSpec = getPhysicalRetailTierById(proj.physicalRetailPush);
+
+      const baseDailySales = Math.round(
+        computeEnhancedProjectSales(
+          rawAlbumSales,
+          proj,
+          artistHype,
+          projDaysSinceRelease
+        ) *
+          projDistroSpec.pureSalesConversionMult *
+          projAudioSpec.pureSalesMult
       );
+      const retailProjMult =
+        projDaysSinceRelease <= 6 ? projRetailSpec.firstWeekSalesBoostMult : 1.0;
+      const retailProjDay1Bonus =
+        projDaysSinceRelease === 0 ? projRetailSpec.bonusFirstDayUnitsProject : 0;
+
       const dailySales =
         projDaysSinceRelease === 0
-          ? Math.round(baseDailySales * preSaveBoost.salesBoostMultiplier + preSaveBoost.bonusFirstDaySales)
+          ? Math.round(
+              baseDailySales * preSaveBoost.salesBoostMultiplier * retailProjMult +
+                preSaveBoost.bonusFirstDaySales +
+                retailProjDay1Bonus
+            )
           : projDaysSinceRelease <= 6
-          ? Math.round(baseDailySales * (1 + (preSaveBoost.salesBoostMultiplier - 1) * 0.45))
+          ? Math.round(
+              baseDailySales *
+                (1 + (preSaveBoost.salesBoostMultiplier - 1) * 0.45) *
+                retailProjMult
+            )
           : baseDailySales;
 
-      totalRevenue += dailySales * 9.99;
+      const grossAlbumRevenue = dailySales * 9.99;
+      const projRoyaltySplit = processDailyDistributionRoyaltySplit({
+        grossBaseRevenue: grossAlbumRevenue,
+        dailyStreams: 0,
+        dailyViews: 0,
+        distributorId: proj.distributorId || proj.distributor,
+        royaltyArtistShare: proj.royaltyArtistShare,
+        unrecoupedAdvance: proj.unrecoupedAdvance || 0,
+        totalRoyaltiesEarned: proj.totalRoyaltiesEarned || 0,
+        contentIdEnabled: false
+      });
+
+      totalRevenue += projRoyaltySplit.netPayableToArtistToday;
       totalSales += dailySales;
 
       const projSongs = updatedSongs.filter(s => proj.songs && proj.songs.some(ps => ps.id === s.id));
@@ -481,7 +562,9 @@ export function processDailyMarketStep(
         prevDailyStreams: prevProjDaily,
         dailyChange: projChange,
         dailyChangePercent: projChangePercent,
-        totalStreams: projTotalStreams
+        totalStreams: projTotalStreams,
+        unrecoupedAdvance: projRoyaltySplit.newUnrecoupedAdvance,
+        totalRoyaltiesEarned: projRoyaltySplit.newTotalRoyaltiesEarned
       };
     }
     return proj;

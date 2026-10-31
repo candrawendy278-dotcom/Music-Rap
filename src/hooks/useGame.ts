@@ -42,6 +42,11 @@ import { processDailyWorldTourStep } from '../data/worldTourSystemEngine';
 import { calculateDailyExpensesBreakdown } from '../data/dailyExpensesEngine';
 import { processDailyVanguardHonorsStep } from '../data/vanguardHonorsEngine';
 import { processDailyGlobalRadioEcosystemStep } from '../data/globalRadioEcosystemEngine';
+import { processDailyStaffTeamStep, calculateStaffTeamSynergyBuffs } from '../data/staffTeamEngine';
+import { processDailyRecordLabelStep } from '../data/recordLabelSystemEngine';
+import { syncActiveRosterArtistsToSharedWorld } from '../data/rosterSharedWorldBridge';
+import { processDailyRecordLabelMerchStep } from '../data/recordLabelMerchEngine';
+import { syncWorldNpcDeduplicationWithRoster } from '../data/rosterLifecycleAndNpcDedupEngine';
 
 syncNpcRealisticReleaseWorkflow('2026-01-01T00:00:00');
 
@@ -96,6 +101,15 @@ export function useGame() {
       setState(prev => purgeDuplicateNpcFromGameState(prev));
     }
   }, [state.artist?.name]);
+
+  // Keep signed Record Label Roster Artists synced in the shared world cache for charts, playlists, and directories
+  useEffect(() => {
+    syncWorldNpcDeduplicationWithRoster(
+      state.artist?.name,
+      state.recordLabelState?.imprint?.signedRoster || []
+    );
+    syncActiveRosterArtistsToSharedWorld(state);
+  }, [state.recordLabelState, state.date, state.artist?.name]);
 
   // Smart non-blocking auto-save: ignores UI tab/app switches (zero lag) and saves career mutations during idle frames
   useEffect(() => {
@@ -184,15 +198,24 @@ export function useGame() {
         nextState.date = date.toISOString();
 
         try {
-          // Sync Player-NPC deduplication & NPC realistic release workflow
+          // Sync Player & Roster-NPC deduplication & NPC realistic release workflow
           syncPlayerNameNpcDeduplication(nextState.artist?.name);
+          syncWorldNpcDeduplicationWithRoster(
+            nextState.artist?.name,
+            nextState.recordLabelState?.imprint?.signedRoster || []
+          );
           syncNpcRealisticReleaseWorkflow(date);
 
-      // Update writing status
+      // Update writing status (with Executive Producer quality floor bonus if hired)
+      const staffSynergyForStudio = calculateStaffTeamSynergyBuffs(nextState);
       nextState.songs = nextState.songs.map(song => {
         if (song.status === 'writing' && song.daysLeft !== undefined) {
           if (song.daysLeft > 1) return { ...song, daysLeft: song.daysLeft - 1 };
-          return { ...song, daysLeft: 0, status: 'written' as const };
+          const boostedQuality = Math.min(
+            100,
+            Math.round((song.quality || 60) + (staffSynergyForStudio.qualityBonusPoints || 0) * 0.5)
+          );
+          return { ...song, daysLeft: 0, status: 'written' as const, quality: boostedQuality };
         }
         return song;
       });
@@ -272,6 +295,30 @@ export function useGame() {
       nextState.dailyStreamsTotal = totalStreams;
       const safeMerchDailyIncome = Math.max(0, Math.round(Number(merchStep.dailyMerchRevenue) || 0));
       nextState.dailyIncome = Math.max(0, Math.round(netRevenueAfterCollabRoyalties + safeMerchDailyIncome));
+
+      // Process Executive Staff Team daily progression, XP leveling, directive cooldowns & passive/active buffs
+      processDailyStaffTeamStep(nextState, date);
+
+      // Process Record Label contract recoupment, quota deliveries, 360 splits & Player Imprint daily royalties
+      processDailyRecordLabelStep(nextState, date);
+
+      // Process Record Label Official Merch & Vinyl Webstore daily sales & Billboard pure sales credits for Roster Artists
+      const labelMerchStep = processDailyRecordLabelMerchStep(nextState, date);
+      if (labelMerchStep?.nextState) {
+        nextState = labelMerchStep.nextState;
+      }
+      if (labelMerchStep?.nextLabelMerchStore) {
+        (nextState as any).labelMerchStore = labelMerchStep.nextLabelMerchStore;
+      }
+      const labelMerchProfit =
+        labelMerchStep?.dailyNetProfitForLabel ?? labelMerchStep?.labelNetRevenueIncrement ?? 0;
+      if (labelMerchProfit > 0) {
+        nextState.dailyIncome = Math.max(
+          0,
+          Math.round((nextState.dailyIncome || 0) + labelMerchProfit)
+        );
+      }
+
       const expenseBreakdown = calculateDailyExpensesBreakdown(nextState);
       nextState.dailyExpense = expenseBreakdown.rawRecurringExpense;
       const effectiveDailyExpense = expenseBreakdown.effectiveRecurringExpense;
@@ -702,7 +749,7 @@ export function useGame() {
           console.error('Error inside nextDay state calculation:', innerErr);
         }
 
-        return nextState;
+        return nextState || prev;
       });
       } catch (err) {
         console.error('Error during nextDay transition:', err);
@@ -723,7 +770,7 @@ export function useGame() {
         }, 300);
       }
     }, 720);
-  }, [nextDayLoading.isLoading, state.date]);
+  }, [nextDayLoading.isLoading, state?.date]);
 
   const openInfo = useCallback((title: string, desc: string) => {
     setInfoModal({ title, desc });

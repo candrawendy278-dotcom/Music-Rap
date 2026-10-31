@@ -12,6 +12,12 @@ import YouTubeVisualFormatModal from '../Modals/YouTubeVisualFormatModal';
 import HiatusStudioLockView from './HiatusStudioLockView';
 import { getEnsuredSkillState, calculateMasteryRank } from '../../data/skillSystemEngine';
 import { Song } from '../../types';
+import { formatNum } from '../../constants';
+import { RosterArtistSwitcherBar } from '../Common/RosterArtistSwitcherBar';
+import { RosterArtistCeoManagerModal } from '../Apps/RecordLabelCeoStudioModal';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
+import { ensureRosterArtistFullFields } from '../../data/recordLabelCeoEngine';
+import { RosterStudioAdapter } from './RosterStudioAdapter';
 
 export default function Studio() {
   const { state, setState } = useGameContext();
@@ -22,6 +28,15 @@ export default function Studio() {
   const [showSkillModal, setShowSkillModal] = useState(false);
   const [visualFormatSong, setVisualFormatSong] = useState<Song | null>(null);
   const [showVisualPicker, setShowVisualPicker] = useState(false);
+  const [selectedStudioArtistId, setSelectedStudioArtistId] = useState<'player' | string>('player');
+  const [openRosterStudioModal, setOpenRosterStudioModal] = useState<boolean>(false);
+
+  const rlState = useMemo(() => getEnsuredRecordLabelState(state), [state]);
+  const selectedRosterArtist = useMemo(() => {
+    if (selectedStudioArtistId === 'player') return null;
+    const raw = rlState.imprint.signedRoster.find(a => a.id === selectedStudioArtistId);
+    return raw ? ensureRosterArtistFullFields(raw) : null;
+  }, [rlState.imprint.signedRoster, selectedStudioArtistId]);
 
   const skills = getEnsuredSkillState(state.skills);
   const masteryRank = calculateMasteryRank(skills);
@@ -84,7 +99,28 @@ export default function Studio() {
         </div>
       </div>
 
-      {/* Modern Mastery Card */}
+      {/* Top Artist Switcher (My Artist vs Signed Label Roster Artists) */}
+      <div className="rounded-2xl overflow-hidden border border-apple-border/50">
+        <RosterArtistSwitcherBar
+          gameState={state}
+          selectedArtistId={selectedStudioArtistId}
+          onSelectArtist={id => {
+            setSelectedStudioArtistId(id);
+          }}
+          accentColor="#F59E0B"
+        />
+      </div>
+
+      {openRosterStudioModal && selectedRosterArtist && (
+        <RosterArtistCeoManagerModal
+          gameState={state}
+          setGameState={setState}
+          artistId={selectedRosterArtist.id}
+          onClose={() => setOpenRosterStudioModal(false)}
+        />
+      )}
+
+      {/* Modern Mastery Card (Shared across Player and Roster Studio since Roster Quality is measured from Player Skills) */}
       <div 
         onClick={() => setState(p => ({ ...p, activeApp: 'skills' }))}
         className="w-full bg-neutral-900 text-white rounded-2xl p-4 sm:p-5 shadow-xs border border-neutral-800 active:scale-[0.99] transition cursor-pointer relative overflow-hidden group"
@@ -119,7 +155,14 @@ export default function Studio() {
           </div>
         </div>
       </div>
-      
+
+      {selectedRosterArtist ? (
+        <RosterStudioAdapter
+          rosterArtist={selectedRosterArtist}
+          onOpenExecutiveModal={() => setOpenRosterStudioModal(true)}
+        />
+      ) : (
+      <>
       {state.isHiatus ? (
         <HiatusStudioLockView />
       ) : (
@@ -306,6 +349,8 @@ export default function Studio() {
             setVisualFormatSong(null);
           }}
         />
+      )}
+      </>
       )}
     </div>
   );

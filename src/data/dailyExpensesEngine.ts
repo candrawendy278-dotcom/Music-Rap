@@ -1,4 +1,5 @@
 import type { GameState } from '../types';
+import { calculateStaffTeamSynergyBuffs } from './staffTeamEngine';
 
 export interface DailyExpenseItem {
   id: string;
@@ -31,38 +32,55 @@ export interface DailyExpensesBreakdown {
 }
 
 /**
- * Calculates a realistic, itemized breakdown of the player's daily expenses.
- */
+  * Calculates a realistic, itemized breakdown of the player's daily expenses.
+  */
 export function calculateDailyExpensesBreakdown(state: GameState): DailyExpensesBreakdown {
+  if (!state) {
+    return {
+      effectiveRecurringExpense: 0,
+      rawRecurringExpense: 0,
+      hiatusSavings: 0,
+      operationalDeductionsToday: 0,
+      totalAllExpensesToday: 0,
+      netDailyCashflow: 0,
+      recurringItems: [],
+      operationalItems: []
+    };
+  }
   const popularity = Math.max(0, Number(state.popularity) || 0);
   const tier = Math.max(1, Number(state.artist?.tier) || 3);
   const releasedSongs = (state.songs || []).filter(s => s.status === 'released');
   const releasedProjects = (state.projects || []).filter(p => p.status === 'released');
   const isHiatus = Boolean(state.isHiatus);
+  const staffSynergy = calculateStaffTeamSynergyBuffs(state);
+  const overheadReductionMult = Math.max(0.65, 1 - (staffSynergy.expenseReductionPct || 0) / 100);
 
   // 1. Living & Personal Lifestyle
   // Starts at $65/day for indie artists, scales gently with popularity up to ~$385/day
-  const livingRaw = Math.round(65 + popularity * 3.2);
+  const livingRaw = Math.round((65 + popularity * 3.2) * overheadReductionMult);
 
   // 2. Studio & Equipment Maintenance
   // Base $40/day for DAW, vocal booth, & hardware upkeep + $6 per released project (max $160)
-  const studioRaw = Math.min(160, Math.round(40 + releasedProjects.length * 6 + popularity * 0.8));
+  const studioRaw = Math.min(160, Math.round((40 + releasedProjects.length * 6 + popularity * 0.8) * overheadReductionMult));
 
   // 3. Management, Legal & PR Retainer
   // Base $30/day for booking & clearance team, scales modestly with popularity
-  const managementRaw = Math.round(30 + popularity * 1.8 + (tier === 1 ? 35 : tier === 2 ? 15 : 0));
+  const managementRaw = Math.round((30 + popularity * 1.8 + (tier === 1 ? 35 : tier === 2 ? 15 : 0)) * overheadReductionMult);
 
   // 4. Digital Distribution & Catalog Hosting
   // Base $15/day + $3 per released song (capped at $135/day)
-  const distributionRaw = Math.min(135, Math.round(15 + releasedSongs.length * 3));
+  const distributionRaw = Math.min(135, Math.round((15 + releasedSongs.length * 3) * overheadReductionMult));
 
   // 5. Security & Entourage Detail
   // $0 for emerging artists (<20% popularity); scales from $35 to $220/day for stars
   const securityRaw = popularity >= 20
-    ? Math.round(35 + (popularity - 20) * 2.3)
+    ? Math.round((35 + (popularity - 20) * 2.3) * overheadReductionMult)
     : 0;
 
-  const rawRecurringExpense = livingRaw + studioRaw + managementRaw + distributionRaw + securityRaw;
+  // 6. Executive Staff Team Payroll (Daily-billed staff deducted daily; Monthly/Yearly settled on payday)
+  const staffPayrollRaw = staffSynergy.totalDailyCyclePayroll;
+
+  const rawRecurringExpense = livingRaw + studioRaw + managementRaw + distributionRaw + securityRaw + staffPayrollRaw;
   const discountMultiplier = isHiatus ? 0.2 : 1.0;
 
   const livingEffective = Math.round(livingRaw * discountMultiplier);
@@ -70,13 +88,15 @@ export function calculateDailyExpensesBreakdown(state: GameState): DailyExpenses
   const managementEffective = Math.round(managementRaw * discountMultiplier);
   const distributionEffective = Math.round(distributionRaw * discountMultiplier);
   const securityEffective = Math.round(securityRaw * discountMultiplier);
+  const staffPayrollEffective = Math.round(staffPayrollRaw * discountMultiplier);
 
   const effectiveRecurringExpense =
     livingEffective +
     studioEffective +
     managementEffective +
     distributionEffective +
-    securityEffective;
+    securityEffective +
+    staffPayrollEffective;
 
   const hiatusSavings = Math.max(0, rawRecurringExpense - effectiveRecurringExpense);
 
@@ -132,7 +152,24 @@ export function calculateDailyExpensesBreakdown(state: GameState): DailyExpenses
         : 'Not required yet (activates automatically at 20%+ Popularity).',
       detailBadge: popularity >= 20 ? 'Active Guard' : 'Inactive (<20% Pop)',
       icon: 'ph-shield-star'
-    }
+    },
+    ...(staffSynergy.hiredCount > 0
+      ? [
+          {
+            id: 'staff_team_payroll',
+            title: 'Executive Staff Team Payroll',
+            category: 'recurring' as const,
+            amount: staffPayrollEffective,
+            rawAmount: staffPayrollRaw,
+            description:
+              staffPayrollRaw > 0
+                ? 'Daily salaries for daily-contract staff (Monthly & Yearly contracts settle on their payday).'
+                : `All ${staffSynergy.hiredCount} hired staff are on Monthly/Annual payroll contracts (~$${staffSynergy.totalDailyEquivalentCost}/day eq).`,
+            detailBadge: `${staffSynergy.hiredCount}/6 Signed`,
+            icon: 'ph-users-three'
+          }
+        ]
+      : [])
   ];
 
   // --- OPERATIONAL & REVENUE-SPLIT DEDUCTIONS TODAY ---

@@ -146,7 +146,12 @@ export function evaluateSongRegionalBreakoutProfile(
     song?.playlistPlacements && song.playlistPlacements.some(p => p === 'tth' || p === 'v50')
   );
 
-  const cacheKey = `${song?.id || 0}_${song?.title || ''}_${song?.genre || ''}_${song?.collabId || ''}_${homeCode}_${Math.round(artistPopularity / 5)}_${hasGlobalPlaylist ? 1 : 0}`;
+  const priorityReg =
+    song?.priorityRegion && song.priorityRegion !== 'auto'
+      ? (song.priorityRegion as RegionGroup)
+      : null;
+
+  const cacheKey = `${song?.id || 0}_${song?.title || ''}_${song?.genre || ''}_${song?.collabId || ''}_${priorityReg || 'auto'}_${homeCode}_${Math.round(artistPopularity / 5)}_${hasGlobalPlaylist ? 1 : 0}`;
   const cached = breakoutProfileCache.get(cacheKey);
   if (cached) return cached;
   if (breakoutProfileCache.size > 400) breakoutProfileCache.clear();
@@ -269,6 +274,9 @@ export function evaluateSongRegionalBreakoutProfile(
   if (collabRegion && !primaryRegions.includes(collabRegion)) {
     primaryRegions.push(collabRegion);
   }
+  if (priorityReg && !primaryRegions.includes(priorityReg)) {
+    primaryRegions.unshift(priorityReg);
+  }
 
   const allCountries = Object.keys(COUNTRY_TIERS);
   const breakoutCountries: string[] = [homeCode];
@@ -300,6 +308,19 @@ export function evaluateSongRegionalBreakoutProfile(
     const picked = candidateHotPool[pickIdx];
     if (picked && !breakoutCountries.includes(picked)) {
       breakoutCountries.push(picked);
+    }
+  }
+
+  // If player targeted a specific Priority Territory during DSP Delivery, guarantee 2 breakout countries in that region
+  if (priorityReg) {
+    const priorityRegionCountries = foreignPool.filter(
+      cc => getCountryMarketProfile(cc).regionGroup === priorityReg
+    );
+    for (let i = 0; i < Math.min(2, priorityRegionCountries.length); i++) {
+      const pCountry = priorityRegionCountries[(seed + i * 19) % priorityRegionCountries.length];
+      if (pCountry && !breakoutCountries.includes(pCountry)) {
+        breakoutCountries.push(pCountry);
+      }
     }
   }
 
@@ -409,7 +430,13 @@ export function evaluateSongRegionalBreakoutProfile(
       }
     }
 
-    const combinedMult = Math.max(0.12, Math.min(2.25, baseMult * (0.65 + genreResonance * 0.35)));
+    const priorityTerritoryBoost =
+      priorityReg && prof.regionGroup === priorityReg ? 1.35 : 1.0;
+
+    const combinedMult = Math.max(
+      0.12,
+      Math.min(2.35, baseMult * (0.65 + genreResonance * 0.35) * priorityTerritoryBoost)
+    );
     countryMultipliers[cc] = Number(combinedMult.toFixed(3));
 
     if (combinedMult <= 0.32) {

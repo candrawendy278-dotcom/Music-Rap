@@ -11,6 +11,10 @@ export default function AppsTab() {
 
   const isCurrentlyOnTour = Boolean((state as any).tourState?.activeTour);
 
+  const hiredStaffCount = Object.keys((state as any).staffState?.roster || {}).length;
+  const activeLabelName = (state as any).recordLabelState?.activeContract?.labelName;
+  const hasFoundedImprint = Boolean((state as any).recordLabelState?.imprint?.isFounded);
+
   const openApp = (app: any) => {
     setState(p => ({ ...p, activeApp: app }));
   };
@@ -19,6 +23,8 @@ export default function AppsTab() {
     {
       name: "Artist Craft & Income",
       apps: [
+        { id: 'label', name: 'Record Label', icon: 'ph-fill ph-vinyl-record', color: 'text-amber-400', bg: 'bg-[#16120B] dark:bg-amber-500/20', statusBadge: activeLabelName ? 'SIGNED' : hasFoundedImprint ? 'IMPRINT' : 'INDIE' },
+        { id: 'staff', name: 'Staff Team', icon: 'ph-fill ph-users-three', color: 'text-amber-300', bg: 'bg-[#17130A] dark:bg-amber-500/20', statusBadge: hiredStaffCount > 0 ? `${hiredStaffCount}/6 HIRED` : undefined },
         { id: 'tour', name: 'World Tour', icon: 'ph-fill ph-globe-hemisphere-west', color: 'text-amber-400', bg: 'bg-[#17120E] dark:bg-amber-500/20', statusBadge: isCurrentlyOnTour ? 'ON TOUR' : undefined },
         { id: 'merch', name: 'Official Store', icon: 'ph-fill ph-shopping-bag-open', color: 'text-rose-500 dark:text-rose-400', bg: 'bg-rose-500/10 dark:bg-rose-500/20' },
         { id: 'skills', name: 'Mastery Academy', icon: 'ph-fill ph-sparkle', color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-600/10 dark:bg-indigo-500/20' },

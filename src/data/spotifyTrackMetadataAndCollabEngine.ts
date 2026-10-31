@@ -684,17 +684,36 @@ export function resolveSongMetadataAndCollabCredits(
   const rawTitle = String(songOrItem?.title || '');
   const { cleanTitle, extractedFeat } = parseTitleFeaturedArtists(rawTitle);
 
-  const isPlayerTrack =
-    Boolean(songOrItem?.isPlayer) ||
-    (playerName &&
-      fallbackArtistName &&
-      fallbackArtistName.toLowerCase() === playerName.toLowerCase()) ||
-    Boolean(songOrItem?.collabId !== undefined && !songOrItem?.artist);
+  const explicitItemArtist = String(songOrItem?.artist || '').trim();
+  const effectiveArtistHint = explicitItemArtist || String(fallbackArtistName || '').trim();
 
-  if (isPlayerTrack) {
-    const primaryArtist = playerName || fallbackArtistName || 'Player';
-    let livePlayerSong: Song | undefined = songOrItem?.collabId !== undefined ? songOrItem : undefined;
-    if (!livePlayerSong && state?.songs) {
+  const isRosterTrack =
+    Boolean(songOrItem?.isRosterArtist) ||
+    (Boolean(songOrItem?.collabId !== undefined) &&
+      songOrItem?.isPlayer !== true &&
+      Boolean(effectiveArtistHint) &&
+      (!playerName || effectiveArtistHint.toLowerCase() !== playerName.toLowerCase()));
+
+  const isPlayerTrack =
+    !isRosterTrack &&
+    (Boolean(songOrItem?.isPlayer) ||
+      (playerName &&
+        effectiveArtistHint &&
+        effectiveArtistHint.toLowerCase() === playerName.toLowerCase()) ||
+      Boolean(
+        songOrItem?.collabId !== undefined &&
+          !explicitItemArtist &&
+          (!fallbackArtistName ||
+            (playerName && fallbackArtistName.toLowerCase() === playerName.toLowerCase()))
+      ));
+
+  if (isPlayerTrack || isRosterTrack) {
+    const primaryArtist = isRosterTrack
+      ? effectiveArtistHint || fallbackArtistName || 'Artist'
+      : playerName || fallbackArtistName || 'Player';
+    let livePlayerSong: Song | undefined =
+      songOrItem?.collabId !== undefined ? songOrItem : undefined;
+    if (!isRosterTrack && !livePlayerSong && state?.songs) {
       livePlayerSong = state.songs.find(
         s => s.title.toLowerCase().trim() === cleanTitle.toLowerCase()
       );
@@ -706,20 +725,21 @@ export function resolveSongMetadataAndCollabCredits(
       primaryArtist,
       livePlayerSong?.genre || songOrItem?.genre || 'Pop'
     );
-    if (collabNpc) {
+    if (collabNpc && collabNpc.toLowerCase() !== primaryArtist.toLowerCase()) {
       featuredArtists.push(collabNpc);
     }
 
-    // Also check if the player wrote "(feat. X)" in the title
+    // Also check if "(feat. X)" was written in the title
     extractedFeat.forEach(rawFeat => {
       const validNpc = ensureInGameNpcCollaborator(
         rawFeat,
         primaryArtist,
-        livePlayerSong?.genre || 'Pop',
+        livePlayerSong?.genre || songOrItem?.genre || 'Pop',
         primaryArtist
       );
       if (
         validNpc &&
+        validNpc.toLowerCase() !== primaryArtist.toLowerCase() &&
         !featuredArtists.some(f => f.toLowerCase() === validNpc.toLowerCase())
       ) {
         featuredArtists.push(validNpc);
@@ -736,7 +756,10 @@ export function resolveSongMetadataAndCollabCredits(
       allArtists,
       formattedArtistCredits,
       isExplicit: isTrackExplicit(livePlayerSong || songOrItem, primaryArtist),
-      hasMusicVideo: hasTrackMusicVideo(livePlayerSong || songOrItem, primaryArtist, state),
+      hasMusicVideo: isRosterTrack
+        ? Boolean((livePlayerSong || songOrItem)?.hasMV) ||
+          hasTrackMusicVideo(livePlayerSong || songOrItem, primaryArtist, state)
+        : hasTrackMusicVideo(livePlayerSong || songOrItem, primaryArtist, state),
       isCollab: featuredArtists.length > 0
     };
   }

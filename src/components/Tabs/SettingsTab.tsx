@@ -12,6 +12,13 @@ import {
 } from '../../utils/saveStateOptimizer';
 import { rehydrateFullGameStateOnLoad } from '../../utils/smartStorageEngine';
 import ThemeToggleWidget from '../Common/ThemeToggleWidget';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
+import {
+  canRosterArtistRenewContract,
+  deleteFormerRosterArtistFromWorld,
+  isRosterArtistContractExpired,
+  renewExpiredRosterArtistContract,
+} from '../../data/rosterLifecycleAndNpcDedupEngine';
 
 export default function SettingsTab() {
   const { state, setState, setInfoModal } = useGameContext();
@@ -246,6 +253,182 @@ export default function SettingsTab() {
           </div>
         )}
       </div>
+
+      {/* Record Label Former Roster Artists & NPC Restoration Manager */}
+      {(() => {
+        const labelState = getEnsuredRecordLabelState(state);
+        const imprint = labelState.imprint;
+        const allRoster = imprint?.signedRoster || [];
+        if (!imprint?.isFounded || allRoster.length === 0) return null;
+
+        const formerRoster = allRoster.filter((a) => isRosterArtistContractExpired(a));
+        const activeRoster = allRoster.filter((a) => !isRosterArtistContractExpired(a));
+
+        return (
+          <div className="bg-apple-card rounded-3xl p-5 shadow-ios border border-apple-border/50 mt-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-sm">
+                  <i className="ph-fill ph-buildings text-base"></i>
+                </div>
+                <div>
+                  <h4 className="font-bold text-apple-text text-sm">
+                    Former Label Roster &amp; World NPC Restore
+                  </h4>
+                  <p className="text-xs text-apple-subtext">
+                    Delete expired roster artists whose contracts ended (restores any original NPC with the same name).
+                  </p>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300 font-mono text-[11px] font-bold">
+                {formerRoster.length} Expired
+              </span>
+            </div>
+
+            {formerRoster.length === 0 ? (
+              <div className="p-3 rounded-2xl bg-apple-bg border border-apple-border/40 text-xs text-apple-subtext">
+                No expired Former Roster Artists right now ({activeRoster.length} active under contract). When a roster artist&apos;s contract expires and isn&apos;t renewed, their catalog continues streaming passively and you can delete them here.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {formerRoster.map((art) => {
+                  const stageName = art.stageName || art.name;
+                  const canRenew = canRosterArtistRenewContract(art);
+                  return (
+                    <div
+                      key={art.id}
+                      className="p-3 rounded-2xl bg-apple-bg border border-apple-border/50 flex items-center justify-between gap-2.5"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-black text-apple-text truncate">
+                            {stageName}
+                          </span>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                              canRenew
+                                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-300'
+                                : 'bg-rose-500/15 text-rose-600 dark:text-rose-300'
+                            }`}
+                          >
+                            {canRenew ? 'Contract Expired (Open to Renew)' : 'Refuses Renewal • Retired'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-apple-subtext mt-0.5">
+                          {(art.songs || []).length} Songs • {(art.dailyStreams || 0).toLocaleString()} passive streams/day
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {canRenew && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const res = renewExpiredRosterArtistContract(state, art.id, 24);
+                              if (!res.success) {
+                                setInfoModal({
+                                  title: 'Renewal Failed',
+                                  desc: res.message,
+                                });
+                              } else {
+                                setState(res.nextState);
+                                setOptimizedNotice(res.message);
+                                setTimeout(() => setOptimizedNotice(''), 3500);
+                              }
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black cursor-pointer"
+                          >
+                            Renew
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const res = deleteFormerRosterArtistFromWorld(state, art.id);
+                            if (!res.success) {
+                              setInfoModal({
+                                title: 'Cannot Delete Roster Artist',
+                                desc: res.message,
+                              });
+                            } else {
+                              setState(res.nextState);
+                              setOptimizedNotice(res.message);
+                              setTimeout(() => setOptimizedNotice(''), 4000);
+                            }
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-black cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {activeRoster.length > 0 && (
+              <div className="pt-2 border-t border-apple-border/40">
+                <div className="text-[11px] font-bold text-apple-subtext mb-1.5">
+                  Active Signed Roster ({activeRoster.length}) — End Contract Early (Moves to Former Roster)
+                </div>
+                <div className="space-y-1.5">
+                  {activeRoster.map((art) => {
+                    const stageName = art.stageName || art.name;
+                    return (
+                      <div
+                        key={art.id}
+                        className="px-3 py-2 rounded-xl bg-apple-bg/60 border border-apple-border/30 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="min-w-0 truncate">
+                          <span className="font-bold text-apple-text">{stageName}</span>
+                          <span className="text-[10px] text-apple-subtext ml-1.5 font-mono">
+                            ({art.daysRemaining ?? 720}d left)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setState((prev) => {
+                              const ls = getEnsuredRecordLabelState(prev);
+                              return {
+                                ...prev,
+                                recordLabelState: {
+                                  ...ls,
+                                  imprint: {
+                                    ...ls.imprint,
+                                    signedRoster: ls.imprint.signedRoster.map((r) =>
+                                      r.id === art.id
+                                        ? {
+                                            ...r,
+                                            daysRemaining: 0,
+                                            isFormerRoster: true,
+                                            contractExpired: true,
+                                          }
+                                        : r
+                                    ),
+                                  },
+                                },
+                              };
+                            });
+                            setOptimizedNotice(
+                              `${stageName}'s contract was ended early. They are now a Former Roster Artist.`
+                            );
+                            setTimeout(() => setOptimizedNotice(''), 3500);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-zinc-200 dark:bg-white/10 text-apple-text text-[10px] font-bold cursor-pointer"
+                        >
+                          End Contract
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="bg-apple-card rounded-3xl p-5 shadow-ios border border-apple-border/50 flex items-center justify-between mt-6">
         <div>

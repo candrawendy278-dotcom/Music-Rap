@@ -22,6 +22,11 @@ import {
   SpotifyPlaylistDefinition
 } from '../../data/authenticSpotifyPlaylistSystem';
 import { buildEnhancedSpotifyHomeAndPlaylistCuration } from '../../data/spotifyHomeAndPlaylistEnhancerEngine';
+import {
+  getActiveSharedWorldRosterArtists,
+  convertRosterArtistToDetailedNpc
+} from '../../data/rosterSharedWorldBridge';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
 
 interface SpotifyHomeViewProps {
   state: GameState;
@@ -48,7 +53,7 @@ export const SpotifyHomeView: React.FC<SpotifyHomeViewProps> = ({
 }) => {
   const topMonthlyArtists = useMemo(() => {
     return computeTop10MonthlyArtists(state);
-  }, [state.spotify?.listeners, state.artist]);
+  }, [state.spotify?.listeners, state.artist, state.recordLabelState, state.date]);
 
   const enhancedCuration = useMemo(() => {
     return buildEnhancedSpotifyHomeAndPlaylistCuration(state);
@@ -178,6 +183,47 @@ export const SpotifyHomeView: React.FC<SpotifyHomeViewProps> = ({
       });
     });
 
+    // Add signed Record Label Roster Artists' releases so they appear in Popular New Releases alongside Player & NPCs
+    const labelState = state ? getEnsuredRecordLabelState(state) : null;
+    const imprintName = labelState?.imprint?.imprintName || 'Record Label';
+    const dateStr = state?.date ? String(state.date).split('T')[0] : '2026-01-01';
+    const rosterArtists = getActiveSharedWorldRosterArtists(state);
+    rosterArtists.forEach(rArt => {
+      const detailedRoster = convertRosterArtistToDetailedNpc(rArt, imprintName, dateStr);
+      (rArt.projects || [])
+        .filter(p => p.status === 'released')
+        .forEach(p => {
+          const totalStreams = (p.songs || []).reduce((acc, s) => acc + (s.streams || 0), 0);
+          items.push({
+            id: `roster_proj_${rArt.id}_${p.id}`,
+            title: p.title,
+            artist: detailedRoster.name,
+            type: p.type === 'ep' ? 'EP' : 'Album',
+            year: new Date(p.releaseDate || state.date).getFullYear(),
+            cover: p.cover,
+            streams: totalStreams,
+            isPlayer: false,
+            npcObj: detailedRoster
+          });
+        });
+      (rArt.songs || [])
+        .filter(s => s.status === 'released' && s.trackType !== 'b_side')
+        .slice(0, 2)
+        .forEach(s => {
+          items.push({
+            id: `roster_sng_${rArt.id}_${s.id}`,
+            title: s.title,
+            artist: detailedRoster.name,
+            type: 'Single',
+            year: new Date(s.releaseDate || state.date).getFullYear(),
+            cover: s.cover,
+            streams: s.streams || 0,
+            isPlayer: false,
+            npcObj: detailedRoster
+          });
+        });
+    });
+
     // Add top NPC albums & singles
     REAL_WORLD_NPCS.forEach(npc => {
       if (isNpcMatchingPlayerName(npc.name, playerName)) return;
@@ -208,8 +254,8 @@ export const SpotifyHomeView: React.FC<SpotifyHomeViewProps> = ({
         if (!a.isPlayer && b.isPlayer) return 1;
         return b.streams - a.streams;
       })
-      .slice(0, 12);
-  }, [state.projects, state.songs, state.artist?.name, state.date]);
+      .slice(0, 14);
+  }, [state.projects, state.songs, state.artist?.name, state.date, state.recordLabelState]);
 
   const spotlightRelease = popularReleases[0];
 

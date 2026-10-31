@@ -23,6 +23,8 @@ import RadioAirplayChartApp from './components/Apps/RadioAirplayChartApp';
 import ArtistMerchStoreApp from './components/Apps/ArtistMerchStoreApp';
 import RiaaCertificationApp from './components/Apps/RiaaCertificationApp';
 import WorldTourApp from './components/Apps/WorldTourApp';
+import StaffTeamApp from './components/Apps/StaffTeamApp';
+import RecordLabelApp from './components/Apps/RecordLabelApp';
 import AwardCeremonyLiveModal from './components/Modals/AwardCeremonyLiveModal';
 import { resolveCurrentTheme, applyThemeToDocument } from './data/themeSystemEngine';
 
@@ -88,6 +90,8 @@ export default function MainApp() {
       {state.activeApp === 'merch' && <ArtistMerchStoreApp />}
       {state.activeApp === 'riaa' && <RiaaCertificationApp />}
       {state.activeApp === 'tour' && <WorldTourApp />}
+      {state.activeApp === 'staff' && <StaffTeamApp />}
+      {state.activeApp === 'label' && <RecordLabelApp />}
 
       {activeModalSeason && (
         <AwardCeremonyLiveModal

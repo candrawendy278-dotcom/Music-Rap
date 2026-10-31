@@ -17,6 +17,8 @@ import YouTubeArtistProfileView, {
   resolveNpcMvReleaseDate
 } from './YouTubeArtistProfileView';
 import YouTubeVisualFormatModal from '../Modals/YouTubeVisualFormatModal';
+import { LabelOfficialYouTubeChannelPanel } from '../Common/RosterArtistSwitcherBar';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
 
 function getTimeAgo(releaseDate: string | undefined, currentDate: string): string {
   if (!releaseDate) return 'Just now';
@@ -42,11 +44,15 @@ export default function YouTubeApp() {
   const [visualFormatSong, setVisualFormatSong] = useState<Song | null>(null);
   const [showVisualSongPicker, setShowVisualSongPicker] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'chart' | 'profile'>('home');
+  const [youtubeChannelMode, setYoutubeChannelMode] = useState<'artist' | 'label_channel'>('artist');
   const [chartRegion, setChartRegion] = useState<string>('global');
   const [channelTarget, setChannelTarget] = useState<YouTubeChannelTarget>({
     isPlayer: true,
     artistName: state.artist?.name || 'Artist'
   });
+
+  const rlState = useMemo(() => getEnsuredRecordLabelState(state), [state]);
+  const imprint = rlState.imprint;
 
   const handleClose = () => setState(p => ({ ...p, activeApp: 'none' }));
 
@@ -353,43 +359,87 @@ export default function YouTubeApp() {
         </div>
       </header>
 
-      {activeTab === 'home' && (
-        <YouTubeHomeView
-          state={state}
-          playerVideos={videos}
-          chartData={chartData}
-          onSelectVideo={setSelectedVideo}
-          onOpenCreateMv={() => setModalType('create_mv')}
-          onNavigateToCharts={() => setActiveTab('chart')}
-          onOpenChannel={handleOpenChannel}
-          getTimeAgo={getTimeAgo}
-        />
+      {/* Top Switcher: Personal Artist Channel vs Official Record Label YouTube Channel */}
+      {imprint.isFounded && (
+        <div className="bg-[#161616] border-b border-white/10 px-3.5 py-2 flex items-center justify-between gap-2">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-white/45 shrink-0">
+            CHANNEL MODE:
+          </span>
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <button
+              onClick={() => setYoutubeChannelMode('artist')}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                youtubeChannelMode === 'artist'
+                  ? 'bg-[#FF0000] text-white'
+                  : 'bg-white/5 text-white/70 hover:text-white'
+              }`}
+            >
+              {state.artist?.name || 'My Artist'} Channel
+            </button>
+            <button
+              onClick={() => setYoutubeChannelMode('label_channel')}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                youtubeChannelMode === 'label_channel'
+                  ? 'bg-[#FF0000] text-white'
+                  : 'bg-white/5 text-white/70 hover:text-white border border-rose-500/30'
+              }`}
+            >
+              <i className="ph-fill ph-vinyl-record text-xs" />
+              <span>{imprint.name} Official Channel</span>
+            </button>
+          </div>
+        </div>
       )}
 
-      {activeTab === 'chart' && (
-        <YouTubeChartsView
-          state={state}
-          chartData={chartData}
-          chartRegion={chartRegion}
-          setChartRegion={setChartRegion}
+      {youtubeChannelMode === 'label_channel' && imprint.isFounded ? (
+        <LabelOfficialYouTubeChannelPanel
+          gameState={state}
+          setGameState={setState}
           onSelectVideo={setSelectedVideo}
-          onOpenChannel={handleOpenChannel}
+          externalOpenCreateModal={modalType === 'create_mv'}
+          onCloseExternalCreateModal={() => setModalType(null)}
         />
-      )}
+      ) : (
+        <>
+          {activeTab === 'home' && (
+            <YouTubeHomeView
+              state={state}
+              playerVideos={videos}
+              chartData={chartData}
+              onSelectVideo={setSelectedVideo}
+              onOpenCreateMv={() => setModalType('create_mv')}
+              onNavigateToCharts={() => setActiveTab('chart')}
+              onOpenChannel={handleOpenChannel}
+              getTimeAgo={getTimeAgo}
+            />
+          )}
 
-      {activeTab === 'profile' && (
-        <YouTubeArtistProfileView
-          state={state}
-          channelTarget={channelTarget}
-          playerVideos={videos}
-          chartData={chartData}
-          onSelectVideo={setSelectedVideo}
-          onOpenCreateMv={() => setModalType('create_mv')}
-          onSwitchToPlayerChannel={() =>
-            handleOpenChannel(state.artist?.name || 'Artist', true)
-          }
-          getTimeAgo={getTimeAgo}
-        />
+          {activeTab === 'chart' && (
+            <YouTubeChartsView
+              state={state}
+              chartData={chartData}
+              chartRegion={chartRegion}
+              setChartRegion={setChartRegion}
+              onSelectVideo={setSelectedVideo}
+              onOpenChannel={handleOpenChannel}
+            />
+          )}
+
+          {activeTab === 'profile' && (
+            <YouTubeArtistProfileView
+              state={state}
+              channelTarget={channelTarget}
+              playerVideos={videos}
+              chartData={chartData}
+              onSelectVideo={setSelectedVideo}
+              onOpenCreateMv={() => setModalType('create_mv')}
+              onSwitchToPlayerChannel={() =>
+                handleOpenChannel(state.artist?.name || 'Artist', true)
+              }
+              getTimeAgo={getTimeAgo}
+            />
+          )}
+        </>
       )}
 
       {/* Authentic YouTube Bottom Navigation Bar */}
@@ -433,7 +483,7 @@ export default function YouTubeApp() {
         </button>
       </nav>
 
-      {modalType === 'create_mv' && (
+      {modalType === 'create_mv' && youtubeChannelMode !== 'label_channel' && (
         <YouTubeVisualFormatModal
           song={visualFormatSong}
           onClose={() => {

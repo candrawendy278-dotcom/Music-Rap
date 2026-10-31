@@ -6,42 +6,70 @@ import {
   MetacriticReleaseEntry,
   MetacriticColorTier
 } from '../../data/pitchforkAndMetacriticEngine';
+import { RosterArtistSwitcherBar } from '../Common/RosterArtistSwitcherBar';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
+import {
+  ensureRosterArtistFullFields,
+  getRosterArtistCriticsReviews
+} from '../../data/recordLabelCeoEngine';
 
 type MetacriticTab = 'new' | 'acclaim' | 'player' | 'must_play' | 'singles';
 
 export default function MetacriticApp() {
   const { state, setState } = useGameContext();
   const [activeTab, setActiveTab] = useState<MetacriticTab>('new');
+  const [selectedMetacriticArtistId, setSelectedMetacriticArtistId] = useState<'player' | string>('player');
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [detailSubTab, setDetailSubTab] = useState<'critics' | 'users'>('critics');
   const [sortBy, setSortBy] = useState<'metascore' | 'userscore' | 'recent'>('metascore');
   const [searchQuery, setSearchQuery] = useState('');
 
+  const rlState = useMemo(() => getEnsuredRecordLabelState(state), [state]);
   const summary = useMemo(() => getCriticsAndAggregatorData(state), [state]);
-  const allEntries = summary.allMetacriticEntries;
+
+  const rosterMetacriticMap = useMemo(() => {
+    const map: Record<string, MetacriticReleaseEntry[]> = {};
+    for (const raw of rlState.imprint.signedRoster) {
+      const full = ensureRosterArtistFullFields(raw);
+      map[full.id] = getRosterArtistCriticsReviews(state, full).metacriticEntries;
+    }
+    return map;
+  }, [state, rlState.imprint.signedRoster]);
+
+  const allEntries = useMemo(() => {
+    const rosterAll = Object.values(rosterMetacriticMap).flat();
+    return [...rosterAll, ...summary.allMetacriticEntries];
+  }, [rosterMetacriticMap, summary.allMetacriticEntries]);
 
   const filteredEntries = useMemo(() => {
-    let list = [...allEntries];
+    let list: MetacriticReleaseEntry[] = [];
 
-    if (activeTab === 'new') {
-      list = list.filter(e => e.releaseType === 'album' || e.releaseType === 'ep');
-    } else if (activeTab === 'acclaim') {
-      list = list.filter(e => e.metascore >= 81);
-    } else if (activeTab === 'player') {
-      list = list.filter(e => e.isPlayer);
-    } else if (activeTab === 'must_play') {
-      list = list.filter(e => e.isMustPlay);
-    } else if (activeTab === 'singles') {
-      list = list.filter(e => e.releaseType === 'single');
+    if (activeTab === 'player') {
+      if (selectedMetacriticArtistId !== 'player') {
+        list = [...(rosterMetacriticMap[selectedMetacriticArtistId] || [])];
+      } else {
+        list = [...(summary.playerMetacriticEntries || summary.allMetacriticEntries.filter(e => e.isPlayer))];
+      }
+    } else {
+      list = [...allEntries];
+      if (activeTab === 'new') {
+        list = list.filter(e => e.releaseType === 'album' || e.releaseType === 'ep');
+      } else if (activeTab === 'acclaim') {
+        list = list.filter(e => e.metascore >= 81);
+      } else if (activeTab === 'must_play') {
+        list = list.filter(e => e.isMustPlay);
+      } else if (activeTab === 'singles') {
+        list = list.filter(e => e.releaseType === 'single');
+      }
     }
 
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
       list = list.filter(
         e =>
-          e.title.toLowerCase().includes(q) ||
-          e.artist.toLowerCase().includes(q) ||
-          e.genre.toLowerCase().includes(q)
+          (e.title || '').toLowerCase().includes(q) ||
+          (e.artist || '').toLowerCase().includes(q) ||
+          (e.genre || '').toLowerCase().includes(q)
       );
     }
 
@@ -52,7 +80,7 @@ export default function MetacriticApp() {
     }
 
     return list;
-  }, [allEntries, activeTab, searchQuery, sortBy]);
+  }, [allEntries, activeTab, searchQuery, sortBy, selectedMetacriticArtistId, rosterMetacriticMap, summary.playerMetacriticEntries, summary.allMetacriticEntries]);
 
   const selectedEntry: MetacriticReleaseEntry | null = useMemo(() => {
     if (!selectedEntryId) return null;
@@ -76,6 +104,16 @@ export default function MetacriticApp() {
   return (
     <div className="fixed inset-0 z-50 max-w-md mx-auto bg-[#111318] text-[#F3F4F6] flex flex-col overflow-hidden animate-fade-in">
       {/* Top Aggregator Header */}
+      <RosterArtistSwitcherBar
+        gameState={state}
+        selectedArtistId={selectedMetacriticArtistId}
+        onSelectArtist={id => {
+          setSelectedMetacriticArtistId(id);
+          setSelectedEntryId(null);
+          setActiveTab('player');
+        }}
+        accentColor="#00CE7A"
+      />
       <header className="bg-[#0B0D10] border-b border-white/10 px-4 pt-3 pb-2.5 shrink-0">
         <div className="flex items-center justify-between">
           <button

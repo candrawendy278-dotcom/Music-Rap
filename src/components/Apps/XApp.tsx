@@ -14,6 +14,17 @@ import { OfficialArtworkImg } from '../Common/OfficialArtworkImg';
 import { XAccountAvatar } from './XAccountAvatar';
 import { XRichChartGraphicCard } from './XRichChartGraphicCard';
 import { generateRichVisualXFeedTweets } from '../../data/xRichVisualTweetsEngine';
+import {
+  getEnsuredRecordLabelState,
+  updatePlayerImprintLogo,
+  getDefaultImprintLogoSvg
+} from '../../data/recordLabelSystemEngine';
+import {
+  getEnsuredLabelXAccount,
+  createOfficialLabelXPost,
+  updateOfficialLabelXProfile,
+  ensureRosterArtistFullFields
+} from '../../data/recordLabelCeoEngine';
 
 /**
  * Formats tweet text by highlighting @handles, #hashtags, and domain links in X Blue (#1D9BF0)
@@ -41,6 +52,8 @@ function renderFormattedTweetText(content: string) {
 export default function XApp() {
   const { state, setState } = useGameContext();
   const [activeView, setActiveView] = useState<'feed' | 'profile'>('feed');
+  const [xAccountMode, setXAccountMode] = useState<'personal' | 'label'>('personal');
+  const [promoRosterArtistId, setPromoRosterArtistId] = useState<string>('');
   const [profileSubTab, setProfileSubTab] = useState<'posts' | 'replies' | 'highlights' | 'media' | 'likes'>('posts');
   const [feedFilter, setFeedFilter] = useState<'all' | 'charts' | 'platforms' | 'fanbase'>('all');
   const [composerText, setComposerText] = useState('');
@@ -55,17 +68,51 @@ export default function XApp() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const postImageInputRef = useRef<HTMLInputElement>(null);
 
+  const rlState = useMemo(() => getEnsuredRecordLabelState(state), [state]);
+  const imprint = rlState.imprint;
+  const labelX = useMemo(() => getEnsuredLabelXAccount(imprint), [imprint]);
+
   const artist = state.artist;
-  const profile = useMemo(() => getEnsuredXProfile(state), [state.xProfile, state.artist, state.fans, state.popularity, state.songs, state.xPosts]);
-  const artistAvatar = artist?.image || `https://placehold.co/400x400/1C1C1E/FFFFFF?text=${encodeURIComponent((profile.name || 'A').charAt(0))}`;
+  const personalProfile = useMemo(() => getEnsuredXProfile(state), [state.xProfile, state.artist, state.fans, state.popularity, state.songs, state.xPosts]);
+
+  const isLabelMode = xAccountMode === 'label' && imprint.isFounded;
+  const profile = useMemo(() => {
+    if (isLabelMode) {
+      return {
+        name: labelX.name,
+        handle: labelX.handle,
+        bio: labelX.bio,
+        banner: labelX.bannerUrl || '',
+        followers: labelX.followers,
+        following: labelX.following
+      };
+    }
+    return personalProfile;
+  }, [isLabelMode, labelX, personalProfile]);
+
+  const syncedLabelLogo =
+    imprint.logoUrl ||
+    labelX.avatarUrl ||
+    getDefaultImprintLogoSvg(imprint.imprintName);
+
+  const personalArtistAvatar =
+    artist?.image ||
+    `https://placehold.co/400x400/1C1C1E/FFFFFF?text=${encodeURIComponent((personalProfile.name || 'A').charAt(0))}`;
+
+  const artistAvatar = isLabelMode ? syncedLabelLogo : personalArtistAvatar;
 
   const releasedSongs = useMemo(() => (state.songs || []).filter(s => s.status === 'released'), [state.songs]);
   const latestReleasedSong = releasedSongs[releasedSongs.length - 1];
 
-  // Keep player posts from GameState
+  // Keep player or label posts from GameState
   const playerPosts = useMemo<XPost[]>(() => {
-    return (state.xPosts || []).filter(p => p.isPlayerPost);
-  }, [state.xPosts]);
+    if (isLabelMode) {
+      return labelX.posts || [];
+    }
+    return (state.xPosts || []).filter(
+      p => p.isPlayerPost && !String(p.id || '').startsWith('lbl_x_') && p.verifiedType !== 'gold'
+    );
+  }, [isLabelMode, labelX.posts, state.xPosts]);
 
   // Combined feed: player posts + industry/fan tweets stored in state.xPosts, reconciled with live chart truth
   const allFeedTweets = useMemo<XPost[]>(() => {
@@ -207,20 +254,33 @@ export default function XApp() {
     if (file && artist) {
       const compressed = await compressImageFile(file, 384, 0.82);
       if (compressed) {
-        setState(prev => {
-          if (!prev.artist) return prev;
-          const updated = {
-            ...prev,
-            artist: {
-              ...prev.artist,
-              image: compressed
-            },
-            xPosts: (prev.xPosts || []).map(p => p.isPlayerPost ? { ...p, authorAvatar: compressed } : p)
-          };
-          saveGameStateSafely(updated).catch(console.error);
-          return updated;
-        });
-        showNotification('Profile picture updated!');
+        if (isLabelMode) {
+          setState(prev => {
+            const updated = updatePlayerImprintLogo(prev, compressed);
+            saveGameStateSafely(updated).catch(console.error);
+            return updated;
+          });
+          showNotification('Record Label Logo synced across Label, YouTube & X!');
+        } else {
+          setState(prev => {
+            if (!prev.artist) return prev;
+            const updated = {
+              ...prev,
+              artist: {
+                ...prev.artist,
+                image: compressed
+              },
+              xPosts: (prev.xPosts || []).map(p =>
+                p.isPlayerPost && !String(p.id || '').startsWith('lbl_x_') && p.verifiedType !== 'gold'
+                  ? { ...p, authorAvatar: compressed }
+                  : p
+              )
+            };
+            saveGameStateSafely(updated).catch(console.error);
+            return updated;
+          });
+          showNotification('Profile picture updated!');
+        }
       }
     }
     if (e.target) e.target.value = '';
@@ -245,6 +305,25 @@ export default function XApp() {
     e.preventDefault();
     if (!composerText.trim() && !composerImage) return;
 
+    if (isLabelMode) {
+      const res = createOfficialLabelXPost(
+        state,
+        composerText,
+        composerImage || undefined,
+        promoRosterArtistId || undefined
+      );
+      if (!res.success) {
+        showNotification(res.message);
+        return;
+      }
+      setState(res.nextState);
+      saveGameStateSafely(res.nextState).catch(console.error);
+      setComposerText('');
+      setComposerImage(null);
+      showNotification(res.message);
+      return;
+    }
+
     const newPost = createPlayerPost(state, composerText, composerImage || undefined);
 
     setState(prev => {
@@ -266,6 +345,18 @@ export default function XApp() {
   };
 
   const applyQuickTemplate = (type: 'studio' | 'promote' | 'gratitude') => {
+    if (isLabelMode) {
+      const targetArt = imprint.signedRoster.find(a => a.id === promoRosterArtistId) || imprint.signedRoster[0];
+      const artName = targetArt ? (targetArt.stageName || targetArt.name) : 'our roster';
+      if (type === 'studio') {
+        setComposerText(`Executive session at ${imprint.name} HQ. ${artName} is locked in preparing the next flagship release 🎙️💿🔥`);
+      } else if (type === 'promote') {
+        setComposerText(`OFFICIAL RELEASE ALERT: Stream the newest records from ${artName} on all global platforms now via ${imprint.name}! 🌐✨`);
+      } else {
+        setComposerText(`Thank you to the supporters worldwide riding with the ${imprint.name} family. Huge announcements coming this week 🏆🖤`);
+      }
+      return;
+    }
     if (type === 'studio') {
       setComposerText(`Locked in the studio tonight working on new music. This next era sounds unreal 🎙️💿✨`);
     } else if (type === 'promote' && latestReleasedSong) {
@@ -284,6 +375,20 @@ export default function XApp() {
     banner: string;
     avatar?: string;
   }) => {
+    if (isLabelMode) {
+      const nextState = updateOfficialLabelXProfile(state, {
+        name: updated.name,
+        handle: updated.handle,
+        bio: updated.bio,
+        bannerUrl: updated.banner,
+        avatarUrl: updated.avatar
+      });
+      setState(nextState);
+      saveGameStateSafely(nextState).catch(console.error);
+      showNotification('Official Record Label X profile updated!');
+      return;
+    }
+
     setState(prev => {
       const updatedArtist = prev.artist ? {
         ...prev.artist,
@@ -394,14 +499,23 @@ export default function XApp() {
     const currentLikes = tweet.likes + (isLiked && !tweet.isLiked ? 1 : 0);
     const currentReposts = tweet.reposts + (isReposted && !tweet.isReposted ? 1 : 0);
 
+    const isLabelHqTweet =
+      String(tweet.id || '').startsWith('lbl_x_') ||
+      tweet.verifiedType === 'gold' ||
+      (imprint.isFounded &&
+        Boolean(tweet.authorHandle) &&
+        tweet.authorHandle.toLowerCase() === labelX.handle.toLowerCase());
+
+    const resolvedTweetPlayerAvatar = isLabelHqTweet ? syncedLabelLogo : personalArtistAvatar;
+
     return (
       <article key={tweet.id} className="px-4 py-3.5 hover:bg-[#080808] transition flex space-x-3">
         <XAccountAvatar
           authorHandle={tweet.authorHandle}
           authorName={tweet.authorName}
-          explicitAvatar={tweet.authorAvatar}
-          playerAvatar={artistAvatar}
-          isPlayerPost={Boolean(tweet.isPlayerPost)}
+          explicitAvatar={isLabelHqTweet ? syncedLabelLogo : tweet.authorAvatar}
+          playerAvatar={resolvedTweetPlayerAvatar}
+          isPlayerPost={Boolean(tweet.isPlayerPost || isLabelHqTweet)}
           verifiedType={tweet.verifiedType}
           sizeClass="w-10 h-10"
         />
@@ -610,6 +724,40 @@ export default function XApp() {
         />
       </header>
 
+      {/* Account Switcher Bar: Personal Artist Account vs Official Record Label X Account */}
+      {imprint.isFounded && (
+        <div className="bg-[#0D1014] border-b border-[#2F3336] px-3.5 py-2 flex items-center justify-between gap-2">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-[#71767B] shrink-0">
+            ACTIVE X ACCOUNT:
+          </span>
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setXAccountMode('personal')}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                xAccountMode === 'personal'
+                  ? 'bg-[#1D9BF0] text-white'
+                  : 'bg-[#16181C] text-[#71767B] hover:text-white border border-[#2F3336]'
+              }`}
+            >
+              Personal ({personalProfile.handle})
+            </button>
+            <button
+              type="button"
+              onClick={() => setXAccountMode('label')}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                xAccountMode === 'label'
+                  ? 'bg-[#E7A33E] text-black'
+                  : 'bg-[#16181C] text-[#E7A33E] hover:text-white border border-[#E7A33E]/40'
+              }`}
+            >
+              <i className="ph-fill ph-seal-check text-xs" />
+              <span>Label HQ ({labelX.handle})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Primary Navigation Tabs: For You Feed vs Artist Profile */}
       <div className="sticky top-[49px] z-20 bg-[#000000]/90 backdrop-blur-md border-b border-[#2F3336] flex">
         <button
@@ -654,10 +802,32 @@ export default function XApp() {
               style={{ backgroundImage: `url(${artistAvatar})` }}
             />
             <form onSubmit={handleCreatePost} className="flex-1 min-w-0">
+              {isLabelMode && (
+                <div className="mb-2 flex items-center justify-between gap-2 bg-[#16181C] border border-[#E7A33E]/30 rounded-lg px-2.5 py-1.5">
+                  <span className="text-[10px] font-mono uppercase text-[#E7A33E] font-bold">
+                    PROMOTE ROSTER ARTIST (+HYPE &amp; FANS):
+                  </span>
+                  <select
+                    value={promoRosterArtistId}
+                    onChange={e => setPromoRosterArtistId(e.target.value)}
+                    className="bg-black text-white text-xs rounded px-2 py-0.5 border border-[#2F3336]"
+                  >
+                    <option value="">General Label Announcement</option>
+                    {imprint.signedRoster.map(raw => {
+                      const a = ensureRosterArtistFullFields(raw);
+                      return (
+                        <option key={a.id} value={a.id}>
+                          {a.stageName} ({a.genre})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
               <textarea
                 value={composerText}
                 onChange={(e) => setComposerText(e.target.value)}
-                placeholder="What is happening?!"
+                placeholder={isLabelMode ? `Post an official announcement from ${labelX.name}...` : "What is happening?!"}
                 rows={2}
                 className="w-full bg-transparent text-white placeholder-[#71767B] text-[15px] resize-none focus:outline-none leading-snug"
               />

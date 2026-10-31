@@ -145,6 +145,8 @@ export interface MetacriticReleaseEntry {
 export interface CriticsHubSummary {
   allPitchforkReviews: PitchforkReviewItem[];
   allMetacriticEntries: MetacriticReleaseEntry[];
+  playerPitchforkReviews: PitchforkReviewItem[];
+  playerMetacriticEntries: MetacriticReleaseEntry[];
   playerStats: {
     reviewedReleasesCount: number;
     avgPitchforkScore: number;
@@ -1520,6 +1522,8 @@ export function getCriticsAndAggregatorData(state: GameState): CriticsHubSummary
   return {
     allPitchforkReviews: entries.map(e => e.pitchforkRef),
     allMetacriticEntries: entries,
+    playerPitchforkReviews: playerEntries.map(e => e.pitchforkRef),
+    playerMetacriticEntries: playerEntries,
     playerStats: {
       reviewedReleasesCount: reviewedCount,
       avgPitchforkScore,

@@ -245,9 +245,14 @@ export interface TopArtistMonthlyItem {
 }
 
 import { isNpcMatchingPlayerName } from './npcPlayerDeduplicationEngine';
+import {
+  getActiveSharedWorldRosterArtists,
+  convertRosterArtistToDetailedNpc
+} from './rosterSharedWorldBridge';
+import { getEnsuredRecordLabelState } from './recordLabelSystemEngine';
 
 /**
- * Computes authentic Top 1-20 Artists by monthly listeners on Spotify from real NPC releases & Player
+ * Computes authentic Top 1-20 Artists by monthly listeners on Spotify from real NPC releases, Roster Artists & Player
  */
 export function computeTop10MonthlyArtists(state: GameState): TopArtistMonthlyItem[] {
   const list: { name: string; avatar: string; monthlyListeners: number; isPlayer: boolean; npcData?: DetailedNPC }[] = [];
@@ -272,6 +277,22 @@ export function computeTop10MonthlyArtists(state: GameState): TopArtistMonthlyIt
       monthlyListeners: baseListeners,
       isPlayer: false,
       npcData: n
+    });
+  });
+
+  // Include Signed Record Label Roster Artists in the shared world
+  const labelState = state ? getEnsuredRecordLabelState(state) : null;
+  const imprintName = labelState?.imprint?.imprintName || 'Record Label';
+  const dateStr = state?.date ? String(state.date).split('T')[0] : '2026-01-01';
+  const rosterArtists = getActiveSharedWorldRosterArtists(state);
+  rosterArtists.forEach(rArt => {
+    const detailed = convertRosterArtistToDetailedNpc(rArt, imprintName, dateStr);
+    list.push({
+      name: detailed.name,
+      avatar: detailed.avatar,
+      monthlyListeners: rArt.monthlyListeners || Math.round((rArt.dailyStreams || 5000) * 28),
+      isPlayer: false,
+      npcData: detailed
     });
   });
 

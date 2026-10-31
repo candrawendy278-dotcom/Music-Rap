@@ -5,44 +5,104 @@ import {
   getCriticsAndAggregatorData,
   PitchforkReviewItem
 } from '../../data/pitchforkAndMetacriticEngine';
+import { RosterArtistSwitcherBar } from '../Common/RosterArtistSwitcherBar';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
+import {
+  ensureRosterArtistFullFields,
+  getRosterArtistCriticsReviews
+} from '../../data/recordLabelCeoEngine';
 
 type PitchforkTab = 'albums' | 'tracks' | 'bnm' | 'sunday' | 'player';
 
 export default function PitchforkApp() {
   const { state, setState } = useGameContext();
   const [activeTab, setActiveTab] = useState<PitchforkTab>('albums');
+  const [selectedPitchforkArtistId, setSelectedPitchforkArtistId] = useState<'player' | string>('player');
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'latest' | 'highest' | 'lowest'>('latest');
 
+  const rlState = useMemo(() => getEnsuredRecordLabelState(state), [state]);
   const summary = useMemo(() => getCriticsAndAggregatorData(state), [state]);
-  const allReviews = summary.allPitchforkReviews;
+
+  const rosterPitchforkMap = useMemo(() => {
+    const map: Record<string, PitchforkReviewItem[]> = {};
+    for (const raw of rlState.imprint.signedRoster) {
+      const full = ensureRosterArtistFullFields(raw);
+      map[full.id] = getRosterArtistCriticsReviews(state, full).pitchforkReviews;
+    }
+    return map;
+  }, [state, rlState.imprint.signedRoster]);
+
+  const allReviews = useMemo(() => {
+    const rosterAll = Object.values(rosterPitchforkMap).flat();
+    return [...rosterAll, ...summary.allPitchforkReviews];
+  }, [rosterPitchforkMap, summary.allPitchforkReviews]);
+
+  const activeArtistDisplayName = useMemo(() => {
+    if (selectedPitchforkArtistId === 'player') {
+      return state.artist?.name || 'Artist';
+    }
+    const found = rlState.imprint.signedRoster.find(r => r.id === selectedPitchforkArtistId);
+    return found?.stageName || found?.name || 'Roster Artist';
+  }, [selectedPitchforkArtistId, state.artist?.name, rlState.imprint.signedRoster]);
+
+  const activeArtistStats = useMemo(() => {
+    if (selectedPitchforkArtistId === 'player') {
+      return summary.playerStats;
+    }
+    const rosterRevs = rosterPitchforkMap[selectedPitchforkArtistId] || [];
+    const count = rosterRevs.length;
+    const avgPitchforkScore =
+      count > 0
+        ? Math.round((rosterRevs.reduce((acc, r) => acc + r.score, 0) / count) * 10) / 10
+        : 0;
+    const highestPitchforkScore =
+      count > 0 ? Math.max(...rosterRevs.map(r => r.score)) : 0;
+    const bestNewMusicCount = rosterRevs.filter(r => r.isBestNewMusic).length;
+    const bestNewTrackCount = rosterRevs.filter(r => r.isBestNewTrack).length;
+    return {
+      ...summary.playerStats,
+      reviewedReleasesCount: count,
+      avgPitchforkScore,
+      highestPitchforkScore,
+      bestNewMusicCount,
+      bestNewTrackCount
+    };
+  }, [selectedPitchforkArtistId, summary.playerStats, rosterPitchforkMap]);
 
   const filteredReviews = useMemo(() => {
-    let list = [...allReviews];
+    let list: PitchforkReviewItem[] = [];
 
-    if (activeTab === 'albums') {
-      list = list.filter(
-        r => (r.releaseType === 'album' || r.releaseType === 'ep') && !r.isSundayReview
-      );
-    } else if (activeTab === 'tracks') {
-      list = list.filter(r => r.releaseType === 'single');
-    } else if (activeTab === 'bnm') {
-      list = list.filter(r => r.isBestNewMusic || r.isBestNewTrack);
-    } else if (activeTab === 'sunday') {
-      list = list.filter(r => r.isSundayReview);
-    } else if (activeTab === 'player') {
-      list = list.filter(r => r.isPlayer);
+    if (activeTab === 'player') {
+      if (selectedPitchforkArtistId !== 'player') {
+        list = [...(rosterPitchforkMap[selectedPitchforkArtistId] || [])];
+      } else {
+        list = [...(summary.playerPitchforkReviews || summary.allPitchforkReviews.filter(r => r.isPlayer))];
+      }
+    } else {
+      list = [...allReviews];
+      if (activeTab === 'albums') {
+        list = list.filter(
+          r => (r.releaseType === 'album' || r.releaseType === 'ep') && !r.isSundayReview
+        );
+      } else if (activeTab === 'tracks') {
+        list = list.filter(r => r.releaseType === 'single');
+      } else if (activeTab === 'bnm') {
+        list = list.filter(r => r.isBestNewMusic || r.isBestNewTrack);
+      } else if (activeTab === 'sunday') {
+        list = list.filter(r => r.isSundayReview);
+      }
     }
 
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
       list = list.filter(
         r =>
-          r.title.toLowerCase().includes(q) ||
-          r.artist.toLowerCase().includes(q) ||
-          r.genre.toLowerCase().includes(q) ||
-          r.criticName.toLowerCase().includes(q)
+          (r.title || '').toLowerCase().includes(q) ||
+          (r.artist || '').toLowerCase().includes(q) ||
+          (r.genre || '').toLowerCase().includes(q) ||
+          (r.criticName || '').toLowerCase().includes(q)
       );
     }
 
@@ -53,7 +113,7 @@ export default function PitchforkApp() {
     }
 
     return list;
-  }, [allReviews, activeTab, searchQuery, sortBy]);
+  }, [allReviews, activeTab, searchQuery, sortBy, selectedPitchforkArtistId, rosterPitchforkMap, summary.playerPitchforkReviews, summary.allPitchforkReviews]);
 
   const selectedReview: PitchforkReviewItem | null = useMemo(() => {
     if (!selectedReviewId) return null;
@@ -118,6 +178,16 @@ export default function PitchforkApp() {
   return (
     <div className="fixed inset-0 z-50 max-w-md mx-auto bg-[#FAF8F5] text-[#0A0A0A] flex flex-col overflow-hidden animate-fade-in">
       {/* Top Editorial Masthead */}
+      <RosterArtistSwitcherBar
+        gameState={state}
+        selectedArtistId={selectedPitchforkArtistId}
+        onSelectArtist={id => {
+          setSelectedPitchforkArtistId(id);
+          setSelectedReviewId(null);
+          setActiveTab('player');
+        }}
+        accentColor="#FF3530"
+      />
       <header className="bg-white border-b-2 border-[#0A0A0A] px-4 pt-3 pb-2.5 shrink-0">
         <div className="flex items-center justify-between">
           <button
@@ -170,7 +240,7 @@ export default function PitchforkApp() {
               { id: 'tracks', label: 'Tracks' },
               { id: 'bnm', label: 'Best New Music' },
               { id: 'sunday', label: 'Sunday Reviews' },
-              { id: 'player', label: `My Catalog (${summary.playerStats.reviewedReleasesCount})` }
+              { id: 'player', label: `My Catalog (${activeArtistStats.reviewedReleasesCount})` }
             ].map(tab => {
               const active = activeTab === tab.id;
               return (
@@ -571,10 +641,10 @@ export default function PitchforkApp() {
             <div className="bg-white border-b border-[#E6E2DC] px-4 py-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] font-black uppercase tracking-[0.16em] text-[#52504C]">
-                  {state.artist?.name || 'Artist'} · Pitchfork Press Dossier
+                  {activeArtistDisplayName} · Pitchfork Press Dossier
                 </span>
                 <span className="text-[10px] font-bold text-[#0A0A0A] tabular-nums">
-                  {summary.playerStats.reviewedReleasesCount} Reviewed
+                  {activeArtistStats.reviewedReleasesCount} Reviewed
                 </span>
               </div>
               <div className="grid grid-cols-4 gap-2 text-center">
@@ -583,8 +653,8 @@ export default function PitchforkApp() {
                     Avg Score
                   </p>
                   <p className="text-base font-black text-[#0A0A0A] tabular-nums mt-0.5">
-                    {summary.playerStats.reviewedReleasesCount > 0
-                      ? summary.playerStats.avgPitchforkScore.toFixed(1)
+                    {activeArtistStats.reviewedReleasesCount > 0
+                      ? activeArtistStats.avgPitchforkScore.toFixed(1)
                       : '—'}
                   </p>
                 </div>
@@ -593,8 +663,8 @@ export default function PitchforkApp() {
                     Peak Score
                   </p>
                   <p className="text-base font-black text-[#0A0A0A] tabular-nums mt-0.5">
-                    {summary.playerStats.reviewedReleasesCount > 0
-                      ? summary.playerStats.highestPitchforkScore.toFixed(1)
+                    {activeArtistStats.reviewedReleasesCount > 0
+                      ? activeArtistStats.highestPitchforkScore.toFixed(1)
                       : '—'}
                   </p>
                 </div>
@@ -603,7 +673,7 @@ export default function PitchforkApp() {
                     Best New Music
                   </p>
                   <p className="text-base font-black text-[#FF3530] tabular-nums mt-0.5">
-                    {summary.playerStats.bestNewMusicCount}
+                    {activeArtistStats.bestNewMusicCount}
                   </p>
                 </div>
                 <div className="p-2 bg-[#FAF8F5] border border-[#E6E2DC]">
@@ -611,7 +681,7 @@ export default function PitchforkApp() {
                     Best New Track
                   </p>
                   <p className="text-base font-black text-[#FF3530] tabular-nums mt-0.5">
-                    {summary.playerStats.bestNewTrackCount}
+                    {activeArtistStats.bestNewTrackCount}
                   </p>
                 </div>
               </div>

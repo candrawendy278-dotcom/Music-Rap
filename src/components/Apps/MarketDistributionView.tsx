@@ -9,6 +9,7 @@ import {
   RegionGroup,
   getCountryMarketProfile
 } from '../../data/countryMarketSystem';
+import DistributionContractAndSpecsPanel from './DistributionContractAndSpecsPanel';
 
 interface MarketDistributionViewProps {
   selectedSong?: Song | any;
@@ -73,8 +74,24 @@ export default function MarketDistributionView({ selectedSong }: MarketDistribut
     'Oceania'
   ];
 
+  const parentProject = useMemo(() => {
+    if (!selectedSong) return null;
+    return (
+      state.projects.find(p => p.songs && p.songs.some(ps => ps.id === selectedSong.id)) || null
+    );
+  }, [selectedSong, state.projects]);
+
   return (
     <div className="space-y-4 animate-in fade-in">
+      {/* Real-World Distribution Contract, ISRC/UPC & Advance Recoupment Ledger */}
+      {selectedSong && (
+        <DistributionContractAndSpecsPanel
+          song={selectedSong}
+          parentProject={parentProject}
+          artistCountry={artistCountry}
+        />
+      )}
+
       {/* Hit Trajectory & Domestic vs Global Split */}
       {hitScopeInfo && (
         <div className="p-4 rounded-xl bg-[#12151E] border border-white/[0.08]">

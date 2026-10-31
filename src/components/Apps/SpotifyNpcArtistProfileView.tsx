@@ -25,6 +25,11 @@ import {
   buildNpcUnifiedCountdown
 } from './SpotifyReleaseCountdownView';
 import { SpotifyAppearsOnSection } from './SpotifyAppearsOnSection';
+import {
+  findRosterArtistByNameOrId,
+  convertRosterArtistToDetailedNpc
+} from '../../data/rosterSharedWorldBridge';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
 
 interface SpotifyNpcArtistProfileViewProps {
   npc: DetailedNPC;
@@ -82,7 +87,25 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
     return Number.isNaN(d.getFullYear()) ? 2026 : d.getFullYear();
   }, [state?.date]);
 
+  const liveRosterMatch = useMemo(() => {
+    const targetIdOrName =
+      (currentNpcTarget as any).rosterArtistId ||
+      currentNpcTarget.id ||
+      currentNpcTarget.name;
+    return (
+      findRosterArtistByNameOrId(targetIdOrName, state) ||
+      findRosterArtistByNameOrId(currentNpcTarget.name, state)
+    );
+  }, [currentNpcTarget, state?.recordLabelState, state?.date]);
+
   const enrichedNpc = useMemo(() => {
+    if (liveRosterMatch) {
+      const labelState = state ? getEnsuredRecordLabelState(state) : null;
+      const impName = labelState?.imprint?.imprintName || 'Record Label';
+      const dateStr = state?.date ? String(state.date).split('T')[0] : '2026-01-01';
+      return convertRosterArtistToDetailedNpc(liveRosterMatch, impName, dateStr);
+    }
+
     syncNpcRealisticReleaseWorkflow(state?.date, tracklistVersion > 0);
     const cleanName = normalizeRealArtistName(currentNpcTarget.name);
     const catalogMatch = REAL_WORLD_NPCS.find(
@@ -103,19 +126,21 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
       };
     }
     return getDetailedNPC(cleanName) || currentNpcTarget;
-  }, [currentNpcTarget, currentYear, state?.date, tracklistVersion]);
+  }, [currentNpcTarget, liveRosterMatch, currentYear, state?.date, state?.recordLabelState, tracklistVersion]);
 
   useEffect(() => {
+    if (liveRosterMatch) return;
     (enrichedNpc.albums || []).forEach(alb => {
       fetchAuthenticAlbumTracklistFromServer(enrichedNpc.name, alb.title).catch(() => {});
     });
-  }, [enrichedNpc]);
+  }, [enrichedNpc, liveRosterMatch]);
 
   const npcUpcomingCountdown = useMemo(() => {
+    if (liveRosterMatch) return null;
     const raw = getNpcUpcomingReleaseCountdown(enrichedNpc, state?.date || '2026-01-01T00:00:00');
     if (!raw) return null;
     return buildNpcUnifiedCountdown(raw);
-  }, [enrichedNpc, state?.date]);
+  }, [enrichedNpc, liveRosterMatch, state?.date]);
 
   // Bilateral Collaborations: find all Player and other NPC songs where this NPC is a featured collaborator!
   const bilateralCollabs = useMemo(() => {
@@ -123,12 +148,26 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
   }, [enrichedNpc.name, state?.songs, state?.date, tracklistVersion]);
 
   const monthlyListeners = useMemo(() => {
+    if (liveRosterMatch) {
+      return (
+        liveRosterMatch.monthlyListeners ||
+        Math.round((liveRosterMatch.dailyStreams || 5000) * 28)
+      );
+    }
     const collabStreamSum = bilateralCollabs.reduce(
       (acc, c) => acc + (c.dailyStreams || Math.floor((c.streams || 0) / 28)) * 0.45,
       0
     );
     return calculateNpcMonthlyListeners(enrichedNpc, collabStreamSum);
-  }, [enrichedNpc, bilateralCollabs]);
+  }, [enrichedNpc, liveRosterMatch, bilateralCollabs]);
+
+  const rosterListenerDelta = useMemo(() => {
+    if (!liveRosterMatch) return 0;
+    return (
+      (liveRosterMatch as any).listenerDelta ||
+      Math.round((liveRosterMatch.dailyStreams || 0) * 0.14)
+    );
+  }, [liveRosterMatch]);
 
   const topSongs = useMemo(() => {
     const combined: Array<{
@@ -303,6 +342,15 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
       onClose();
       return;
     }
+    const rosterMatch = findRosterArtistByNameOrId(artName, state);
+    if (rosterMatch) {
+      const labelState = state ? getEnsuredRecordLabelState(state) : null;
+      const impName = labelState?.imprint?.imprintName || 'Record Label';
+      const dateStr = state?.date ? String(state.date).split('T')[0] : '2026-01-01';
+      setSelectedRelease(null);
+      setCurrentNpcTarget(convertRosterArtistToDetailedNpc(rosterMatch, impName, dateStr));
+      return;
+    }
     const targetNpc = getDetailedNPC(artName);
     if (targetNpc) {
       setSelectedRelease(null);
@@ -431,18 +479,39 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-[#121212]/50 to-transparent" />
             <div className="absolute bottom-4 left-4 right-4">
-              <div className="flex items-center space-x-1.5 mb-2">
-                <i className="ph-fill ph-check-circle text-blue-400 text-lg"></i>
-                <span className="text-xs font-semibold text-white tracking-widest uppercase">
-                  Verified Artist
-                </span>
+              <div className="flex items-center flex-wrap gap-2 mb-2">
+                <div className="flex items-center space-x-1.5">
+                  <i className="ph-fill ph-check-circle text-blue-400 text-lg"></i>
+                  <span className="text-xs font-semibold text-white tracking-widest uppercase">
+                    Verified Artist
+                  </span>
+                </div>
+                {Boolean((enrichedNpc as any).isRosterArtist) && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#1DB954]/20 border border-[#1DB954]/50 text-[#1DB954] text-[10px] font-black uppercase tracking-wider">
+                    Signed • {(enrichedNpc as any).imprintName || 'Your Label'}
+                  </span>
+                )}
               </div>
               <h1 className="text-5xl font-black text-white tracking-tighter mb-2 leading-none">
                 {enrichedNpc.name}
               </h1>
-              <p className="text-gray-300 font-medium text-sm">
-                {formatNumFull(monthlyListeners)} monthly listeners
-              </p>
+              <div className="flex items-center flex-wrap gap-2">
+                <p className="text-gray-300 font-medium text-sm">
+                  {formatNumFull(monthlyListeners)} monthly listeners
+                </p>
+                {Boolean(liveRosterMatch && rosterListenerDelta !== 0) && (
+                  <span
+                    className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                      rosterListenerDelta > 0
+                        ? 'bg-[#1DB954]/20 text-[#1DB954] border border-[#1DB954]/40'
+                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                    }`}
+                  >
+                    {rosterListenerDelta > 0 ? '+' : ''}
+                    {formatNumFull(rosterListenerDelta)} today
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
