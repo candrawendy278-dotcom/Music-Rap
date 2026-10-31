@@ -11,25 +11,11 @@ import { DETAILED_NPCS, DetailedNPC } from './npcAssets';
 import { ImprintSignedArtist } from './recordLabelSystemEngine';
 import { getRosterTrustAndHiatusInfo } from './rosterTrustHiatusPayrollEngine';
 
-const MASTER_REAL_WORLD_NPCS_SNAPSHOT: RealWorldArtist[] = REAL_WORLD_NPCS.map(npc => ({
-  ...npc,
-  songs: (npc.songs || []).map(s => ({ ...s })),
-  albums: (npc.albums || []).map(a => ({
-    ...a,
-    tracks: (a.tracks || []).map(t => ({ ...t }))
-  }))
-}));
+const MASTER_REAL_WORLD_NPCS_SNAPSHOT: RealWorldArtist[] = [...REAL_WORLD_NPCS];
 
-const MASTER_DETAILED_NPCS_SNAPSHOT: DetailedNPC[] = DETAILED_NPCS.map(npc => ({
-  ...npc,
-  songs: (npc.songs || []).map(s => ({ ...s })),
-  albums: (npc.albums || []).map(a => ({
-    ...a,
-    tracks: (a.tracks || []).map(t => ({ ...t }))
-  }))
-}));
+const MASTER_DETAILED_NPCS_SNAPSHOT: DetailedNPC[] = [...DETAILED_NPCS];
 
-const MASTER_CONSTANTS_NPCS_SNAPSHOT = NPCS.map(npc => ({ ...npc }));
+const MASTER_CONSTANTS_NPCS_SNAPSHOT = [...NPCS];
 
 let lastDedupSignature = '__UNINITIALIZED__';
 

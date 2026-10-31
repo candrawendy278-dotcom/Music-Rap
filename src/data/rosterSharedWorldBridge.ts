@@ -244,7 +244,6 @@ export function simulateRosterArtistAsPlayerDaily(
   droppedNewReleaseTitle: string | null;
 } {
   const dateStr = currentDate.toISOString().split('T')[0];
-  const isMonday = currentDate.getDay() === 1;
   const art = ensureRosterArtistFullFields(rawArt, dateStr);
   const stageName = art.stageName || art.name;
   const staffBuffs = getRosterArtistStaffBuffs(state, art);
@@ -263,7 +262,7 @@ export function simulateRosterArtistAsPlayerDaily(
   let currentHype = Number(art.hype) || 45;
   let currentPop = Number(art.popularity) || 32;
   const realisticMaxTrackDaily = Math.round(
-    85000 + Math.pow(Math.max(5, currentPop), 2.25) * 320
+    18000 + Math.pow(Math.max(4, currentPop), 2.35) * 280
   );
 
   // Track which songs/projects were scheduled before today's market step
@@ -273,6 +272,12 @@ export function simulateRosterArtistAsPlayerDaily(
   const prevScheduledProjectIds = new Set(
     (art.projects || []).filter((p) => p.status === 'scheduled').map((p) => p.id)
   );
+
+  // Snapshot previous song & project counters before processDailyMarketStep so uncapped Player-skill surges never corrupt cumulative/weekly totals
+  const prevSongMap = new Map<string, Song>();
+  (art.songs || []).forEach((s) => prevSongMap.set(s.id, { ...s }));
+  const prevProjectMap = new Map<string, Project>();
+  (art.projects || []).forEach((p) => prevProjectMap.set(p.id, { ...p }));
 
   // 1. Advance song writing ('writing' -> 'written') exactly like Player in useGame.ts.
   // Note: 'recording' -> 'recorded' and 'scheduled' -> 'released' are handled inside `processDailyMarketStep`!
@@ -326,7 +331,7 @@ export function simulateRosterArtistAsPlayerDaily(
     currentFans
   );
 
-  // Accumulate daily streams & radio spins WITHOUT compounding dailyStreams by streamVelocityMult each day
+  // Accumulate daily streams, views, sales & radio spins strictly bounded by the Roster Artist's actual dailyStreams & popularity
   let totalDailyStreams = 0;
   let totalDailyViews = 0;
   let totalDailySales = 0;
@@ -338,6 +343,12 @@ export function simulateRosterArtistAsPlayerDaily(
     if (s.status !== 'released') {
       return { ...s, artist: stageName } as Song;
     }
+
+    const prevSong = prevSongMap.get(s.id);
+    const isJustReleasedToday = !prevSong || prevSong.status !== 'released';
+    const daysOut = Math.max(1, s.daysSinceRelease || 1);
+    const daysInCurrentWeek = Math.min(7, daysOut);
+
     const organicTrackStreams = Math.min(
       realisticMaxTrackDaily,
       Math.max(120, Math.round(s.dailyStreams || 0))
@@ -347,29 +358,91 @@ export function simulateRosterArtistAsPlayerDaily(
       : Math.round(
           Math.min(18000, organicTrackStreams * (staffBuffs.streamVelocityMult - 1) * 0.25)
         );
+    const finalDailyStreams = organicTrackStreams + nonCompoundingStaffAdd;
+
+    // Proportional caps so low dailyStreams NEVER have inflated sales, MV views, or radio spins from maxed Player skills
+    const maxRealisticDailySales = Math.max(
+      15,
+      Math.round(finalDailyStreams * (daysOut <= 3 ? 0.0045 : 0.0022))
+    );
+    const nextDailySales = Math.min(maxRealisticDailySales, Math.max(0, Math.round(s.dailyPureSales || 0)));
+
+    const maxRealisticDailyViews = s.hasMV
+      ? Math.max(80, Math.round(finalDailyStreams * 1.25))
+      : 0;
+    const nextDailyViews = s.hasMV
+      ? Math.min(maxRealisticDailyViews, Math.max(0, Math.round(s.dailyViews || 0)))
+      : 0;
+
+    const nextDailyLyricViews = s.hasLyricVideo
+      ? Math.min(Math.round(finalDailyStreams * 0.35), Math.max(0, Math.round(s.dailyLyricVideoViews || 0)))
+      : 0;
+    const nextDailyVisualizerViews = s.hasVisualizer
+      ? Math.min(Math.round(finalDailyStreams * 0.28), Math.max(0, Math.round(s.dailyVisualizerViews || 0)))
+      : 0;
+
     const radioAdd = isContractExpired ? 0 : Math.round(staffBuffs.radioSpinsBonus * 0.25);
+    const maxRealisticDailyRadio =
+      s.trackType === 'b_side'
+        ? 0
+        : Math.max(10, Math.round(currentPop * 16 + finalDailyStreams * 0.0045));
+    const nextDailyRadio = Math.min(
+      maxRealisticDailyRadio,
+      Math.max(0, Math.round((s.dailyRadioPlays || 0) * (currentPop / 100)) + radioAdd)
+    );
 
-    const nextDailyViews = s.dailyViews || 0;
-    const nextDailySales = s.dailyPureSales || 0;
+    // Sanitize previous weekly counters so any previously inflated save state is immediately bounded
+    const prevWeeklyStreamsSafe = isJustReleasedToday
+      ? 0
+      : Math.min(
+          prevSong?.weeklyStreams || 0,
+          Math.round(Math.max(finalDailyStreams, prevSong?.dailyStreams || finalDailyStreams) * Math.max(1, daysInCurrentWeek - 1) * 1.35)
+        );
+    const prevWeeklySalesSafe = isJustReleasedToday
+      ? 0
+      : Math.min(
+          prevSong?.weeklyPureSales || 0,
+          Math.round(Math.max(nextDailySales, 25) * Math.max(1, daysInCurrentWeek - 1) * 1.5)
+        );
+    const prevWeeklyViewsSafe = isJustReleasedToday
+      ? 0
+      : Math.min(
+          prevSong?.weeklyViews || 0,
+          Math.round(Math.max(nextDailyViews, 100) * Math.max(1, daysInCurrentWeek - 1) * 1.4)
+        );
+    const prevWeeklyRadioSafe = isJustReleasedToday
+      ? 0
+      : Math.min(
+          prevSong?.weeklyRadioPlays || 0,
+          Math.round(Math.max(nextDailyRadio, 20) * Math.max(1, daysInCurrentWeek - 1) * 1.4)
+        );
 
-    totalDailyStreams += organicTrackStreams + nonCompoundingStaffAdd;
-    totalDailyViews +=
-      nextDailyViews + (s.dailyLyricVideoViews || 0) + (s.dailyVisualizerViews || 0);
+    const prevTotalStreamsSafe = isJustReleasedToday ? 0 : Math.max(0, prevSong?.streams || 0);
+    const prevTotalSalesSafe = isJustReleasedToday ? 0 : Math.max(0, prevSong?.pureSales || 0);
+    const prevTotalViewsSafe = isJustReleasedToday ? 0 : Math.max(0, prevSong?.views || 0);
+    const prevTotalRadioSafe = isJustReleasedToday ? 0 : Math.max(0, prevSong?.radioPlays || 0);
+
+    totalDailyStreams += finalDailyStreams;
+    totalDailyViews += nextDailyViews + nextDailyLyricViews + nextDailyVisualizerViews;
     totalDailySales += nextDailySales;
 
     const nextSong: Song = {
       ...s,
       artist: stageName,
-      streams: (s.streams || 0) + nonCompoundingStaffAdd,
-      dailyStreams: organicTrackStreams,
-      weeklyStreams: isMonday
-        ? organicTrackStreams + nonCompoundingStaffAdd
-        : (s.weeklyStreams || 0) + nonCompoundingStaffAdd,
-      radioPlays: (s.radioPlays || 0) + radioAdd,
-      dailyRadioPlays: (s.dailyRadioPlays || 0) + radioAdd,
-      weeklyRadioPlays: isMonday
-        ? (s.dailyRadioPlays || 0) + radioAdd
-        : (s.weeklyRadioPlays || 0) + radioAdd,
+      streams: prevTotalStreamsSafe + finalDailyStreams,
+      dailyStreams: finalDailyStreams,
+      weeklyStreams: prevWeeklyStreamsSafe + finalDailyStreams,
+      pureSales: prevTotalSalesSafe + nextDailySales,
+      dailyPureSales: nextDailySales,
+      weeklyPureSales: prevWeeklySalesSafe + nextDailySales,
+      views: prevTotalViewsSafe + nextDailyViews,
+      dailyViews: nextDailyViews,
+      weeklyViews: prevWeeklyViewsSafe + nextDailyViews,
+      dailyLyricVideoViews: nextDailyLyricViews,
+      dailyVisualizerViews: nextDailyVisualizerViews,
+      radioPlays: prevTotalRadioSafe + nextDailyRadio,
+      dailyRadioPlays: nextDailyRadio,
+      weeklyRadioPlays: prevWeeklyRadioSafe + nextDailyRadio,
     } as Song;
     return nextSong;
   });
@@ -385,11 +458,32 @@ export function simulateRosterArtistAsPlayerDaily(
     if (p.status !== 'released') {
       return { ...p, songs: syncedProjSongs };
     }
-    totalDailySales += p.dailyPureSales || 0;
+    const prevProj = prevProjectMap.get(p.id);
+    const isProjJustReleased = !prevProj || prevProj.status !== 'released';
+    const projDailyStreamsSum = syncedProjSongs.reduce((acc, s) => acc + (s.dailyStreams || 0), 0);
+    const maxRealisticProjDailySales = Math.max(
+      10,
+      Math.round(projDailyStreamsSum * 0.0035 + currentPop * 12)
+    );
+    const safeProjDailySales = Math.min(
+      maxRealisticProjDailySales,
+      Math.max(0, Math.round(p.dailyPureSales || 0))
+    );
+    const prevProjWeeklySalesSafe = isProjJustReleased
+      ? 0
+      : Math.min(
+          prevProj?.weeklyPureSales || 0,
+          Math.round(Math.max(safeProjDailySales, 20) * 6 * 1.4)
+        );
+    const prevProjTotalSalesSafe = isProjJustReleased ? 0 : Math.max(0, prevProj?.pureSales || 0);
+
+    totalDailySales += safeProjDailySales;
     return {
       ...p,
       songs: syncedProjSongs,
-      weeklyPureSales: isMonday ? p.dailyPureSales || 0 : p.weeklyPureSales || 0,
+      pureSales: prevProjTotalSalesSafe + safeProjDailySales,
+      dailyPureSales: safeProjDailySales,
+      weeklyPureSales: prevProjWeeklySalesSafe + safeProjDailySales,
     };
   });
 

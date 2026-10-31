@@ -416,6 +416,7 @@ export function useGame() {
                  playerCountry: pCountry,
                  playerPopularity: pPop,
                  playerHype: pHype,
+                 isWeekly: true,
                  currentDate: date,
                  limit: 100
              });
@@ -686,6 +687,29 @@ export function useGame() {
                  ...p,
                  weeklyPureSales: p.dailyPureSales || 0
              }));
+             if (nextState.recordLabelState?.imprint?.signedRoster) {
+                 nextState.recordLabelState = {
+                     ...nextState.recordLabelState,
+                     imprint: {
+                         ...nextState.recordLabelState.imprint,
+                         signedRoster: nextState.recordLabelState.imprint.signedRoster.map(art => ({
+                             ...art,
+                             songs: (art.songs || []).map(s => ({
+                                 ...s,
+                                 weeklyStreams: s.dailyStreams || 0,
+                                 weeklyViews: s.dailyViews || 0,
+                                 weeklyPureSales: s.dailyPureSales || 0,
+                                 weeklyRadioPlays: s.dailyRadioPlays || 0
+                             })),
+                             projects: (art.projects || []).map(p => ({
+                                 ...p,
+                                 weeklyPureSales: p.dailyPureSales || 0
+                             }))
+                         }))
+                     }
+                 };
+                 syncActiveRosterArtistsToSharedWorld(nextState);
+             }
          }
         // --- END SPOTIFY DAILY CHARTS ---
 

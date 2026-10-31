@@ -16,11 +16,14 @@ import {
 } from './realWorldArtistCatalog';
 import { generateRealNpcSinglesChart } from './npcRealReleaseChartsEngine';
 import { isNpcMatchingPlayerName } from './npcPlayerDeduplicationEngine';
+import { getActiveSharedWorldRosterArtists } from './rosterSharedWorldBridge';
 
 export interface GlobalTrackAggregate {
   title: string;
   artist: string;
   isPlayer: boolean;
+  isRosterArtist?: boolean;
+  rosterArtistId?: string;
   cover: string | null;
   totalGlobalStreams: number;
   totalGlobalSales: number;
@@ -53,12 +56,13 @@ export function aggregateGlobal200Chart(
 
     for (let idx = 0; idx < countryChart.length; idx++) {
       const entry = countryChart[idx];
-      if (!entry.isPlayer && isNpcMatchingPlayerName(entry.artist, playerName)) {
+      const isRoster = Boolean((entry as any).isRosterArtist);
+      if (!entry.isPlayer && !isRoster && isNpcMatchingPlayerName(entry.artist, playerName)) {
         continue;
       }
 
-      const cleanArtist = entry.isPlayer ? entry.artist : normalizeRealArtistName(entry.artist);
-      const cleanTitle = entry.isPlayer ? entry.title : normalizeRealTitle(entry.title, cleanArtist, false);
+      const cleanArtist = entry.isPlayer || isRoster ? entry.artist : normalizeRealArtistName(entry.artist);
+      const cleanTitle = entry.isPlayer || isRoster ? entry.title : normalizeRealTitle(entry.title, cleanArtist, false);
       const key = `${cleanArtist.toLowerCase()}___${cleanTitle.toLowerCase()}`;
 
       let countryStreams = entry.stats?.streams || 0;
@@ -88,7 +92,12 @@ export function aggregateGlobal200Chart(
           title: cleanTitle,
           artist: cleanArtist,
           isPlayer: entry.isPlayer,
-          cover: entry.isPlayer ? entry.cover : resolveRealWorldCoverArt(cleanArtist, cleanTitle, false, entry.cover || undefined),
+          isRosterArtist: isRoster,
+          rosterArtistId: (entry as any).rosterArtistId,
+          cover:
+            entry.isPlayer || isRoster
+              ? entry.cover
+              : resolveRealWorldCoverArt(cleanArtist, cleanTitle, false, entry.cover || undefined),
           totalGlobalStreams: countryStreams,
           totalGlobalSales: countrySales,
           territoryCount: 1,
@@ -99,20 +108,31 @@ export function aggregateGlobal200Chart(
     }
   }
 
-  // 2. Ensure released player songs with active weekly streams are accurately represented
+  // 2. Ensure released player songs are strictly bounded to their actual global weekly streams & sales
   const releasedPlayerSongs = playerSongs.filter(
     s => s.status === 'released' && ((s.weeklyStreams || 0) > 0 || (s.dailyStreams || 0) > 0)
   );
 
   for (const pSong of releasedPlayerSongs) {
     const key = `${playerName.toLowerCase()}___${pSong.title.toLowerCase()}`;
-    const actualWeeklyStreams = Math.max(pSong.weeklyStreams || 0, (pSong.dailyStreams || 0) * 7);
-    const actualWeeklySales = Math.max(pSong.weeklyPureSales || 0, (pSong.dailyPureSales || 0) * 7);
+    const safeDailyStreams = Math.max(0, pSong.dailyStreams || 0);
+    const actualWeeklyStreams = Math.min(
+      pSong.weeklyStreams && pSong.weeklyStreams > 0 ? pSong.weeklyStreams : safeDailyStreams * 7,
+      Math.max(safeDailyStreams * 7, Math.round(safeDailyStreams * 8.5))
+    );
+    const safeDailySales = Math.min(
+      Math.max(25, Math.round(safeDailyStreams * 0.005)),
+      Math.max(0, pSong.dailyPureSales || 0)
+    );
+    const actualWeeklySales = Math.min(
+      pSong.weeklyPureSales && pSong.weeklyPureSales > 0 ? pSong.weeklyPureSales : safeDailySales * 7,
+      Math.max(safeDailySales * 7, Math.round(actualWeeklyStreams * 0.0055))
+    );
 
     const existing = trackMap.get(key);
     if (existing) {
-      existing.totalGlobalStreams = Math.max(existing.totalGlobalStreams, actualWeeklyStreams);
-      existing.totalGlobalSales = Math.max(existing.totalGlobalSales, actualWeeklySales);
+      existing.totalGlobalStreams = actualWeeklyStreams;
+      existing.totalGlobalSales = actualWeeklySales;
       existing.cover = pSong.cover || existing.cover;
       existing.isPlayer = true;
     } else if (actualWeeklyStreams > 5000 || actualWeeklySales > 50) {
@@ -130,13 +150,52 @@ export function aggregateGlobal200Chart(
     }
   }
 
+  // 2b. Strictly bound Roster Artist songs to their actual global weekly streams & sales so regional sum never inflates Global 200
+  const sharedRosterArtists = getActiveSharedWorldRosterArtists();
+  for (const rosterArt of sharedRosterArtists) {
+    const rName = rosterArt.stageName || rosterArt.name || 'Roster Artist';
+    for (const rSong of rosterArt.songs || []) {
+      if (rSong.status !== 'released') continue;
+      const safeDailyStreams = Math.max(0, rSong.dailyStreams || 0);
+      const actualWeeklyStreams = Math.min(
+        rSong.weeklyStreams && rSong.weeklyStreams > 0 ? rSong.weeklyStreams : safeDailyStreams * 7,
+        Math.max(safeDailyStreams * 7, Math.round(safeDailyStreams * 8.5))
+      );
+      const safeDailySales = Math.min(
+        Math.max(15, Math.round(safeDailyStreams * 0.0045)),
+        Math.max(0, rSong.dailyPureSales || 0)
+      );
+      const actualWeeklySales = Math.min(
+        rSong.weeklyPureSales && rSong.weeklyPureSales > 0 ? rSong.weeklyPureSales : safeDailySales * 7,
+        Math.max(safeDailySales * 7, Math.round(actualWeeklyStreams * 0.005))
+      );
+
+      // Match either plain title or collab-formatted artist credit key
+      trackMap.forEach((agg, mapKey) => {
+        if (
+          agg.title.toLowerCase() === rSong.title.toLowerCase() &&
+          (agg.rosterArtistId === rosterArt.id ||
+            agg.artist.toLowerCase().startsWith(rName.toLowerCase()))
+        ) {
+          agg.totalGlobalStreams = actualWeeklyStreams;
+          agg.totalGlobalSales = actualWeeklySales;
+          agg.isRosterArtist = true;
+          agg.rosterArtistId = rosterArt.id;
+        }
+      });
+    }
+  }
+
   // 3. Convert aggregated global totals into official Billboard Global 200 units
   const globalEntries: ChartItem[] = [];
 
   trackMap.forEach(agg => {
     const streamUnits = agg.totalGlobalStreams / 200;
     const salesUnits = agg.totalGlobalSales * 1.0;
-    const territoryBonus = Math.min(1.22, 1.0 + Math.max(0, agg.territoryCount - 1) * 0.008);
+    const territoryBonus =
+      agg.isPlayer || agg.isRosterArtist
+        ? 1.0
+        : Math.min(1.22, 1.0 + Math.max(0, agg.territoryCount - 1) * 0.008);
     const globalPoints = Math.max(15, Math.round((streamUnits + salesUnits) * territoryBonus));
 
     globalEntries.push({

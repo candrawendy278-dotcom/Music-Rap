@@ -15,7 +15,10 @@ import { isNpcMatchingPlayerName } from './npcPlayerDeduplicationEngine';
  * - When region === 'global': up to 200 unique entries (Billboard Global 200)
  * - When region !== 'global': up to 100 unique entries (Billboard Hot 100 / Regional Top 100)
  */
-export function getInitialBillboardSingles(region: string = 'global'): ChartItem[] {
+export function getInitialBillboardSingles(
+  region: string = 'global',
+  currentDate: Date | string = '2026-01-01T00:00:00Z'
+): ChartItem[] {
   return generateRealNpcSinglesChart({
     platform: 'billboard',
     region,
@@ -25,7 +28,7 @@ export function getInitialBillboardSingles(region: string = 'global'): ChartItem
     playerPopularity: 2.0,
     playerHype: 15.0,
     isWeekly: true,
-    currentDate: '2026-01-01T00:00:00Z',
+    currentDate,
     limit: region === 'global' ? 200 : 100
   });
 }
@@ -33,14 +36,18 @@ export function getInitialBillboardSingles(region: string = 'global'): ChartItem
 /**
  * Generates initial authentic Billboard Hot 100 chart (100 unique entries from actual NPC releases).
  */
-export function getInitialHot100Singles(): ChartItem[] {
-  return getInitialBillboardSingles('US');
+export function getInitialHot100Singles(
+  currentDate: Date | string = '2026-01-01T00:00:00Z'
+): ChartItem[] {
+  return getInitialBillboardSingles('US', currentDate);
 }
 
 /**
  * Generates initial authentic Billboard 200 Albums chart 100% from actual released NPC albums.
  */
-export function getInitialBillboardAlbums(): ChartItem[] {
+export function getInitialBillboardAlbums(
+  currentDate: Date | string = '2026-01-01T00:00:00Z'
+): ChartItem[] {
   return generateRealNpcAlbumsChart({
     platform: 'billboard',
     region: 'global',
@@ -48,7 +55,7 @@ export function getInitialBillboardAlbums(): ChartItem[] {
     playerSongs: [],
     playerName: '',
     playerCountry: 'US',
-    currentDate: '2026-01-01T00:00:00Z',
+    currentDate,
     limit: 200
   });
 }
@@ -65,7 +72,7 @@ export function ensureBillboard200Albums(
   currentDate?: Date | string
 ): ChartItem[] {
   if (!existingChart || existingChart.length === 0) {
-    return getInitialBillboardAlbums();
+    return getInitialBillboardAlbums(currentDate);
   }
 
   const deduped: ChartItem[] = [];
@@ -73,17 +80,18 @@ export function ensureBillboard200Albums(
   const seenTitles = new Set<string>();
 
   for (const item of existingChart) {
-    if (!item.isPlayer && isNpcMatchingPlayerName(item.artist)) {
+    const isRoster = Boolean((item as any).isRosterArtist);
+    if (!item.isPlayer && !isRoster && isNpcMatchingPlayerName(item.artist)) {
       continue;
     }
 
-    const primaryRaw = item.isPlayer ? item.artist : item.artist.split(',')[0].trim();
-    const cleanPrimary = item.isPlayer ? item.artist : normalizeRealArtistName(primaryRaw);
-    const cleanTitle = item.isPlayer ? item.title : normalizeRealTitle(item.title, cleanPrimary, true);
+    const primaryRaw = item.isPlayer || isRoster ? item.artist : item.artist.split(',')[0].trim();
+    const cleanPrimary = item.isPlayer || isRoster ? item.artist : normalizeRealArtistName(primaryRaw);
+    const cleanTitle = item.isPlayer || isRoster ? item.title : normalizeRealTitle(item.title, cleanPrimary, true);
     const key = `${cleanPrimary.toLowerCase()}::${cleanTitle.toLowerCase()}`;
     const titleKey = cleanTitle.toLowerCase().trim();
 
-    if (!item.isPlayer && (seenKeys.has(key) || seenTitles.has(titleKey))) {
+    if (!item.isPlayer && !isRoster && (seenKeys.has(key) || seenTitles.has(titleKey))) {
       continue;
     }
     seenKeys.add(key);
@@ -93,7 +101,10 @@ export function ensureBillboard200Albums(
       ...item,
       artist: item.artist.includes(',') ? item.artist : cleanPrimary,
       title: cleanTitle,
-      cover: item.isPlayer ? item.cover : resolveRealWorldCoverArt(cleanPrimary, cleanTitle, true, item.cover)
+      cover:
+        item.isPlayer || isRoster
+          ? item.cover
+          : resolveRealWorldCoverArt(cleanPrimary, cleanTitle, true, item.cover)
     });
   }
 
@@ -120,23 +131,24 @@ export function ensureBillboardSinglesChart(
 ): ChartItem[] {
   const targetCount = region === 'global' ? 200 : 100;
   if (!existingChart || existingChart.length === 0) {
-    return getInitialBillboardSingles(region);
+    return getInitialBillboardSingles(region, currentDate);
   }
 
   const deduped: ChartItem[] = [];
   const seenKeys = new Set<string>();
 
   for (const item of existingChart) {
-    if (!item.isPlayer && isNpcMatchingPlayerName(item.artist)) {
+    const isRoster = Boolean((item as any).isRosterArtist);
+    if (!item.isPlayer && !isRoster && isNpcMatchingPlayerName(item.artist)) {
       continue;
     }
 
-    const primaryRaw = item.isPlayer ? item.artist : item.artist.split(',')[0].trim();
-    const cleanPrimary = item.isPlayer ? item.artist : normalizeRealArtistName(primaryRaw);
-    const cleanTitle = item.isPlayer ? item.title : normalizeRealTitle(item.title, cleanPrimary, false);
+    const primaryRaw = item.isPlayer || isRoster ? item.artist : item.artist.split(',')[0].trim();
+    const cleanPrimary = item.isPlayer || isRoster ? item.artist : normalizeRealArtistName(primaryRaw);
+    const cleanTitle = item.isPlayer || isRoster ? item.title : normalizeRealTitle(item.title, cleanPrimary, false);
     const key = `${cleanPrimary.toLowerCase()}::${cleanTitle.toLowerCase()}`;
 
-    if (!item.isPlayer && seenKeys.has(key)) {
+    if (!item.isPlayer && !isRoster && seenKeys.has(key)) {
       continue;
     }
     seenKeys.add(key);
@@ -145,7 +157,10 @@ export function ensureBillboardSinglesChart(
       ...item,
       artist: item.artist.includes(',') ? item.artist : cleanPrimary,
       title: cleanTitle,
-      cover: item.isPlayer ? item.cover : resolveRealWorldCoverArt(cleanPrimary, cleanTitle, false, item.cover)
+      cover:
+        item.isPlayer || isRoster
+          ? item.cover
+          : resolveRealWorldCoverArt(cleanPrimary, cleanTitle, false, item.cover)
     });
   }
 

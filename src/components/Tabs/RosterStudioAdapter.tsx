@@ -73,7 +73,7 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
         country: ensuredArtist.country || realState.artist?.country || 'US',
         image: ensuredArtist.avatar || realState.artist?.image || '',
         avatar: ensuredArtist.avatar || realState.artist?.avatar || '',
-        tier: 2,
+        tier: (ensuredArtist.popularity ?? 35) >= 75 ? 2 : (ensuredArtist.popularity ?? 35) >= 45 ? 1 : 3,
         startYear: 2026
       },
       // IMPORTANT: Keep Player's own skills so Song Quality & Recording Quality are 100% measured from Player's skills!
@@ -110,7 +110,7 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
             country: liveTarget.country || prevRealState.artist?.country || 'US',
             image: liveTarget.avatar || prevRealState.artist?.image || '',
             avatar: liveTarget.avatar || prevRealState.artist?.avatar || '',
-            tier: 2,
+            tier: (liveTarget.popularity ?? 35) >= 75 ? 2 : (liveTarget.popularity ?? 35) >= 45 ? 1 : 3,
             startYear: 2026
           },
           skills: prevRealState.skills,

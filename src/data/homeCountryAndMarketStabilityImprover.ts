@@ -373,24 +373,49 @@ export function calculateCalibratedPlayerTerritoryMetrics(
 
   const effectiveTerritoryScale = npcCompatibleMarketFraction * affinityMultiplier;
 
-  // Global metrics for the song
-  const globalDailyStreams = song.dailyStreams || 0;
-  const globalWeeklyStreams =
+  // Global metrics for the song (strictly bounded so low-stream tracks never get phantom sales/radio/views spikes)
+  const globalDailyStreams = Math.max(0, song.dailyStreams || 0);
+  const rawWeeklyStreams =
     song.weeklyStreams && song.weeklyStreams > 0 ? song.weeklyStreams : globalDailyStreams * 7;
+  const globalWeeklyStreams = Math.min(
+    rawWeeklyStreams,
+    Math.max(globalDailyStreams * 7, Math.round(globalDailyStreams * 8.5))
+  );
 
-  const globalDailySales = song.dailyPureSales || 0;
-  const globalWeeklySales =
+  const maxRealisticDailySales = Math.max(25, Math.round(globalDailyStreams * 0.005));
+  const globalDailySales = Math.min(maxRealisticDailySales, Math.max(0, song.dailyPureSales || 0));
+  const rawWeeklySales =
     song.weeklyPureSales && song.weeklyPureSales > 0 ? song.weeklyPureSales : globalDailySales * 7;
+  const globalWeeklySales = Math.min(
+    rawWeeklySales,
+    Math.max(globalDailySales * 7, Math.round(globalWeeklyStreams * 0.0055))
+  );
 
-  const globalDailyRadio = song.dailyRadioPlays || 0;
-  const globalWeeklyRadio =
+  const maxRealisticDailyRadio = Math.max(
+    15,
+    Math.round(playerPopularity * 18 + globalDailyStreams * 0.005)
+  );
+  const globalDailyRadio = Math.min(maxRealisticDailyRadio, Math.max(0, song.dailyRadioPlays || 0));
+  const rawWeeklyRadio =
     song.weeklyRadioPlays && song.weeklyRadioPlays > 0 ? song.weeklyRadioPlays : globalDailyRadio * 7;
+  const globalWeeklyRadio = Math.min(
+    rawWeeklyRadio,
+    Math.max(globalDailyRadio * 7, Math.round(maxRealisticDailyRadio * 7))
+  );
 
-  const globalDailyViews = song.hasMV ? song.dailyViews || 0 : 0;
-  const globalWeeklyViews = song.hasMV
+  const maxRealisticDailyViews = song.hasMV
+    ? Math.max(100, Math.round(globalDailyStreams * 1.35))
+    : 0;
+  const globalDailyViews = song.hasMV
+    ? Math.min(maxRealisticDailyViews, Math.max(0, song.dailyViews || 0))
+    : 0;
+  const rawWeeklyViews = song.hasMV
     ? song.weeklyViews && song.weeklyViews > 0
       ? song.weeklyViews
       : globalDailyViews * 7
+    : 0;
+  const globalWeeklyViews = song.hasMV
+    ? Math.min(rawWeeklyViews, Math.max(globalDailyViews * 7, Math.round(globalWeeklyStreams * 1.35)))
     : 0;
 
   // Cultural platform propensity adjustments

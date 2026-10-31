@@ -99,60 +99,21 @@ export function isNpcMatchingPlayerName(
   return false;
 }
 
+import { getActiveSharedWorldRosterArtists } from './rosterSharedWorldBridge';
+import { syncWorldNpcDeduplicationWithRoster } from './rosterLifecycleAndNpcDedupEngine';
+
 /**
  * Synchronizes the global NPC arrays (`REAL_WORLD_NPCS` / `DETAILED_NPCS` and `NPCS`)
- * so that any NPC whose name matches `playerName` is automatically removed.
- * If the player starts a new game with a different name, previously removed NPCs are restored first.
+ * so that any NPC whose name matches `playerName` or any Active/Former Roster Artist is automatically removed.
+ * If the player starts a new game with a different name or deletes a Former Roster Artist, previously removed NPCs are restored first.
  */
 export function syncPlayerNameNpcDeduplication(playerName?: string | null): boolean {
   ensureRosterBackupCaptured();
-  if (!backupRoster) return false;
-
   const cleanPlayer = (playerName || '').trim();
   currentDeduplicatedPlayerName = cleanPlayer;
 
-  // Map existing live state of NPCs so we don't lose current workflow simulation data
-  const currentLiveById = new Map<string, DetailedNPC>();
-  REAL_WORLD_NPCS.forEach(n => {
-    currentLiveById.set(n.id, n);
-  });
-
-  const filteredDetailed: DetailedNPC[] = [];
-  for (const backupNpc of backupRoster.detailedNpcs) {
-    if (cleanPlayer && isNpcMatchingPlayerName(backupNpc.name, cleanPlayer)) {
-      continue; // Automatically delete NPC that collides with Player's artist name
-    }
-    const liveNpc = currentLiveById.get(backupNpc.id) || {
-      ...backupNpc,
-      songs: (backupNpc.songs || []).map(s => ({ ...s })),
-      albums: (backupNpc.albums || []).map(a => ({ ...a }))
-    };
-    filteredDetailed.push(liveNpc);
-  }
-
-  // Mutate REAL_WORLD_NPCS (which is also exported as DETAILED_NPCS) in place
-  REAL_WORLD_NPCS.length = 0;
-  REAL_WORLD_NPCS.push(...filteredDetailed);
-
-  // Mutate NPCS in place
-  NPCS.length = 0;
-  filteredDetailed.forEach(n => {
-    NPCS.push({
-      id: n.id,
-      name: n.name,
-      pop: n.pop,
-      hype: n.hype,
-      tier: n.tier,
-      country: n.country,
-      genre: n.genre,
-      image: n.image,
-      avatar: n.avatar,
-      bio: n.bio,
-      songs: n.songs,
-      albums: n.albums
-    });
-  });
-
+  const rosterArtists = getActiveSharedWorldRosterArtists();
+  syncWorldNpcDeduplicationWithRoster(cleanPlayer, rosterArtists);
   return true;
 }
 

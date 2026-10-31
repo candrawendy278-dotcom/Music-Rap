@@ -206,22 +206,20 @@ function getPrecomputedNpcPoolForDay(
           ? Math.max(1000, Math.floor(song.streams / Math.max(1, daysOut)))
           : fallbackDay0Streams;
 
-      const rawWeeklyStreams =
-        song.weeklyStreams && song.weeklyStreams > 0
-          ? song.weeklyStreams
-          : song.streams && song.streams > 0
-          ? Math.min(song.streams, rawDailyStreams * Math.min(7, Math.max(1, daysOut)))
-          : rawDailyStreams * 7;
+      const rawWeeklyStreams = Math.max(
+        song.weeklyStreams || 0,
+        rawDailyStreams * 6
+      );
 
       const rawDailySales =
         song.dailySales && song.dailySales > 0
           ? song.dailySales
           : Math.max(5, Math.floor(rawDailyStreams * 0.0018 * npcAttributes.salesSynergyMultiplier));
 
-      const rawWeeklySales =
-        song.sales && song.sales > 0
-          ? Math.min(song.sales, rawDailySales * Math.min(7, Math.max(1, daysOut)))
-          : rawDailySales * 7;
+      const rawWeeklySales = Math.max(
+        song.sales ? Math.min(song.sales, rawDailySales * 7) : 0,
+        rawDailySales * 6
+      );
 
       const rawRadio =
         song.radio && song.radio > 0
@@ -309,6 +307,7 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
   const { dayOfYear } = syncNpcRealisticReleaseWorkflow(effectiveDate);
 
   const isGlobal = region === 'global';
+  const effectiveIsWeekly = Boolean(isWeekly || platform === 'billboard');
   const marketFraction = getTerritoryMarketFraction(region);
   const profile = isGlobal ? null : getCountryMarketProfile(region);
 
@@ -446,22 +445,33 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
 
       if (isGlobal) {
         if (platform === 'billboard') {
-          const weeklySales =
-            s.weeklyPureSales && s.weeklyPureSales > 0
-              ? s.weeklyPureSales
-              : (s.dailyPureSales || 0) * 7;
-          const weeklyStreams =
-            s.weeklyStreams && s.weeklyStreams > 0
-              ? s.weeklyStreams
-              : (s.dailyStreams || 0) * 7;
-          const weeklyRadio =
-            s.weeklyRadioPlays && s.weeklyRadioPlays > 0
-              ? s.weeklyRadioPlays
-              : (s.dailyRadioPlays || 0) * 7;
+          const safeDailyStreams = Math.max(0, s.dailyStreams || 0);
+          const weeklyStreams = Math.min(
+            s.weeklyStreams && s.weeklyStreams > 0 ? s.weeklyStreams : safeDailyStreams * 7,
+            Math.max(safeDailyStreams * 7, Math.round(safeDailyStreams * 8.5))
+          );
+          const safeDailySales = Math.min(
+            Math.max(25, Math.round(safeDailyStreams * 0.005)),
+            Math.max(0, s.dailyPureSales || 0)
+          );
+          const weeklySales = Math.min(
+            s.weeklyPureSales && s.weeklyPureSales > 0 ? s.weeklyPureSales : safeDailySales * 7,
+            Math.max(safeDailySales * 7, Math.round(weeklyStreams * 0.0055))
+          );
+          const maxDailyRadio = Math.max(15, Math.round(playerPopularity * 18 + safeDailyStreams * 0.005));
+          const safeDailyRadio = Math.min(maxDailyRadio, Math.max(0, s.dailyRadioPlays || 0));
+          const weeklyRadio = Math.min(
+            s.weeklyRadioPlays && s.weeklyRadioPlays > 0 ? s.weeklyRadioPlays : safeDailyRadio * 7,
+            Math.max(safeDailyRadio * 7, maxDailyRadio * 7)
+          );
+          const safeDailyViews = s.hasMV
+            ? Math.min(Math.max(100, Math.round(safeDailyStreams * 1.35)), Math.max(0, s.dailyViews || 0))
+            : 0;
           const weeklyVideo = s.hasMV
-            ? s.weeklyViews && s.weeklyViews > 0
-              ? s.weeklyViews
-              : (s.dailyViews || 0) * 7
+            ? Math.min(
+                s.weeklyViews && s.weeklyViews > 0 ? s.weeklyViews : safeDailyViews * 7,
+                Math.max(safeDailyViews * 7, Math.round(weeklyStreams * 1.35))
+              )
             : 0;
           rawPts = calculateAuthenticBillboardPoints({
             weeklyAudioStreams: weeklyStreams,
@@ -472,14 +482,14 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
           });
           stats = { streams: weeklyStreams, sales: weeklySales, radio: 0 };
         } else if (platform === 'spotify') {
-          rawPts = isWeekly
+          rawPts = effectiveIsWeekly
             ? s.weeklyStreams && s.weeklyStreams > 0
               ? s.weeklyStreams
               : (s.dailyStreams || 0) * 7
             : s.dailyStreams || 0;
           stats = {
             streams: rawPts,
-            sales: isWeekly ? s.weeklyPureSales || 0 : s.dailyPureSales || 0,
+            sales: effectiveIsWeekly ? s.weeklyPureSales || 0 : s.dailyPureSales || 0,
             radio: s.dailyRadioPlays || 0
           };
         } else if (platform === 'youtube') {
@@ -505,7 +515,7 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
           playerCountry,
           playerPopularity,
           playerHype,
-          isWeekly: Boolean(isWeekly),
+          isWeekly: effectiveIsWeekly,
           topGlobalNpcScore,
           topRegionNpcScore
         });
@@ -572,59 +582,71 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
           radio: s.weeklyRadioPlays || s.dailyRadioPlays || 0
         };
 
-        const totalDailyViews =
+        const safeRosterDailyStreams = Math.max(0, s.dailyStreams || 0);
+        const safeRosterWeeklyStreams = Math.min(
+          s.weeklyStreams && s.weeklyStreams > 0 ? s.weeklyStreams : safeRosterDailyStreams * 7,
+          Math.max(safeRosterDailyStreams * 7, Math.round(safeRosterDailyStreams * 8.5))
+        );
+        const safeRosterDailySales = Math.min(
+          Math.max(15, Math.round(safeRosterDailyStreams * 0.0045)),
+          Math.max(0, s.dailyPureSales || 0)
+        );
+        const safeRosterWeeklySales = Math.min(
+          s.weeklyPureSales && s.weeklyPureSales > 0 ? s.weeklyPureSales : safeRosterDailySales * 7,
+          Math.max(safeRosterDailySales * 7, Math.round(safeRosterWeeklyStreams * 0.005))
+        );
+        const maxRosterDailyRadio = Math.max(10, Math.round(rPop * 16 + safeRosterDailyStreams * 0.0045));
+        const safeRosterDailyRadio = Math.min(maxRosterDailyRadio, Math.max(0, s.dailyRadioPlays || 0));
+        const safeRosterWeeklyRadio = Math.min(
+          s.weeklyRadioPlays && s.weeklyRadioPlays > 0 ? s.weeklyRadioPlays : safeRosterDailyRadio * 7,
+          Math.max(safeRosterDailyRadio * 7, maxRosterDailyRadio * 7)
+        );
+
+        const rawTotalDailyViews =
           (s.dailyViews || 0) +
           (s.dailyLyricVideoViews || 0) +
           (s.dailyVisualizerViews || 0);
-        const totalWeeklyViews =
+        const totalDailyViews = Math.min(
+          Math.max(80, Math.round(safeRosterDailyStreams * 1.4)),
+          Math.max(0, rawTotalDailyViews)
+        );
+        const rawTotalWeeklyViews =
           (s.weeklyViews && s.weeklyViews > 0 ? s.weeklyViews : (s.dailyViews || 0) * 7) +
           (s.dailyLyricVideoViews || 0) * 7 +
           (s.dailyVisualizerViews || 0) * 7;
+        const totalWeeklyViews = Math.min(
+          rawTotalWeeklyViews,
+          Math.max(totalDailyViews * 7, Math.round(safeRosterWeeklyStreams * 1.4))
+        );
 
         if (isGlobal) {
           if (platform === 'billboard') {
-            const weeklySales =
-              s.weeklyPureSales && s.weeklyPureSales > 0
-                ? s.weeklyPureSales
-                : (s.dailyPureSales || 0) * 7;
-            const weeklyStreams =
-              s.weeklyStreams && s.weeklyStreams > 0
-                ? s.weeklyStreams
-                : (s.dailyStreams || 0) * 7;
-            const weeklyRadio =
-              s.weeklyRadioPlays && s.weeklyRadioPlays > 0
-                ? s.weeklyRadioPlays
-                : (s.dailyRadioPlays || 0) * 7;
             rawPts = calculateAuthenticBillboardPoints({
-              weeklyAudioStreams: weeklyStreams,
+              weeklyAudioStreams: safeRosterWeeklyStreams,
               weeklyVideoViews: totalWeeklyViews,
-              weeklyPureSales: weeklySales,
-              weeklyRadioPlays: weeklyRadio,
+              weeklyPureSales: safeRosterWeeklySales,
+              weeklyRadioPlays: safeRosterWeeklyRadio,
               isGlobal: true
             });
-            stats = { streams: weeklyStreams, sales: weeklySales, radio: 0 };
+            stats = { streams: safeRosterWeeklyStreams, sales: safeRosterWeeklySales, radio: 0 };
           } else if (platform === 'spotify') {
-            rawPts = isWeekly
-              ? s.weeklyStreams && s.weeklyStreams > 0
-                ? s.weeklyStreams
-                : (s.dailyStreams || 0) * 7
-              : s.dailyStreams || 0;
+            rawPts = effectiveIsWeekly ? safeRosterWeeklyStreams : safeRosterDailyStreams;
             stats = {
               streams: rawPts,
-              sales: isWeekly ? s.weeklyPureSales || 0 : s.dailyPureSales || 0,
-              radio: s.dailyRadioPlays || 0
+              sales: effectiveIsWeekly ? safeRosterWeeklySales : safeRosterDailySales,
+              radio: safeRosterDailyRadio
             };
           } else if (platform === 'youtube') {
             rawPts = totalDailyViews;
             stats = {
               streams: rawPts,
-              sales: s.dailyPureSales || 0,
+              sales: safeRosterDailySales,
               radio: 0
             };
           } else if (platform === 'itunes') {
-            rawPts = s.dailyPureSales || 0;
+            rawPts = safeRosterDailySales;
             stats = {
-              streams: s.dailyStreams || 0,
+              streams: safeRosterDailyStreams,
               sales: rawPts,
               radio: 0
             };
@@ -633,6 +655,12 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
           const calibratedTerritory = calculateCalibratedPlayerTerritoryMetrics({
             song: {
               ...s,
+              dailyStreams: safeRosterDailyStreams,
+              weeklyStreams: safeRosterWeeklyStreams,
+              dailyPureSales: safeRosterDailySales,
+              weeklyPureSales: safeRosterWeeklySales,
+              dailyRadioPlays: safeRosterDailyRadio,
+              weeklyRadioPlays: safeRosterWeeklyRadio,
               dailyViews: totalDailyViews,
               weeklyViews: totalWeeklyViews
             },
@@ -641,7 +669,7 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
             playerCountry: rCountry,
             playerPopularity: rPop,
             playerHype: rHype,
-            isWeekly: Boolean(isWeekly),
+            isWeekly: effectiveIsWeekly,
             topGlobalNpcScore,
             topRegionNpcScore
           });
@@ -814,18 +842,46 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
           s => p.songs && p.songs.some(ps => ps.id === s.id)
         );
         const effectiveProjSongs = projSongs.length > 0 ? projSongs : (p.songs || []);
-        const projWeeklyStreams = effectiveProjSongs.reduce(
+        const projDailyStreams = effectiveProjSongs.reduce(
+          (acc, s) => acc + Math.max(0, s.dailyStreams || 0),
+          0
+        );
+        const rawProjWeeklyStreams = effectiveProjSongs.reduce(
           (acc, s) => acc + (s.weeklyStreams || (s.dailyStreams || 0) * 7),
           0
         );
-        const trackEquivAlbumsDaily = Math.round(
-          effectiveProjSongs.reduce((acc, s) => acc + (s.dailyPureSales || 0), 0) / 10
+        const projWeeklyStreams = Math.min(
+          rawProjWeeklyStreams,
+          Math.max(projDailyStreams * 7, Math.round(projDailyStreams * 8.5))
         );
-        const projDailySales = (p.dailyPureSales || 0) + Math.min(4500, trackEquivAlbumsDaily);
-        const projWeeklySales =
+        const trackEquivAlbumsDaily = Math.round(
+          effectiveProjSongs.reduce(
+            (acc, s) =>
+              acc +
+              Math.min(
+                Math.max(15, Math.round((s.dailyStreams || 0) * 0.0045)),
+                Math.max(0, s.dailyPureSales || 0)
+              ),
+            0
+          ) / 10
+        );
+        const maxRealisticProjDailySales = Math.max(
+          10,
+          Math.round(projDailyStreams * 0.0035 + (rosterArt.popularity || 32) * 12)
+        );
+        const safeProjDailyPureSales = Math.min(
+          maxRealisticProjDailySales,
+          Math.max(0, p.dailyPureSales || 0)
+        );
+        const projDailySales = safeProjDailyPureSales + Math.min(4500, trackEquivAlbumsDaily);
+        const rawProjWeeklySales =
           p.weeklyPureSales && p.weeklyPureSales > 0
             ? p.weeklyPureSales
             : projDailySales * 7;
+        const projWeeklySales = Math.min(
+          rawProjWeeklySales,
+          Math.max(projDailySales * 7, Math.round(projDailySales * 8))
+        );
 
         const seaUnits = Math.round(projWeeklyStreams / 1500);
         const totalWeeklyUnits = Math.max(0, seaUnits + Math.round(projWeeklySales));
@@ -904,12 +960,18 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
             )
           : 0;
 
-      const effectiveWeeklyStreams =
+      const trackDailyStreams = (alb.tracks || []).reduce(
+        (sum, t) => sum + ((t as any).dailyStreams || 0),
+        0
+      );
+      const effectiveWeeklyStreams = Math.max(
         trackWeeklyStreams > 0
           ? trackWeeklyStreams
           : trackTotalStreams > 0
           ? trackTotalStreams
-          : fallbackDay0WeeklyStreams;
+          : fallbackDay0WeeklyStreams,
+        trackDailyStreams * 6
+      );
 
       const effectiveDailySales =
         (alb as any).dailySales && (alb as any).dailySales > 0
@@ -922,10 +984,12 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
               )
             );
 
-      const effectiveWeeklySales =
+      const effectiveWeeklySales = Math.max(
         (alb as any).weeklySales && (alb as any).weeklySales > 0
           ? (alb as any).weeklySales
-          : effectiveDailySales * Math.min(7, Math.max(1, daysOut || 7));
+          : 0,
+        effectiveDailySales * 6
+      );
 
       const seaUnits = Math.round(effectiveWeeklyStreams / 1500);
       const weeklyTotalUnits = Math.max(100, seaUnits + effectiveWeeklySales);
