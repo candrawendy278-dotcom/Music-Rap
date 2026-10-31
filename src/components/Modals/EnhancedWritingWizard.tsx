@@ -71,7 +71,7 @@ export default function EnhancedWritingWizard({ onClose }: EnhancedWritingWizard
   const qualityCalculation = useMemo(() => {
     let collabBonus = 0;
     if (collab !== 'none') {
-      collabBonus = collabContract?.qualityBonus || 12;
+      collabBonus = collabContract?.qualityBonus || 5;
     }
 
     return calculateSongwritingQuality({
@@ -117,7 +117,7 @@ export default function EnhancedWritingWizard({ onClose }: EnhancedWritingWizard
       meaningId: selectedMeaningId,
       writerType: writer,
       writingDays: parseInt(days),
-      collabBonus: collab !== 'none' ? (collabContract?.qualityBonus || 12) : 0,
+      collabBonus: collab !== 'none' ? (collabContract?.qualityBonus || 5) : 0,
       deterministic: false
     });
 

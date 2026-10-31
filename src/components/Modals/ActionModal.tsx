@@ -62,7 +62,7 @@ export default function ActionModal({ type, onClose }: { type: string, onClose: 
       newMoney -= cost;
 
       let qualityBonus = writer === 'pro' ? 18 : 0;
-      if (collab !== 'none') qualityBonus += 12;
+      if (collab !== 'none') qualityBonus += 5;
 
       let baseQuality = 10 + (parseInt(days) * 7) + qualityBonus + (Math.random() * 10);
       
@@ -139,7 +139,7 @@ export default function ActionModal({ type, onClose }: { type: string, onClose: 
           const id = parseInt(releaseTarget.split('_')[1]);
           nextP.songs = nextP.songs.map(s => {
             if (s.id === id) {
-              let collabBonus = s.collabId !== 'none' ? 25 : 0;
+              let collabBonus = s.collabId && s.collabId !== 'none' ? 6 : 0;
               return { 
                 ...s, 
                 status: targetStatus, 
@@ -176,7 +176,7 @@ export default function ActionModal({ type, onClose }: { type: string, onClose: 
                             trackType: project.type === 'single_pack' ? ('single' as const) : ('b_side' as const),
                             basePotential: projBasePot * (project.type === 'single_pack' 
                               ? 0.95 
-                              : (0.58 + ((s.quality / 100) * 0.25) + (s.collabId !== 'none' ? 0.20 : 0.0))), 
+                              : (0.56 + ((s.quality / 100) * 0.22) + (s.collabId && s.collabId !== 'none' ? 0.03 : 0.0))), 
                             cover: project.cover 
                           };
                       } else {

@@ -62,9 +62,13 @@ export function computeEnhancedSongMarketMultipliers(
     }
   }
 
-  // 3. Collaboration Crossover & Cross-Fanbase Discovery
+  // 3. Collaboration Crossover & Cross-Fanbase Discovery (Singles only, modest & quality-gated)
   const hasCollab = Boolean(song.collabId && song.collabId !== 'none' && song.collabId !== '');
-  const collabMult = hasCollab ? (daysOut <= 10 ? 1.16 : daysOut <= 28 ? 1.09 : 1.04) : 1.0;
+  const isBSide = song.trackType === 'b_side';
+  const collabMult =
+    hasCollab && !isBSide && quality >= 65
+      ? (daysOut <= 7 ? 1.05 : daysOut <= 21 ? 1.02 : 1.0)
+      : 1.0;
 
   // 4. Organic Playlist Reach & Algorithmic Autoplay / Discover Weekly Pickups
   const playlistCount = Array.isArray(song.playlistPlacements) ? song.playlistPlacements.length : 0;
@@ -114,7 +118,7 @@ export function computeEnhancedSongMarketMultipliers(
     Math.min(
       1.42,
       superfanSalesBonus *
-        (hasCollab ? 1.06 : 1.0) *
+        (hasCollab && !isBSide && quality >= 68 ? 1.02 : 1.0) *
         (quality >= 92 ? 1.10 : quality >= 84 ? 1.05 : 1.0)
     ).toFixed(3)
   );

@@ -51,20 +51,32 @@ export function evaluateDistinctTrackProfile(
   // If this is an official Single
   if (isSingle) {
     const potential = Math.max(1, song.basePotential || 50);
-    const hasCollab = !!song.collabId && song.collabId !== 'none';
-    const collabSurge = hasCollab ? 1.25 : 1.0;
+    const hasCollab = Boolean(song.collabId && song.collabId !== 'none');
+    // Chemistry roll for collaborations: not every collaboration clicks with the public!
+    // Low/mediocre quality or clashing chemistry yields 0.94x - 1.01x; strong synergy yields up to 1.09x.
+    const collabChemistryRoll = (hash % 100) / 100;
+    const collabSurge = hasCollab
+      ? quality < 62
+        ? 0.95
+        : collabChemistryRoll < 0.35
+        ? 0.97
+        : collabChemistryRoll < 0.75
+        ? 1.04
+        : 1.09
+      : 1.0;
+
     // Composite strength of single (quality + potential + slight organic variance)
     const singleStrength = (quality * 0.45) + (potential * 0.40) + ((hash % 25) * 0.6);
 
     // 1. Standout Smash Hit Single (high quality + strong potential)
-    if (singleStrength >= 72 || (isLead && quality >= 68 && potential >= 65)) {
-      const streamMod = (isLead ? 1.45 : 1.30) * collabSurge;
+    if (singleStrength >= 74 || (isLead && quality >= 72 && potential >= 68)) {
+      const streamMod = isLead ? 1.38 : 1.24;
       return {
         persona: 'breakout_smash',
         personaLabel: isLead ? 'Lead Smash Single' : 'Commercial Hit Single',
         streamingModifier: Number(streamMod.toFixed(2)),
-        salesModifier: isLead ? 1.40 : 1.20,
-        radioModifier: isLead ? 1.35 : 1.15,
+        salesModifier: isLead ? 1.32 : 1.16,
+        radioModifier: isLead ? 1.30 : 1.12,
         trackSequenceBoost: 1.0,
         collabSurge,
         explanation: isLead 
@@ -74,14 +86,14 @@ export function evaluateDistinctTrackProfile(
     }
 
     // 2. Solid Commercial Single
-    if (singleStrength >= 50 || isLead) {
-      const streamMod = (isLead ? 1.20 : 1.10) * collabSurge;
+    if (singleStrength >= 52 || isLead) {
+      const streamMod = isLead ? 1.16 : 1.06;
       return {
         persona: 'fan_favorite',
         personaLabel: isLead ? 'Lead Single Priority' : 'Official Single',
         streamingModifier: Number(streamMod.toFixed(2)),
-        salesModifier: isLead ? 1.18 : 1.05,
-        radioModifier: isLead ? 1.15 : 1.0,
+        salesModifier: isLead ? 1.14 : 1.02,
+        radioModifier: isLead ? 1.12 : 1.0,
         trackSequenceBoost: 1.0,
         collabSurge,
         explanation: 'Official commercial single serviced across streaming and digital storefronts.'
@@ -89,13 +101,13 @@ export function evaluateDistinctTrackProfile(
     }
 
     // 3. Moderate Single
-    if (singleStrength >= 34) {
-      const streamMod = 0.95 * collabSurge;
+    if (singleStrength >= 36) {
+      const streamMod = 0.92;
       return {
         persona: 'core_track',
         personaLabel: 'Moderate Single',
         streamingModifier: Number(streamMod.toFixed(2)),
-        salesModifier: 0.90,
+        salesModifier: 0.88,
         radioModifier: 0.85,
         trackSequenceBoost: 1.0,
         collabSurge,
@@ -104,12 +116,12 @@ export function evaluateDistinctTrackProfile(
     }
 
     // 4. Underperforming Single
-    const streamMod = 0.80 * collabSurge;
+    const streamMod = 0.76;
     return {
       persona: 'deep_cut',
       personaLabel: 'Underperforming Single',
       streamingModifier: Number(streamMod.toFixed(2)),
-      salesModifier: 0.70,
+      salesModifier: 0.68,
       radioModifier: 0.60,
       trackSequenceBoost: 1.0,
       collabSurge,
@@ -123,74 +135,76 @@ export function evaluateDistinctTrackProfile(
   let sequenceBoost = 1.0;
   if (trackIndex !== undefined && totalTracks && totalTracks > 1) {
     if (trackIndex === 0) {
-      sequenceBoost = 1.32; // Track 1 album opener - highest immediate full-album play-through
+      sequenceBoost = 1.24; // Track 1 album opener - highest immediate full-album play-through
     } else if (trackIndex === 1) {
-      sequenceBoost = 1.20; // Track 2 - strong momentum continuation
+      sequenceBoost = 1.14; // Track 2 - strong momentum continuation
     } else if (trackIndex === 2) {
-      sequenceBoost = 1.10;
+      sequenceBoost = 1.06;
     } else if (trackIndex >= totalTracks - 2) {
       sequenceBoost = 0.82; // End of album listener drop-off
     } else {
-      sequenceBoost = 0.95; // Mid-album baseline
+      sequenceBoost = 0.94; // Mid-album baseline
     }
   }
 
-  // 2. Collab feature on an album track:
+  // 2. Collab feature on an album B-side:
+  // Heavily dampened so B-side collaborations CANNOT act like promoted singles or guarantee hits!
+  // If track quality or chemistry is weak, a B-side collab can even underperform (0.94x).
   let collabSurge = 1.0;
   if (song.collabId && song.collabId !== 'none') {
-    collabSurge = 1.55; // Collab cuts get direct fan flocking!
+    const bSideCollabRoll = (hash % 100) / 100;
+    if (quality < 65 || bSideCollabRoll < 0.40) {
+      collabSurge = 0.95; // Unpromoted B-side feature with lukewarm listener retention
+    } else if (bSideCollabRoll < 0.80) {
+      collabSurge = 1.02; // Slight curiosity check on album drop, no runaway boost
+    } else {
+      collabSurge = 1.06; // Modest 6% lift for high-synergy album cut feature
+    }
   }
 
   // 3. Album Project Era Reception (Hit Era vs Flop Era):
-  // As observed in the real industry, top artist B-sides average >100k daily streams when the album is a hit era,
-  // but if the album flops or loses momentum, casual listeners stop binging deep tracks and B-sides fall significantly.
   let albumEraFactor = 1.0;
   if (project) {
     const projQuality = project.quality !== undefined ? project.quality : 50;
     const projMomentum = project.momentum !== undefined ? project.momentum : 1.0;
 
     if (projQuality >= 75 && projMomentum >= 0.55) {
-      // Smash / Hit Album Era (e.g. Midnights, SOS, Hit Me Hard and Soft)
-      albumEraFactor = 1.25;
+      albumEraFactor = 1.20;
     } else if (projQuality >= 55 && projMomentum >= 0.40) {
-      // Solid Album Era
       albumEraFactor = 1.0;
     } else if (projQuality < 45 || projMomentum < 0.30) {
-      // Flop Album Era (low critical score or abandoned momentum)
       albumEraFactor = Math.max(0.35, 0.40 + (projQuality / 100) * 0.30) * Math.max(0.45, projMomentum);
     } else {
-      // Lukewarm / Average Album Era
       albumEraFactor = 0.80;
     }
   }
 
   // 4. Intrinsic Organic Fan Resonance (Breakout vs Core vs Deep Cut):
-  // Evaluated based on track quality + deterministic individuality hash
-  const resonanceScore = (quality * 0.6) + ((hash % 40) * 1.0);
+  // Evaluated strictly on track quality + deterministic individuality hash (collaborations NEVER bypass this!)
+  const resonanceScore = (quality * 0.58) + ((hash % 36) * 0.95);
 
-  if (resonanceScore >= 82 || (song.collabId && song.collabId !== 'none' && quality >= 70)) {
-    // The "Cruel Summer" / "Snooze" phenomenon:
-    // A breakout B-side that fans replay obsessively! True sleepers transcend even a lukewarm era.
+  if (resonanceScore >= 86 && quality >= 82 && (hash % 100) >= 78) {
+    // Rare genuine sleeper B-side (requires exceptional quality 82+ AND top 22% organic roll; collab gives zero shortcut)
     const sleeperFactor = Math.max(0.85, albumEraFactor);
     return {
       persona: 'breakout_smash',
       personaLabel: 'Viral Sleeper Smash',
-      streamingModifier: Number((2.05 * sequenceBoost * collabSurge * sleeperFactor).toFixed(2)),
-      salesModifier: 0.16 * collabSurge, // Standout downloads
+      streamingModifier: Number((1.58 * sequenceBoost * sleeperFactor).toFixed(2)),
+      salesModifier: 0.12,
       radioModifier: 0.0, // Commercial radio does not spin B-sides until serviced
       trackSequenceBoost: sequenceBoost,
       collabSurge,
-      explanation: 'Breakout fan-favorite deep cut generating massive viral replay value.'
+      explanation: 'Breakout fan-favorite deep cut generating strong organic replay value.'
     };
   }
 
-  if (resonanceScore >= 68 || trackIndex === 0) {
+  if (resonanceScore >= 70 || trackIndex === 0) {
     // Strong fan favorite or lead-in
     return {
       persona: trackIndex === 0 ? 'album_opener' : 'fan_favorite',
       personaLabel: trackIndex === 0 ? 'Album Opener Focus' : 'Fan Favorite Pick',
-      streamingModifier: Number((1.55 * sequenceBoost * collabSurge * albumEraFactor).toFixed(2)),
-      salesModifier: 0.08 * collabSurge,
+      streamingModifier: Number((1.28 * sequenceBoost * albumEraFactor).toFixed(2)),
+      salesModifier: 0.06,
       radioModifier: 0.0,
       trackSequenceBoost: sequenceBoost,
       collabSurge,
@@ -198,13 +212,13 @@ export function evaluateDistinctTrackProfile(
     };
   }
 
-  if (resonanceScore >= 45) {
+  if (resonanceScore >= 46) {
     // Core cohesive album track
     return {
       persona: 'core_track',
       personaLabel: 'Core Album Track',
-      streamingModifier: Number((1.18 * sequenceBoost * collabSurge * albumEraFactor).toFixed(2)),
-      salesModifier: 0.05,
+      streamingModifier: Number((1.05 * sequenceBoost * albumEraFactor).toFixed(2)),
+      salesModifier: 0.04,
       radioModifier: 0.0,
       trackSequenceBoost: sequenceBoost,
       collabSurge,
@@ -216,8 +230,8 @@ export function evaluateDistinctTrackProfile(
   return {
     persona: 'deep_cut',
     personaLabel: 'Niche Deep Cut',
-    streamingModifier: Number((0.88 * sequenceBoost * albumEraFactor).toFixed(2)),
-    salesModifier: 0.025,
+    streamingModifier: Number((0.82 * sequenceBoost * albumEraFactor).toFixed(2)),
+    salesModifier: 0.02,
     radioModifier: 0.0,
     trackSequenceBoost: sequenceBoost,
     collabSurge,

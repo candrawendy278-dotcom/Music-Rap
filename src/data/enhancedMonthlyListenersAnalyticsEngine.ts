@@ -125,12 +125,16 @@ export function calculateEnhancedMonthlyListenersStep(params: {
       totalPlaylistScore += Math.min(4, plCount) * 0.032 * plWeight;
     }
 
-    // 2. Collaboration crossover audience from featured NPC artist (discounted for multiple collabs)
-    if (song.collabId && song.collabId !== 'none') {
+    // 2. Collaboration crossover audience from featured NPC artist (strictly tied to active song performance & heavily dampened on B-sides)
+    if (song.collabId && song.collabId !== 'none' && sDaily > 0) {
       const exp = getNpcCollabExpectations(song.collabId, popularity);
-      const decay = daysOut <= 28 ? 1.0 : Math.max(0.2, 28 / Math.max(28, daysOut));
+      const decay = daysOut <= 21 ? 1.0 : Math.max(0.1, 21 / Math.max(21, daysOut));
+      const bSideDampener = song.trackType === 'b_side' ? 0.18 : 1.0;
+      const performanceScale = Math.min(1, sDaily / 75_000);
       const songCollabBonus = Math.round(
-        (sDaily * (0.42 + exp.audienceCrossoverBoost * 0.85) + exp.npcPop * 1400) * decay
+        (sDaily * (0.14 + exp.audienceCrossoverBoost * 0.45) + exp.npcPop * 280 * performanceScale) *
+          decay *
+          bSideDampener
       );
       collabBonuses.push(songCollabBonus);
     }

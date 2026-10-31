@@ -167,8 +167,11 @@ export function evaluateSingleDebutDynamics(params: {
   // Lead singles receive stronger editorial focus
   const leadPriorityBoost = isLeadSingle ? 1.18 : 1.0;
 
-  // Collaboration boost on debut (dual fanbases unite on Day 1)
-  const collabBoost = (song.collabId && song.collabId !== 'none') ? 1.22 : 1.0;
+  // Collaboration modifier on debut (chemistry-dependent: forced features can underperform, strong synergy gives a modest lift)
+  const hasCollab = Boolean(song.collabId && song.collabId !== 'none');
+  const collabBoost = hasCollab
+    ? (uniqueTrackFactor < 0.88 || quality < 62 ? 0.96 : uniqueTrackFactor >= 1.15 && quality >= 78 ? 1.07 : 1.03)
+    : 1.0;
 
   // Release proximity / cannibalization check
   const proximity = evaluateReleaseProximityFactor(song, allReleasedSongs);

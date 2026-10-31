@@ -57,33 +57,33 @@ export function getNpcCollabExpectations(
   let tierLabel: NpcCollabExpectation['tierLabel'] = 'Rising Chart Act';
   let baseFee = 1500;
   let standardRoyaltyPercent = 15;
-  let qualityBonus = 12;
-  let audienceCrossoverBoost = 0.12;
+  let qualityBonus = 4;
+  let audienceCrossoverBoost = 0.05;
 
   if (npcPop >= 92) {
     tierLabel = 'Global Megastar';
     baseFee = 15000;
     standardRoyaltyPercent = 25;
-    qualityBonus = 18;
-    audienceCrossoverBoost = 0.28;
+    qualityBonus = 8;
+    audienceCrossoverBoost = 0.11;
   } else if (npcPop >= 84) {
     tierLabel = 'A-List Hitmaker';
     baseFee = 7500;
     standardRoyaltyPercent = 20;
-    qualityBonus = 15;
-    audienceCrossoverBoost = 0.20;
+    qualityBonus = 6;
+    audienceCrossoverBoost = 0.08;
   } else if (npcPop >= 75) {
     tierLabel = 'Mainstream Star';
     baseFee = 3500;
     standardRoyaltyPercent = 18;
-    qualityBonus = 13;
-    audienceCrossoverBoost = 0.15;
+    qualityBonus = 5;
+    audienceCrossoverBoost = 0.06;
   } else {
     tierLabel = 'Rising Chart Act';
     baseFee = 1200;
     standardRoyaltyPercent = 15;
-    qualityBonus = 12;
-    audienceCrossoverBoost = 0.10;
+    qualityBonus = 4;
+    audienceCrossoverBoost = 0.04;
   }
 
   const standardFee = Math.round((baseFee * cloutFactor) / 100) * 100;

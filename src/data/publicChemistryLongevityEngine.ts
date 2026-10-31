@@ -230,15 +230,27 @@ export function evaluateSongPublicChemistry(params: {
   const { surpriseScore, rawPercentile, sleeperTriggerRoll } = evaluateOrganicSurpriseFactor(song);
 
   // Weighted composite: 40% Quality & Synergy, 30% Market Trend Alignment, 30% Organic Surprise
+  const hasCollab = Boolean(song.collabId && song.collabId !== 'none');
+  // Forced features or style clashes (especially on B-sides or lower-chemistry rolls) suffer faster post-debut dropoff
+  const collabChemistryAdjustment = hasCollab
+    ? (!isSingle
+        ? (rawPercentile < 0.65 ? -0.08 : -0.02)
+        : (rawPercentile < 0.42 || (song.quality || 50) < 68 ? -0.07 : rawPercentile >= 0.82 ? 0.02 : -0.01))
+    : 0;
+
   const compositeChemistryScore =
     qualitySynergyScore * 0.40 +
     marketTrendScore * 0.30 +
-    surpriseScore * 0.30;
+    surpriseScore * 0.30 +
+    collabChemistryAdjustment;
 
   // Determine the invisible Public Chemistry Tier
   let tier: PublicChemistryTier = 'normal';
 
-  if (compositeChemistryScore >= 1.17 || (compositeChemistryScore >= 1.11 && rawPercentile >= 0.84)) {
+  if (
+    isSingle &&
+    (compositeChemistryScore >= 1.17 || (compositeChemistryScore >= 1.11 && rawPercentile >= 0.84))
+  ) {
     tier = 'mega_hit';
   } else if (
     isSingle &&

@@ -237,7 +237,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
     const hypeGain = Number((projectedHype - (state.hype || 0)).toFixed(1));
 
     const tierMultiplier = state.artist?.tier === 1 ? 1.4 : state.artist?.tier === 2 ? 1.7 : 1.0;
-    const collabBonus = selectedItem.hasCollab ? 25 : 0;
+    const collabBonus = selectedItem.hasCollab ? Math.round(3 + (selectedItem.quality / 100) * 4) : 0;
     const singleRoleMult = selectedItem.kind === 'single' ? activeSingleRoleMeta.streamMult : 1.0;
 
     const rawPot =
@@ -355,7 +355,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
 
         nextP.songs = nextP.songs.map(s => {
           if (s.id === id) {
-            const collabBonus = s.collabId && s.collabId !== 'none' ? 25 : 0;
+            const collabBonus = s.collabId && s.collabId !== 'none' ? Math.round(3 + ((s.quality || 50) / 100) * 4) : 0;
             const calcPot =
               ((s.quality * 0.5) + (state.popularity * 0.3) + (newHype * 0.2) + collabBonus) *
               tierMultiplier *
@@ -499,7 +499,7 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
                     projBasePot *
                     (project.type === 'single_pack' || isFocusTrack
                       ? 0.98
-                      : 0.58 + (s.quality / 100) * 0.25 + (s.collabId !== 'none' ? 0.2 : 0.0)),
+                      : 0.56 + (s.quality / 100) * 0.22 + (s.collabId && s.collabId !== 'none' ? 0.03 : 0.0)),
                   cover: project.cover,
                   distributorId,
                   royaltyArtistShare: activeDistro.artistRoyaltyPercent,
