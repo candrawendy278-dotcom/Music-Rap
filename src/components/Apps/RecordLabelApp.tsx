@@ -66,6 +66,10 @@ import {
   RecordLabelPrerequisitesChecklistCard,
   RosterTrustAndHiatusPanel,
 } from './RosterTrustAndHiatusCard';
+import {
+  RosterInternationalShowsModal,
+  RosterShowQuickBanner,
+} from './RosterInternationalShowsPanel';
 
 interface RecordLabelAppProps {
   gameState?: GameState;
@@ -142,6 +146,7 @@ export const RecordLabelApp: React.FC<RecordLabelAppProps> = ({
   const [managingRosterArtistId, setManagingRosterArtistId] = useState<string | null>(
     null
   );
+  const [showsModalArtistId, setShowsModalArtistId] = useState<string | null>(null);
   const [showLabelDivisionStaffModal, setShowLabelDivisionStaffModal] =
     useState<boolean>(false);
   const [selectedExecRole, setSelectedExecRole] = useState<StaffRoleId>('manager');
@@ -1183,6 +1188,17 @@ export const RecordLabelApp: React.FC<RecordLabelAppProps> = ({
                             compact={true}
                           />
 
+                          {/* International Shows, Country Expansion & Staff Auto-Booking */}
+                          {!isExpired && (
+                            <RosterShowQuickBanner
+                              artist={art}
+                              gameState={gameState}
+                              setGameState={setGameState}
+                              onOpenModal={(id) => setShowsModalArtistId(id)}
+                              onNotify={showToast}
+                            />
+                          )}
+
                           {isExpired ? (
                             <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-black/40 p-2.5 text-[11px]">
                               <span className="text-zinc-300">
@@ -1562,6 +1578,18 @@ export const RecordLabelApp: React.FC<RecordLabelAppProps> = ({
           onClose={() => setManagingRosterArtistId(null)}
         />
       )}
+
+      {/* =====================================================================
+          MODAL E: ROSTER INTERNATIONAL SHOWS, COUNTRY EXPANSION & STAFF BOOKING
+         ===================================================================== */}
+      <RosterInternationalShowsModal
+        isOpen={Boolean(showsModalArtistId)}
+        initialArtistId={showsModalArtistId}
+        onClose={() => setShowsModalArtistId(null)}
+        gameState={gameState}
+        setGameState={setGameState}
+        onNotify={showToast}
+      />
     </div>
   );
 };

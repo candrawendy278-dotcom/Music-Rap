@@ -10,6 +10,7 @@ import {
   evaluateRecordLabelFoundingEligibility,
   processDailyRosterTrustHiatusAndStaffPayroll,
 } from './rosterTrustHiatusPayrollEngine';
+import { processDailyRosterInternationalShows } from './rosterInternationalShowsEngine';
 
 export type RecordLabelTier = 1 | 2 | 3;
 
@@ -2003,14 +2004,21 @@ export function processDailyRecordLabelStep(state: GameState, currentDate: Date)
     }
   }
 
-  // --- PART 3: RECURRING STAFF SALARY PAYROLL + ROSTER HIATUS & LABEL TRUST PROGRESSION ---
-  if (imprint && imprint.isFounded) {
-    processDailyRosterTrustHiatusAndStaffPayroll(state, currentDate);
-  }
-
+  // Persist Part 0-2 changes onto state.recordLabelState BEFORE Part 3 runs so Part 3 mutates the live updated roster
   labelState.statements = labelState.statements.slice(0, 45);
   labelState.lastProcessedDate = dateStr;
   (state as any).recordLabelState = labelState;
+
+  // --- PART 3: RECURRING STAFF SALARY PAYROLL + ROSTER HIATUS & LABEL TRUST PROGRESSION ---
+  if (imprint && imprint.isFounded) {
+    processDailyRosterTrustHiatusAndStaffPayroll(state, currentDate);
+    processDailyRosterInternationalShows(state, currentDate);
+  }
+
+  const finalLabelState = getEnsuredRecordLabelState(state);
+  finalLabelState.statements = finalLabelState.statements.slice(0, 45);
+  finalLabelState.lastProcessedDate = dateStr;
+  (state as any).recordLabelState = finalLabelState;
   syncActiveRosterArtistsToSharedWorld(state);
 }
 

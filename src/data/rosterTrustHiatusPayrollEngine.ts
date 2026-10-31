@@ -108,6 +108,9 @@ export function evaluateRecordLabelFoundingEligibility(
   };
 }
 
+export const MIN_ROSTER_HIATUS_DAYS = 60; // Minimum 2 Months (60 Days)
+export const MAX_ROSTER_HIATUS_DAYS = 120; // Up to 4 Months (120 Days)
+
 export type RosterHiatusState = 'active' | 'requesting_hiatus' | 'on_hiatus';
 
 export interface RosterTrustAndHiatusInfo {
@@ -119,11 +122,26 @@ export interface RosterTrustAndHiatusInfo {
   daysSinceLastComeback: number;
   hiatusStatus: RosterHiatusState;
   hiatusDaysLeft: number;
+  hiatusTotalDays: number;
+  recommendedHiatusDays: number;
   hiatusReason: string;
   renewalChancePct: number;
   willingToRenew: boolean;
   canStartNewComebackInStudio: boolean;
   studioBlockReason: string | null;
+}
+
+/**
+ * Calculates required Hiatus duration (minimum 60 days / 2 months, scaling up to 90-120 days if severely fatigued).
+ */
+export function getRecommendedRosterHiatusDays(artist: ImprintSignedArtist): number {
+  const raw = artist as any;
+  const fatigue = Math.max(0, Math.min(100, Number(raw.fatigueScore) || 0));
+  const consecutive = Math.max(0, Number(raw.consecutiveComebacksWithoutRest) || 0);
+  if (fatigue >= 90 || consecutive >= 5) return 120; // 4 Months
+  if (fatigue >= 80 || consecutive >= 4) return 90; // 3 Months
+  if (fatigue >= 70) return 75; // 2.5 Months
+  return MIN_ROSTER_HIATUS_DAYS; // Minimum 60 Days (2 Months)
 }
 
 /**
@@ -162,7 +180,27 @@ export function getRosterTrustAndHiatusInfo(
     0,
     typeof raw.daysSinceLastComeback === 'number' ? raw.daysSinceLastComeback : 25
   );
-  const hiatusDaysLeft = Math.max(0, Number(raw.hiatusDaysLeft) || 0);
+
+  const recommendedHiatusDays = getRecommendedRosterHiatusDays(artist);
+  let rawHiatusDaysLeft = Math.max(0, Math.round(Number(raw.hiatusDaysLeft) || 0));
+  const rawHiatusTotalDays = Math.max(0, Math.round(Number(raw.hiatusTotalDays) || 0));
+
+  // Migrate any legacy <60d hiatus so active hiatuses always respect the 2-month (60d) minimum
+  if (
+    (raw.hiatusStatus === 'on_hiatus' || rawHiatusDaysLeft > 0) &&
+    rawHiatusTotalDays < MIN_ROSTER_HIATUS_DAYS &&
+    rawHiatusDaysLeft > 0
+  ) {
+    const legacyBase = rawHiatusTotalDays > 0 ? rawHiatusTotalDays : 28;
+    const daysAlreadyElapsed = Math.max(0, legacyBase - rawHiatusDaysLeft);
+    rawHiatusDaysLeft = Math.max(1, MIN_ROSTER_HIATUS_DAYS - daysAlreadyElapsed);
+  }
+
+  const hiatusDaysLeft = rawHiatusDaysLeft;
+  const hiatusTotalDays =
+    hiatusDaysLeft > 0
+      ? Math.max(MIN_ROSTER_HIATUS_DAYS, rawHiatusTotalDays, hiatusDaysLeft)
+      : Math.max(MIN_ROSTER_HIATUS_DAYS, recommendedHiatusDays);
 
   let hiatusStatus: RosterHiatusState =
     raw.hiatusStatus === 'on_hiatus' || hiatusDaysLeft > 0
@@ -178,12 +216,13 @@ export function getRosterTrustAndHiatusInfo(
   }
 
   const stageName = artist.stageName || artist.name;
+  const monthsApprox = (recommendedHiatusDays / 30).toFixed(recommendedHiatusDays % 30 === 0 ? 0 : 1);
   const hiatusReason =
     hiatusStatus === 'on_hiatus'
-      ? `${stageName} is currently on an approved Label Hiatus (${hiatusDaysLeft}d remaining) to recover from comeback exhaustion.`
+      ? `${stageName} is currently on an approved Label Hiatus (${hiatusDaysLeft}d remaining of ${hiatusTotalDays}d • Min 2 Months) to recover from comeback exhaustion.`
       : hiatusStatus === 'requesting_hiatus'
-      ? `${stageName} is exhausted from back-to-back releases (Fatigue ${fatigueScore}%) and is requesting a 28-day Hiatus before their next comeback!`
-      : `Ready for studio production and active promotions (Fatigue ${fatigueScore}%).`;
+      ? `${stageName} is exhausted from back-to-back releases (Fatigue ${fatigueScore}%) and is requesting a ${recommendedHiatusDays}-day (${monthsApprox} Months, Min 60d) Hiatus before their next comeback!`
+      : `Ready for studio production, global shows, and active promotions (Fatigue ${fatigueScore}%).`;
 
   // Trust Tier & Renewal Probability directly driven by Label Trust Bar
   let trustTierLabel: RosterTrustAndHiatusInfo['trustTierLabel'] = 'High Trust';
@@ -234,6 +273,8 @@ export function getRosterTrustAndHiatusInfo(
     daysSinceLastComeback,
     hiatusStatus,
     hiatusDaysLeft,
+    hiatusTotalDays,
+    recommendedHiatusDays,
     hiatusReason,
     renewalChancePct,
     willingToRenew,
@@ -284,13 +325,14 @@ export function applyRosterComebackReleaseFatigue(
 }
 
 /**
- * CEO Action: Approves a Roster Artist's requested Hiatus (or grants a proactive 28-day rest period).
- * Boosts Label Trust (+14%), resets comeback fatigue, and places the artist on a 28-day Hiatus.
+ * CEO Action: Approves a Roster Artist's requested Hiatus (or grants a proactive rest period).
+ * Minimum Hiatus duration is strictly 60 days (2 Months), and can be 60, 75, 90, or 120 days.
+ * Boosts Label Trust (+14% to +18%), resets comeback fatigue, and places the artist on Hiatus.
  */
 export function approveRosterArtistHiatus(
   state: GameState,
   artistId: string,
-  durationDays = 28
+  durationDays?: number
 ): { nextState: GameState; success: boolean; message: string } {
   const labelState = getEnsuredRecordLabelState(state);
   const target = labelState.imprint.signedRoster.find((a) => a.id === artistId);
@@ -307,7 +349,16 @@ export function approveRosterArtistHiatus(
     };
   }
 
-  const nextTrust = Math.min(100, info.labelTrust + 14);
+  const effectiveDuration = Math.max(
+    MIN_ROSTER_HIATUS_DAYS,
+    Math.min(
+      MAX_ROSTER_HIATUS_DAYS,
+      Math.round(Number(durationDays) || info.recommendedHiatusDays || MIN_ROSTER_HIATUS_DAYS)
+    )
+  );
+  const extraMonthsTrustBonus = effectiveDuration >= 90 ? 4 : effectiveDuration >= 75 ? 2 : 0;
+  const nextTrust = Math.min(100, info.labelTrust + 14 + extraMonthsTrustBonus);
+
   const updatedArtist: ImprintSignedArtist = {
     ...target,
     willingToRenew: nextTrust >= 48,
@@ -317,15 +368,17 @@ export function approveRosterArtistHiatus(
   (updatedArtist as any).fatigueScore = Math.max(0, info.fatigueScore - 45);
   (updatedArtist as any).consecutiveComebacksWithoutRest = 0;
   (updatedArtist as any).hiatusStatus = 'on_hiatus';
-  (updatedArtist as any).hiatusDaysLeft = durationDays;
+  (updatedArtist as any).hiatusDaysLeft = effectiveDuration;
+  (updatedArtist as any).hiatusTotalDays = effectiveDuration;
 
   const dateStr = state.date ? String(state.date).split('T')[0] : '2026-01-01';
   const stageName = target.stageName || target.name;
+  const monthsLabel = (effectiveDuration / 30).toFixed(effectiveDuration % 30 === 0 ? 0 : 1);
   const stmt: LabelAccountingStatementItem = {
     id: `stmt_hiatus_app_${Date.now()}_${artistId}`,
     date: dateStr,
-    title: `Approved ${durationDays}-Day Hiatus for ${stageName}`,
-    detail: `Granted ${stageName} an official rest break to recover from comeback fatigue. Label Trust increased to ${nextTrust}%!`,
+    title: `Approved ${effectiveDuration}-Day (${monthsLabel}M) Hiatus for ${stageName}`,
+    detail: `Granted ${stageName} an official ${effectiveDuration}-day (${monthsLabel} months) rest break to recover from comeback fatigue. Label Trust increased to ${nextTrust}%!`,
     amount: 0,
     direction: 'neutral',
     category: 'imprint',
@@ -346,7 +399,7 @@ export function approveRosterArtistHiatus(
       },
     },
     success: true,
-    message: `Approved ${durationDays}-day Hiatus for ${stageName}! Label Trust increased to ${nextTrust}%.`,
+    message: `Approved ${effectiveDuration}-day (${monthsLabel} Months) Hiatus for ${stageName}! Label Trust increased to ${nextTrust}%.`,
   };
 }
 
@@ -710,6 +763,7 @@ export function processDailyRosterTrustHiatusAndStaffPayroll(
     const nextDaysSinceComeback = info.daysSinceLastComeback + 1;
     let nextHiatusStatus: RosterHiatusState = info.hiatusStatus;
     let nextHiatusDaysLeft = info.hiatusDaysLeft;
+    let nextHiatusTotalDays = info.hiatusTotalDays;
 
     if (missedPayrollCount > 0) {
       nextTrust = Math.max(0, nextTrust - 6);
@@ -717,10 +771,11 @@ export function processDailyRosterTrustHiatusAndStaffPayroll(
 
     if (nextHiatusStatus === 'on_hiatus') {
       nextHiatusDaysLeft = Math.max(0, nextHiatusDaysLeft - 1);
-      // Rapidly recover fatigue while on hiatus
-      nextFatigue = Math.max(0, nextFatigue - 3);
+      // Smoothly recover fatigue while on 60+ day hiatus
+      nextFatigue = Math.max(0, Math.round(nextFatigue - 2));
       if (nextHiatusDaysLeft <= 0) {
         nextHiatusStatus = 'active';
+        nextHiatusTotalDays = 0;
         nextFatigue = 0;
         nextConsecutive = 0;
         nextTrust = Math.min(100, nextTrust + 4);
@@ -728,7 +783,7 @@ export function processDailyRosterTrustHiatusAndStaffPayroll(
           id: `stmt_hiatus_done_${Date.now()}_${art.id}`,
           date: dateStr,
           title: `${stageName} Returned from Hiatus Refreshed!`,
-          detail: `${stageName} has completed their rest period (0% Fatigue • ${nextTrust}% Label Trust) and is ready for their next studio comeback.`,
+          detail: `${stageName} has completed their multi-month rest period (0% Fatigue • ${nextTrust}% Label Trust) and is ready for their next studio comeback.`,
           amount: 0,
           direction: 'credit',
           category: 'imprint',
@@ -765,6 +820,7 @@ export function processDailyRosterTrustHiatusAndStaffPayroll(
     (updatedArt as any).daysSinceLastComeback = nextDaysSinceComeback;
     (updatedArt as any).hiatusStatus = nextHiatusStatus;
     (updatedArt as any).hiatusDaysLeft = nextHiatusDaysLeft;
+    (updatedArt as any).hiatusTotalDays = nextHiatusTotalDays;
 
     return updatedArt;
   });
@@ -785,6 +841,8 @@ export function processDailyRosterTrustHiatusAndStaffPayroll(
     imprint.dailyImprintNetIncome = (imprint.dailyImprintNetIncome || 0) - totalPayrollDeductedToday;
     imprint.totalNetProfitEarned = (imprint.totalNetProfitEarned || 0) - totalPayrollDeductedToday;
   }
+
+  (state as any).recordLabelState = labelState;
 
   return { totalPayrollDeductedToday };
 }

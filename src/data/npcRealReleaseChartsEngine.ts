@@ -30,6 +30,7 @@ import {
   getPlayerHomeMarketAffinityMultiplier
 } from './homeCountryAndMarketStabilityImprover';
 import { getActiveSharedWorldRosterArtists } from './rosterSharedWorldBridge';
+import { getRosterArtistCountryExpansionMultiplier } from './rosterInternationalShowsEngine';
 
 export interface RealNpcSinglesChartParams {
   platform: 'spotify' | 'billboard' | 'itunes' | 'youtube';
@@ -674,11 +675,15 @@ export function generateRealNpcSinglesChart(params: RealNpcSinglesChartParams): 
             topRegionNpcScore
           });
 
-          rawPts = calibratedTerritory.points;
+          const countryExpMult = getRosterArtistCountryExpansionMultiplier(rosterArt as any, region);
+          rawPts = Math.round(calibratedTerritory.points * countryExpMult);
           stats = {
-            streams: platform === 'youtube' ? calibratedTerritory.views : calibratedTerritory.streams,
-            sales: calibratedTerritory.sales,
-            radio: calibratedTerritory.radio
+            streams: Math.round(
+              (platform === 'youtube' ? calibratedTerritory.views : calibratedTerritory.streams) *
+                countryExpMult
+            ),
+            sales: Math.round(calibratedTerritory.sales * countryExpMult),
+            radio: Math.round(calibratedTerritory.radio * countryExpMult)
           };
         }
 

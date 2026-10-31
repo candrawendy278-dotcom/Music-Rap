@@ -219,8 +219,13 @@ export const RosterTrustAndHiatusPanel: React.FC<RosterTrustAndHiatusPanelProps>
   const info = getRosterTrustAndHiatusInfo(artist);
   const stageName = artist.stageName || artist.name;
 
-  const handleApproveHiatus = () => {
-    const res = approveRosterArtistHiatus(gameState, artist.id, 28);
+  const [selectedHiatusDays, setSelectedHiatusDays] = React.useState<number>(
+    Math.max(60, info.recommendedHiatusDays || 60)
+  );
+
+  const handleApproveHiatus = (customDays?: number) => {
+    const durationToUse = Math.max(60, customDays ?? selectedHiatusDays ?? info.recommendedHiatusDays ?? 60);
+    const res = approveRosterArtistHiatus(gameState, artist.id, durationToUse);
     if (!res.success) {
       onNotify?.(res.message, 'error');
       return;
@@ -330,7 +335,7 @@ export const RosterTrustAndHiatusPanel: React.FC<RosterTrustAndHiatusPanelProps>
               {info.hiatusStatus === 'on_hiatus'
                 ? `On Hiatus (${info.hiatusDaysLeft}d left)`
                 : info.hiatusStatus === 'requesting_hiatus'
-                ? 'Requesting Hiatus!'
+                ? `Requesting Hiatus (${info.recommendedHiatusDays}d)`
                 : 'Active'}
             </strong>
           </span>
@@ -347,14 +352,37 @@ export const RosterTrustAndHiatusPanel: React.FC<RosterTrustAndHiatusPanelProps>
       {(info.hiatusStatus === 'requesting_hiatus' || info.hiatusStatus === 'on_hiatus') && (
         <div className="rounded-xl border border-white/10 bg-black/40 p-2.5 text-[11px] text-zinc-200 space-y-2">
           <p className="leading-snug">{info.hiatusReason}</p>
+          {info.hiatusStatus === 'requesting_hiatus' && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-bold text-zinc-400">Hiatus Duration (Min 2M):</span>
+              {[
+                { days: 60, label: '60d (2 Months • Min)' },
+                { days: 90, label: '90d (3 Months)' },
+                { days: 120, label: '120d (4 Months)' },
+              ].map((opt) => (
+                <button
+                  key={opt.days}
+                  type="button"
+                  onClick={() => setSelectedHiatusDays(opt.days)}
+                  className={`rounded-md border px-2 py-0.5 text-[9px] font-black cursor-pointer ${
+                    selectedHiatusDays === opt.days
+                      ? 'border-emerald-400 bg-emerald-500/25 text-emerald-200'
+                      : 'border-white/10 bg-white/5 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5">
             {info.hiatusStatus === 'requesting_hiatus' && (
               <button
                 type="button"
-                onClick={handleApproveHiatus}
+                onClick={() => handleApproveHiatus(selectedHiatusDays)}
                 className="rounded-lg bg-emerald-500 px-2.5 py-1 text-[10px] font-black text-black hover:bg-emerald-400 cursor-pointer"
               >
-                ✓ Approve 28-Day Hiatus (+14% Trust)
+                ✓ Approve {selectedHiatusDays}-Day ({(selectedHiatusDays / 30).toFixed(0)}M) Hiatus (+{selectedHiatusDays >= 90 ? 18 : 14}% Trust)
               </button>
             )}
             <button
@@ -372,13 +400,22 @@ export const RosterTrustAndHiatusPanel: React.FC<RosterTrustAndHiatusPanelProps>
       {!compact && info.hiatusStatus === 'active' && (
         <div className="flex flex-wrap gap-1.5 pt-0.5">
           {info.fatigueScore >= 30 && (
-            <button
-              type="button"
-              onClick={handleApproveHiatus}
-              className="rounded-lg border border-sky-400/40 bg-sky-500/15 px-2.5 py-1 text-[10px] font-black text-sky-200 hover:bg-sky-500 hover:text-black cursor-pointer"
-            >
-              Grant 28-Day Rest Hiatus (+14% Trust)
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => handleApproveHiatus(60)}
+                className="rounded-lg border border-sky-400/40 bg-sky-500/15 px-2.5 py-1 text-[10px] font-black text-sky-200 hover:bg-sky-500 hover:text-black cursor-pointer"
+              >
+                Grant 60-Day (2M Min) Hiatus (+14% Trust)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApproveHiatus(90)}
+                className="rounded-lg border border-sky-400/40 bg-sky-500/15 px-2.5 py-1 text-[10px] font-black text-sky-200 hover:bg-sky-500 hover:text-black cursor-pointer"
+              >
+                Grant 90-Day (3M) Hiatus (+18% Trust)
+              </button>
+            </>
           )}
           {info.labelTrust < 95 && (
             <button

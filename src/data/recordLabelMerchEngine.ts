@@ -679,6 +679,7 @@ export function processDailyRecordLabelMerchStep(
   rl.imprint.totalImprintRevenue =
     (rl.imprint.totalImprintRevenue || 0) + dailyNetLabelRevenue;
   (state as any).recordLabel = rl;
+  (state as any).recordLabelState = rl;
 
   return {
     nextState: state,
