@@ -14,6 +14,8 @@ import { GameState } from '../types';
 import { REAL_WORLD_NPCS } from './realWorldArtistCatalog';
 import { getNpcLivingAttributes } from './npcLivingArtistAttributesAndMarketEngine';
 import { getEnsuredSkillState, calculateMasteryRank } from './skillSystemEngine';
+import { getEnsuredRecordLabelState } from './recordLabelSystemEngine';
+import { ensureRosterArtistFullFields } from './recordLabelCeoEngine';
 import { XPost } from './xSocialEngine';
 import {
   VanguardCategoryDef,
@@ -37,6 +39,7 @@ export interface VanguardNominee {
   id: string;
   artistName: string;
   isPlayer: boolean;
+  isRosterArtist?: boolean;
   workTitle: string;
   secondaryLabel: string;
   coverArt: string;
@@ -66,6 +69,7 @@ export interface VanguardCategoryResult {
 export interface VanguardArtistTally {
   artistName: string;
   isPlayer: boolean;
+  isRosterArtist?: boolean;
   avatar: string;
   nominations: number;
   wins: number;
@@ -519,6 +523,208 @@ function buildCategoryNomineesAndWinner(
     }
   }
 
+  // --- 1B. EVALUATE SIGNED RECORD LABEL ROSTER ARTISTS ---
+  const careerStartYear = state.artist?.startYear || 2026;
+  const labelState = getEnsuredRecordLabelState(state);
+  const signedRoster = editionYear >= careerStartYear ? labelState.imprint?.signedRoster || [] : [];
+
+  signedRoster.forEach(rawRoster => {
+    const rArtist = ensureRosterArtistFullFields(rawRoster);
+    const rName = rArtist.name;
+    if (!rName || rName.toLowerCase() === playerName.toLowerCase()) return;
+
+    const rAvatar =
+      rArtist.avatarUrl ||
+      (rArtist as any).image ||
+      `https://placehold.co/400x400/18181B/D4AF37?text=${encodeURIComponent(rName.charAt(0))}`;
+
+    const rSongs = (rArtist.songs || []).filter(
+      (s: any) => s.status === 'released' || s.isReleased || Number(s.streams) > 0
+    );
+    const rAlbums = (rArtist.projects || []).filter(
+      (p: any) => p.status === 'released' || p.isReleased || Number(p.streams) > 0 || Number(p.pureSales) > 0
+    );
+    if (rSongs.length === 0 && rAlbums.length === 0) return;
+
+    const rSkillScore = clamp100((rArtist.vocalSkill || 68) * 0.55 + (rArtist.stagePresence || 68) * 0.45);
+    const rHypePillar = clamp100((rArtist.hype || 60) * 0.52 + (rArtist.popularity || 55) * 0.48 + 8);
+    const rCampaignBonus = Math.min(6.5, (campaign.totalBonusScore || 0) * 0.8 + 1.5);
+
+    if (category.subjectType === 'song' || category.subjectType === 'collab') {
+      const matchingSongs = rSongs.filter((s: any) => {
+        if (!doesGenreMatchVanguardCategory(s.genre || rArtist.genre, category)) return false;
+        const isCollab = Boolean(s.collaborator);
+        if (category.subjectType === 'collab' && !isCollab) return false;
+        return true;
+      });
+      if (matchingSongs.length > 0) {
+        let bestCandidate: VanguardNominee | null = null;
+        matchingSongs.forEach((song: any) => {
+          const songQuality = Number(song.quality) || 72;
+          const criticScore = clamp100(songQuality * 0.65 + rSkillScore * 0.35);
+          const streams = Number(song.streams) || 0;
+          const sales = Number(song.pureSales) || Math.round(streams * 0.004);
+          const views = Number(song.views) || Math.round(streams * 0.35);
+          const { peak, weeks } = getSongChartPeak(song.title, rName, false);
+          const inferredPeak =
+            peak !== null
+              ? peak
+              : streams >= 35_000_000
+              ? 8
+              : streams >= 12_000_000
+              ? 18
+              : streams >= 3_500_000
+              ? 32
+              : streams >= 750_000
+              ? 52
+              : null;
+          const chartScore =
+            inferredPeak !== null
+              ? clamp100(102 - inferredPeak * 0.72 + Math.min(18, Math.max(2, weeks) * 1.1))
+              : streams > 200_000
+              ? 44
+              : 24;
+          const commScore = clamp100(
+            (streams > 0 ? Math.min(72, Math.log10(Math.max(1000, streams)) * 9.5) : 16) +
+              (sales > 0 ? Math.min(28, Math.log10(Math.max(100, sales)) * 5.2) : 6)
+          );
+          const visualScore = clamp100(
+            (views > 0 ? Math.min(55, Math.log10(Math.max(1000, views)) * 7.8) : 18) +
+              rSkillScore * 0.45
+          );
+          const breakdown = computeWeightedFinal(
+            criticScore,
+            chartScore,
+            commScore,
+            visualScore,
+            rHypePillar,
+            rCampaignBonus
+          );
+          const collabSuffix = song.collaborator ? ` (feat. ${song.collaborator})` : '';
+          const candidate: VanguardNominee = {
+            id: `roster_song_${rArtist.id}_${song.id}_${category.id}`,
+            artistName: rName,
+            isPlayer: false,
+            isRosterArtist: true,
+            workTitle: `${song.title}${collabSuffix}`,
+            secondaryLabel: song.collaborator ? `${rName} & ${song.collaborator}` : `${song.genre || rArtist.genre} Single`,
+            coverArt: song.coverArt || rAvatar,
+            genre: song.genre || rArtist.genre || 'Pop',
+            streams,
+            views,
+            sales,
+            tourGross: 0,
+            criticScore,
+            chartPeak: inferredPeak,
+            scoreBreakdown: breakdown
+          };
+          if (
+            !bestCandidate ||
+            candidate.scoreBreakdown.finalWeightedScore > bestCandidate.scoreBreakdown.finalWeightedScore
+          ) {
+            bestCandidate = candidate;
+          }
+        });
+        if (bestCandidate) candidates.push(bestCandidate);
+      }
+    } else if (category.subjectType === 'album') {
+      if (rAlbums.length > 0) {
+        let bestAlbumCandidate: VanguardNominee | null = null;
+        rAlbums.forEach((album: any) => {
+          const albumQuality = Number(album.quality) || 74;
+          const criticScore = clamp100(albumQuality * 0.65 + rSkillScore * 0.35);
+          const streams = Number(album.streams) || 0;
+          const sales = Number(album.pureSales) || Math.round(streams / 1500);
+          const peak = getAlbumChartPeak(album.title, rName, false) || (streams >= 15_000_000 ? 12 : streams >= 3_000_000 ? 28 : null);
+          const chartScore = peak !== null ? clamp100(101 - peak * 0.65) : 38;
+          const commScore = clamp100(
+            (streams > 0 ? Math.min(68, Math.log10(Math.max(2000, streams)) * 9.0) : 18) +
+              (sales > 0 ? Math.min(32, Math.log10(Math.max(200, sales)) * 5.8) : 6)
+          );
+          const breakdown = computeWeightedFinal(
+            criticScore,
+            chartScore,
+            commScore,
+            rSkillScore,
+            rHypePillar,
+            rCampaignBonus
+          );
+          const candidate: VanguardNominee = {
+            id: `roster_album_${rArtist.id}_${album.id}_${category.id}`,
+            artistName: rName,
+            isPlayer: false,
+            isRosterArtist: true,
+            workTitle: album.title,
+            secondaryLabel: `${(album.type || 'Album').toUpperCase()} · ${album.trackIds?.length || 8} Tracks`,
+            coverArt: album.coverArt || rAvatar,
+            genre: rArtist.genre || 'Pop',
+            streams,
+            views: 0,
+            sales,
+            tourGross: 0,
+            criticScore,
+            chartPeak: peak,
+            scoreBreakdown: breakdown
+          };
+          if (
+            !bestAlbumCandidate ||
+            candidate.scoreBreakdown.finalWeightedScore > bestAlbumCandidate.scoreBreakdown.finalWeightedScore
+          ) {
+            bestAlbumCandidate = candidate;
+          }
+        });
+        if (bestAlbumCandidate) candidates.push(bestAlbumCandidate);
+      }
+    } else if (category.subjectType === 'artist' || category.subjectType === 'tour') {
+      const avgSongQuality =
+        rSongs.length > 0
+          ? rSongs.reduce((acc: number, s: any) => acc + (Number(s.quality) || 72), 0) / rSongs.length
+          : 72;
+      const criticScore = clamp100(avgSongQuality * 0.65 + rSkillScore * 0.35);
+      const totalStreams = rSongs.reduce((acc: number, s: any) => acc + (Number(s.streams) || 0), 0);
+      const totalSales = rSongs.reduce((acc: number, s: any) => acc + (Number(s.pureSales) || 0), 0);
+      const totalViews = rSongs.reduce((acc: number, s: any) => acc + (Number(s.views) || 0), 0);
+      let bestArtistPeak: number | null = null;
+      rSongs.forEach((s: any) => {
+        const p = getSongChartPeak(s.title, rName, false).peak;
+        if (p !== null) bestArtistPeak = bestArtistPeak === null ? p : Math.min(bestArtistPeak, p);
+      });
+      if (bestArtistPeak === null && totalStreams >= 1_000_000) {
+        bestArtistPeak = totalStreams >= 20_000_000 ? 12 : totalStreams >= 5_000_000 ? 28 : 48;
+      }
+      const chartScore = bestArtistPeak !== null ? clamp100(101 - bestArtistPeak * 0.68) : 38;
+      const commScore = clamp100(
+        (totalStreams > 0 ? Math.min(72, Math.log10(Math.max(5000, totalStreams)) * 8.8) : 22) +
+          (totalSales > 0 ? Math.min(28, Math.log10(Math.max(500, totalSales)) * 4.8) : 6)
+      );
+      const breakdown = computeWeightedFinal(
+        criticScore,
+        chartScore,
+        commScore,
+        rSkillScore,
+        rHypePillar,
+        rCampaignBonus
+      );
+      candidates.push({
+        id: `roster_${rArtist.id}_${category.subjectType}_${category.id}`,
+        artistName: rName,
+        isPlayer: false,
+        isRosterArtist: true,
+        workTitle: rName,
+        secondaryLabel: `${rSongs.length} Singles · ${rAlbums.length} Projects`,
+        coverArt: rAvatar,
+        genre: rArtist.genre || 'Pop',
+        streams: totalStreams,
+        views: totalViews,
+        sales: totalSales,
+        tourGross: 0,
+        criticScore,
+        chartPeak: bestArtistPeak,
+        scoreBreakdown: breakdown
+      });
+    }
+  });
+
   // --- 2. EVALUATE REAL-WORLD NPCs ---
   REAL_WORLD_NPCS.forEach((npc, idx) => {
     if (npc.name.toLowerCase() === playerName.toLowerCase()) return;
@@ -699,6 +905,7 @@ export function simulateVanguardSeason(
         entry = {
           artistName: nom.artistName,
           isPlayer: nom.isPlayer,
+          isRosterArtist: nom.isRosterArtist,
           avatar: nom.coverArt,
           nominations: 0,
           wins: 0,
@@ -1158,6 +1365,9 @@ export function getVanguardArtistTrophySummary(
   const artistName = targetArtistName || playerName;
   const isPlayer = artistName.toLowerCase() === playerName.toLowerCase();
 
+  const rosterMatch = (getEnsuredRecordLabelState(state).imprint?.signedRoster || []).find(
+    r => (r.name || '').toLowerCase() === artistName.toLowerCase()
+  );
   const npcMatch = REAL_WORLD_NPCS.find(
     n => n.name.toLowerCase() === artistName.toLowerCase()
   );
@@ -1166,7 +1376,9 @@ export function getVanguardArtistTrophySummary(
       `https://placehold.co/400x400/080B0F/D4AF37?text=${encodeURIComponent(
         artistName.charAt(0)
       )}`
-    : npcMatch?.avatar ||
+    : (rosterMatch as any)?.avatarUrl ||
+      (rosterMatch as any)?.image ||
+      npcMatch?.avatar ||
       (npcMatch as any)?.image ||
       `https://placehold.co/400x400/18181B/FFFFFF?text=${encodeURIComponent(
         artistName.charAt(0)

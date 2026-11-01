@@ -326,6 +326,11 @@ export default function AwardCeremonyLiveModal({
                                   · YOU
                                 </span>
                               )}
+                              {!nom.isPlayer && nom.isRosterArtist && (
+                                <span className="text-[10px] font-bold text-[#E5C158]">
+                                  · YOUR ROSTER
+                                </span>
+                              )}
                             </div>
                             <p className="text-xs text-neutral-400 truncate">
                               {nom.artistName} · {nom.secondaryLabel}
@@ -443,6 +448,9 @@ export default function AwardCeremonyLiveModal({
                           </span>
                           {tally.isPlayer && (
                             <span className="text-[10px] font-bold text-emerald-400">· YOU</span>
+                          )}
+                          {!tally.isPlayer && tally.isRosterArtist && (
+                            <span className="text-[10px] font-bold text-[#E5C158]">· YOUR ROSTER</span>
                           )}
                         </div>
                         <p className="text-[11px] text-neutral-400 truncate">

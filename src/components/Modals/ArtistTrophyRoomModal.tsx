@@ -3,6 +3,7 @@ import { useGameContext } from '../../GameContext';
 import { getArtistTrophyRoomSummary } from '../../data/awardsFormulaAndSimulationEngine';
 import { getVanguardArtistTrophySummary } from '../../data/vanguardHonorsEngine';
 import { REAL_WORLD_NPCS } from '../../data/realWorldArtistCatalog';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
 import { OfficialArtworkImg } from '../Common/OfficialArtworkImg';
 import { formatNumFull } from '../../constants';
 import { VanguardMonolithEmblem } from '../Apps/VanguardHonorsApp';
@@ -58,17 +59,57 @@ export default function ArtistTrophyRoomModal({
     });
   }, [combinedTrophies, filterShow, winsOnly]);
 
+  const signedRoster = useMemo(
+    () => getEnsuredRecordLabelState(state).imprint?.signedRoster || [],
+    [state]
+  );
+
+  const selectedRosterArtist = useMemo(
+    () =>
+      signedRoster.find(
+        r => (r.name || '').toLowerCase() === selectedArtist.toLowerCase()
+      ) || null,
+    [signedRoster, selectedArtist]
+  );
+
   const artistOptions = useMemo(() => {
+    const rosterNames = signedRoster
+      .map(r => r.name)
+      .filter(Boolean) as string[];
     const topNpcs = REAL_WORLD_NPCS.slice(0, 30).map(n => n.name);
-    return [playerName, ...topNpcs.filter(n => n.toLowerCase() !== playerName.toLowerCase())];
-  }, [playerName]);
+    const seen = new Set<string>([playerName.toLowerCase()]);
+    const result = [playerName];
+    rosterNames.forEach(name => {
+      const key = name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(name);
+      }
+    });
+    topNpcs.forEach(name => {
+      const key = name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(name);
+      }
+    });
+    return result;
+  }, [playerName, signedRoster]);
 
   const releasedSinglesCount = profile.isPlayer
     ? (state.songs || []).filter(s => s.status === 'released' || s.isReleased).length
+    : selectedRosterArtist
+    ? (selectedRosterArtist.songs || []).filter(
+        (s: any) => s.status === 'released' || s.isReleased || Number(s.streams) > 0
+      ).length
     : REAL_WORLD_NPCS.find(n => n.name.toLowerCase() === selectedArtist.toLowerCase())?.songs?.length || 0;
 
   const releasedAlbumsCount = profile.isPlayer
     ? (state.projects || []).filter(p => p.status === 'released' || p.isReleased).length
+    : selectedRosterArtist
+    ? (selectedRosterArtist.projects || []).filter(
+        (p: any) => p.status === 'released' || p.isReleased || Number(p.streams) > 0 || Number(p.pureSales) > 0
+      ).length
     : REAL_WORLD_NPCS.find(n => n.name.toLowerCase() === selectedArtist.toLowerCase())?.albums?.length || 0;
 
   const totalCareerWins = profile.totalWins + vanguardProfile.vanguardWins;
@@ -104,11 +145,20 @@ export default function ArtistTrophyRoomModal({
               onChange={e => setSelectedArtist(e.target.value)}
               className="bg-[#141824] border border-[#D4AF37]/35 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
             >
-              {artistOptions.map(name => (
-                <option key={name} value={name} className="bg-neutral-900 text-white">
-                  {name === playerName ? `${name} (You)` : name}
-                </option>
-              ))}
+              {artistOptions.map(name => {
+                const isRoster = signedRoster.some(
+                  r => (r.name || '').toLowerCase() === name.toLowerCase()
+                );
+                return (
+                  <option key={name} value={name} className="bg-neutral-900 text-white">
+                    {name === playerName
+                      ? `${name} (You)`
+                      : isRoster
+                      ? `${name} (Your Roster)`
+                      : name}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
@@ -125,6 +175,9 @@ export default function ArtistTrophyRoomModal({
                 <h3 className="text-lg font-black text-white truncate">{profile.artistName}</h3>
                 {profile.isPlayer && (
                   <span className="text-[10px] font-bold text-emerald-400">· YOUR ARTIST</span>
+                )}
+                {!profile.isPlayer && selectedRosterArtist && (
+                  <span className="text-[10px] font-bold text-[#E5C158]">· YOUR ROSTER</span>
                 )}
               </div>
               <p className="text-xs text-neutral-400 mt-0.5">

@@ -329,7 +329,11 @@ export default function GrammyAwardsApp() {
                         <div
                           key={nom.id}
                           className={`p-3.5 flex items-center justify-between gap-3 ${
-                            nom.isPlayer ? 'bg-[#D4AF37]/10' : ''
+                            nom.isPlayer
+                              ? 'bg-[#D4AF37]/10'
+                              : nom.isRosterArtist
+                              ? 'bg-[#D4AF37]/[0.07]'
+                              : ''
                           }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
@@ -350,6 +354,11 @@ export default function GrammyAwardsApp() {
                                     · YOU
                                   </span>
                                 )}
+                                {!nom.isPlayer && nom.isRosterArtist && (
+                                  <span className="text-[10px] font-bold text-[#E5C158]">
+                                    · YOUR ROSTER
+                                  </span>
+                                )}
                               </div>
                               <p className="text-xs text-neutral-400 truncate">
                                 {nom.artistName} · {nom.secondaryLabel}
@@ -360,10 +369,16 @@ export default function GrammyAwardsApp() {
                           <div className="text-right shrink-0">
                             <span
                               className={`text-[11px] font-bold ${
-                                nom.isPlayer ? 'text-[#E5C158]' : 'text-neutral-400'
+                                nom.isPlayer || nom.isRosterArtist
+                                  ? 'text-[#E5C158]'
+                                  : 'text-neutral-400'
                               }`}
                             >
-                              {nom.isPlayer ? 'Your Nomination' : 'Nominee'}
+                              {nom.isPlayer
+                                ? 'Your Nomination'
+                                : nom.isRosterArtist
+                                ? 'Roster Nominee'
+                                : 'Nominee'}
                             </span>
                           </div>
                         </div>
@@ -655,8 +670,13 @@ export default function GrammyAwardsApp() {
                                       className="w-8 h-8 rounded-lg object-cover shrink-0"
                                     />
                                     <div className="min-w-0">
-                                      <div className="text-xs font-bold text-white truncate">
-                                        {nom.workTitle}
+                                      <div className="text-xs font-bold text-white truncate flex items-center gap-1">
+                                        <span className="truncate">{nom.workTitle}</span>
+                                        {nom.isRosterArtist && !nom.isPlayer && (
+                                          <span className="text-[9px] font-bold text-[#E5C158] shrink-0">
+                                            · ROSTER
+                                          </span>
+                                        )}
                                       </div>
                                       <div className="text-[11px] text-neutral-400 truncate">
                                         {nom.artistName}
