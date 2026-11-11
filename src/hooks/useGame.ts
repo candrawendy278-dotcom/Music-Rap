@@ -48,6 +48,7 @@ import { syncActiveRosterArtistsToSharedWorld } from '../data/rosterSharedWorldB
 import { processDailyRecordLabelMerchStep } from '../data/recordLabelMerchEngine';
 import { syncWorldNpcDeduplicationWithRoster } from '../data/rosterLifecycleAndNpcDedupEngine';
 import { processDailyBrandDealsStep } from '../data/brandDealsEngine';
+import { processDailyRosterBrandDealsStep } from '../data/rosterBrandDealsAndAwardsEngine';
 import { processDailyLuxuryAssetsStep } from '../data/luxuryAssetsEngine';
 import { processDailySampleClearanceAndLawsuitsStep } from '../data/sampleClearanceAndLegalEngine';
 
@@ -308,9 +309,12 @@ export function useGame() {
           sampleLegalStep.totalSampleRoyaltyDeductedToday
       );
 
-      // Process Daily Brand Ambassadorship Retainers
+      // Process Daily Brand Ambassadorship Retainers (Player & Signed Roster Artists / Groups)
       const brandDealsStep = processDailyBrandDealsStep(nextState);
       (nextState as any).brandDealsState = brandDealsStep.updatedBrandDealsState;
+
+      const rosterBrandStep = processDailyRosterBrandDealsStep(nextState);
+      nextState = rosterBrandStep.nextState;
 
       nextState.dailyStreamsTotal = totalStreams;
       const safeMerchDailyIncome = Math.max(0, Math.round(Number(merchStep.dailyMerchRevenue) || 0));
@@ -319,7 +323,8 @@ export function useGame() {
         Math.round(
           netRevenueAfterCollabRoyalties +
             safeMerchDailyIncome +
-            (brandDealsStep.dailyEndorsementPayout || 0)
+            (brandDealsStep.dailyEndorsementPayout || 0) +
+            (rosterBrandStep.dailyLabelBrandProfit || 0)
         )
       );
 

@@ -42,12 +42,26 @@ import {
   Mail,
   Send,
   Clock,
+  Lock,
 } from 'lucide-react';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
+import {
+  buildRosterArtistAvatarSvg,
+  ensureRosterArtistFullFields,
+} from '../../data/recordLabelCeoEngine';
+import { getArtistDualContractStatus } from '../../data/rosterGroupAndDualContractEngine';
+import {
+  applyRosterArtistBrandDealsProxyUpdate,
+  buildRosterArtistBrandDealsProxyState,
+  getEnsuredRosterBrandDealsRecord,
+} from '../../data/rosterBrandDealsAndAwardsEngine';
 
 interface BrandDealsAppProps {
   gameState?: GameState;
   onUpdateState?: (newState: GameState) => void;
   onShowAlert?: (title: string, message: string) => void;
+  embeddedMode?: boolean;
+  forcedRosterArtistId?: string;
 }
 
 const VERTICAL_FILTERS: { id: 'all' | BrandVertical; label: string }[] = [
@@ -134,15 +148,117 @@ export const BrandDealsApp: React.FC<BrandDealsAppProps> = ({
   gameState: propGameState,
   onUpdateState: propOnUpdateState,
   onShowAlert: propOnShowAlert,
+  embeddedMode = false,
+  forcedRosterArtistId,
 }) => {
   const context = useGameContext();
-  const gameState = propGameState || context.state;
-  const onUpdateState =
+  const rawGameState = propGameState || context.state;
+  const rawOnUpdateState =
     propOnUpdateState || ((nextState: GameState) => context.setState(nextState));
-  const onShowAlert =
+  const rawOnShowAlert =
     propOnShowAlert ||
     ((title: string, message: string) =>
       context.setInfoModal({ title, desc: message }));
+
+  const rl = useMemo(() => getEnsuredRecordLabelState(rawGameState), [rawGameState]);
+  const imprint = rl.imprint;
+  const dateStr = rawGameState.date
+    ? String(rawGameState.date).split('T')[0]
+    : '2026-01-01';
+
+  const rosterList = useMemo(
+    () =>
+      imprint.isFounded
+        ? (imprint.signedRoster || []).map((r) =>
+            ensureRosterArtistFullFields(r, dateStr)
+          )
+        : [],
+    [imprint.isFounded, imprint.signedRoster, dateStr]
+  );
+
+  const [selectedRosterArtistId, setSelectedRosterArtistId] = useState<string>(
+    forcedRosterArtistId || ''
+  );
+
+  React.useEffect(() => {
+    if (forcedRosterArtistId !== undefined) {
+      setSelectedRosterArtistId(forcedRosterArtistId);
+    }
+  }, [forcedRosterArtistId]);
+
+  const activeRosterArtistId = forcedRosterArtistId ?? selectedRosterArtistId;
+
+  const activeRosterArtist = useMemo(
+    () =>
+      activeRosterArtistId
+        ? rosterList.find((a) => a.id === activeRosterArtistId) || null
+        : null,
+    [rosterList, activeRosterArtistId]
+  );
+
+  const activeRosterDual = useMemo(
+    () => (activeRosterArtist ? getArtistDualContractStatus(activeRosterArtist) : null),
+    [activeRosterArtist]
+  );
+
+  const activeRosterRecord = useMemo(
+    () =>
+      activeRosterArtist
+        ? getEnsuredRosterBrandDealsRecord(rawGameState, activeRosterArtist)
+        : null,
+    [rawGameState, activeRosterArtist]
+  );
+
+  const isRosterSoloLocked = Boolean(
+    activeRosterDual?.isGroupMember && !activeRosterDual?.canManageSoloStudio
+  );
+
+  const gameState = useMemo(() => {
+    if (activeRosterArtist) {
+      return (
+        buildRosterArtistBrandDealsProxyState(rawGameState, activeRosterArtist.id) ||
+        rawGameState
+      );
+    }
+    return rawGameState;
+  }, [rawGameState, activeRosterArtist]);
+
+  const lastRosterSplitNoteRef = React.useRef<string | undefined>(undefined);
+  const lastRosterBlockedReasonRef = React.useRef<string | undefined>(undefined);
+
+  const onUpdateState = (nextProxyState: GameState) => {
+    lastRosterSplitNoteRef.current = undefined;
+    lastRosterBlockedReasonRef.current = undefined;
+    if (activeRosterArtist) {
+      const applied = applyRosterArtistBrandDealsProxyUpdate(
+        rawGameState,
+        nextProxyState,
+        activeRosterArtist.id
+      );
+      if (applied.blockedReason) {
+        lastRosterBlockedReasonRef.current = applied.blockedReason;
+        return;
+      }
+      lastRosterSplitNoteRef.current = applied.splitSummary;
+      rawOnUpdateState(applied.nextState);
+      return;
+    }
+    rawOnUpdateState(nextProxyState);
+  };
+
+  const onShowAlert = (title: string, message: string) => {
+    if (lastRosterBlockedReasonRef.current) {
+      rawOnShowAlert('Solo Contract Locked', lastRosterBlockedReasonRef.current);
+      lastRosterBlockedReasonRef.current = undefined;
+      return;
+    }
+    const splitNote = lastRosterSplitNoteRef.current;
+    lastRosterSplitNoteRef.current = undefined;
+    rawOnShowAlert(
+      title,
+      splitNote ? `${message}\n\n${splitNote}` : message
+    );
+  };
 
   const handleCloseApp = () => {
     context.setState((prev) => ({ ...prev, activeApp: 'none' }));
@@ -259,43 +375,167 @@ export const BrandDealsApp: React.FC<BrandDealsAppProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#07070a] text-white flex flex-col overflow-y-auto animate-fade-in pb-28">
+    <div
+      className={
+        embeddedMode
+          ? 'w-full bg-[#07070a] text-white flex flex-col pb-8'
+          : 'fixed inset-0 z-50 bg-[#07070a] text-white flex flex-col overflow-y-auto animate-fade-in pb-28'
+      }
+    >
       <div className="max-w-md mx-auto w-full">
         {/* Mobile-First Sticky Header */}
         <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-b from-amber-500/15 via-zinc-900/95 to-[#07070a] px-4 pt-4 pb-3.5">
+          {/* Brand Deals Account Switcher Bar (Player vs Signed Roster Artists & Official Groups) */}
+          {imprint.isFounded && rosterList.length > 0 && !forcedRosterArtistId && (
+            <div className="mb-3 flex items-center gap-1.5 overflow-x-auto pb-1.5 border-b border-white/10 hide-scrollbar">
+              <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-amber-300 mr-1">
+                Talent:
+              </span>
+              <button
+                onClick={() => setSelectedRosterArtistId('')}
+                className={`shrink-0 rounded-xl border px-2.5 py-1 text-[10px] font-black transition cursor-pointer ${
+                  !activeRosterArtist
+                    ? 'border-amber-400 bg-amber-400 text-black shadow'
+                    : 'border-white/10 bg-white/5 text-zinc-400 hover:text-white'
+                }`}
+              >
+                You ({rawGameState.artist?.name || 'Artist'})
+              </button>
+              {rosterList.map((art) => {
+                const d = getArtistDualContractStatus(art);
+                const isSelected = activeRosterArtist?.id === art.id;
+                const isGrp = Boolean((art as any).isGroupEntity);
+                return (
+                  <button
+                    key={art.id}
+                    onClick={() => setSelectedRosterArtistId(art.id)}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[10px] font-black transition cursor-pointer ${
+                      isSelected
+                        ? isGrp
+                          ? 'border-pink-400 bg-pink-500/30 text-white shadow'
+                          : 'border-amber-400 bg-amber-500/30 text-white shadow'
+                        : 'border-white/10 bg-white/5 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <img
+                      src={
+                        art.avatarUrl ||
+                        buildRosterArtistAvatarSvg(d.formattedStageName)
+                      }
+                      alt={d.formattedStageName}
+                      className="h-4 w-4 rounded-full object-cover"
+                    />
+                    <span className="max-w-[115px] truncate">{d.formattedStageName}</span>
+                    {isGrp && (
+                      <span className="rounded bg-pink-500/30 px-1 py-0.2 text-[8px] text-pink-200">
+                        GRP
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2.5 min-w-0">
-              <button
-                onClick={handleCloseApp}
-                className="min-h-[40px] min-w-[40px] rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 flex items-center justify-center text-white shrink-0 cursor-pointer"
-                title="Back to Apps"
-              >
-                <i className="ph-bold ph-arrow-left text-base"></i>
-              </button>
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-600 flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
-                <Crown className="w-5 h-5 text-black" />
+              {!embeddedMode && (
+                <button
+                  onClick={handleCloseApp}
+                  className="min-h-[40px] min-w-[40px] rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 flex items-center justify-center text-white shrink-0 cursor-pointer"
+                  title="Back to Apps"
+                >
+                  <i className="ph-bold ph-arrow-left text-base"></i>
+                </button>
+              )}
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-600 flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0 overflow-hidden">
+                {activeRosterArtist && activeRosterDual ? (
+                  <img
+                    src={
+                      activeRosterArtist.avatarUrl ||
+                      buildRosterArtistAvatarSvg(activeRosterDual.formattedStageName)
+                    }
+                    alt={activeRosterDual.formattedStageName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Crown className="w-5 h-5 text-black" />
+                )}
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] uppercase tracking-[0.2em] text-amber-300 font-bold">
-                    Maison Endorsements
+                  <span className="text-[9px] uppercase tracking-[0.2em] text-amber-300 font-bold truncate">
+                    {activeRosterArtist && activeRosterDual
+                      ? `${imprint.imprintName} • Label Cut ${
+                          (activeRosterArtist as any).imprintRoyaltyPct || 70
+                        }%`
+                      : 'Maison Endorsements'}
                   </span>
                 </div>
                 <h1 className="text-base font-black tracking-tight text-white truncate">
-                  Global Brand Deals
+                  {activeRosterArtist && activeRosterDual
+                    ? `${activeRosterDual.formattedStageName} • Brand Deals`
+                    : 'Global Brand Deals'}
                 </h1>
               </div>
             </div>
 
             <div className="text-right shrink-0 bg-white/[0.04] border border-white/10 rounded-xl px-2.5 py-1.5">
               <div className="text-[9px] uppercase tracking-wider text-zinc-400">
-                Brand Earnings
+                {activeRosterRecord ? 'Your Label Cut' : 'Brand Earnings'}
               </div>
               <div className="text-xs font-black text-emerald-400">
-                {formatMoney(brandState.totalEndorsementIncomeAllTime)}
+                {activeRosterRecord
+                  ? formatMoney(activeRosterRecord.totalLabelCutEarned)
+                  : formatMoney(brandState.totalEndorsementIncomeAllTime)}
               </div>
             </div>
           </div>
+
+          {/* If viewing a Roster Artist, show Label Split & Group-Only Contract Notice */}
+          {activeRosterArtist && activeRosterDual && activeRosterRecord && (
+            <div className="mb-3 space-y-2">
+              <div className="grid grid-cols-3 gap-1.5 rounded-xl border border-amber-500/25 bg-black/50 p-2 text-center">
+                <div>
+                  <div className="text-[8px] uppercase tracking-wider text-zinc-400">
+                    Gross Generated
+                  </div>
+                  <div className="font-mono text-xs font-black text-white">
+                    {formatMoney(activeRosterRecord.totalGrossGenerated)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[8px] uppercase tracking-wider text-emerald-300">
+                    Label Cut ({(activeRosterArtist as any).imprintRoyaltyPct || 70}%)
+                  </div>
+                  <div className="font-mono text-xs font-black text-emerald-400">
+                    {formatMoney(activeRosterRecord.totalLabelCutEarned)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[8px] uppercase tracking-wider text-amber-300">
+                    Artist Cut
+                  </div>
+                  <div className="font-mono text-xs font-black text-amber-300">
+                    {formatMoney(activeRosterRecord.totalArtistCutEarned)}
+                  </div>
+                </div>
+              </div>
+
+              {isRosterSoloLocked && (
+                <div className="flex items-start gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 p-2.5 text-[10px] text-rose-200">
+                  <Lock className="h-3.5 w-3.5 shrink-0 text-rose-400 mt-0.5" />
+                  <div>
+                    <strong>Solo Brand Rights Locked:</strong>{' '}
+                    {activeRosterDual.formattedStageName} only renewed their Group
+                    Contract. Switch to <strong>{activeRosterDual.groupName}</strong>{' '}
+                    for Group Brand Deals or re-acquire their Solo Contract in the CEO
+                    Suite!
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Mobile 2x2 KPI Summary Grid */}
           <div className="grid grid-cols-2 gap-2 mb-3">

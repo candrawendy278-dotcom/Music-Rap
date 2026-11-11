@@ -8,11 +8,14 @@ import {
   ActiveBrandContract,
   AmbassadorRoleTierId,
   BRAND_OFFERS_CATALOG,
+  BrandDealsState,
   BrandOfferDefinition,
   IncomingBrandProposal,
   getAmbassadorRoleTierMeta,
   getBrandAuthenticLogoSvgDataUri,
   getBrandSignatureProductSvgDataUri,
+  getEnsuredBrandDealsState,
+  processDailyBrandDealsStep,
 } from './brandDealsEngine';
 import {
   ImprintSignedArtist,
@@ -37,10 +40,13 @@ export interface RosterArtistBrandDealsRecord {
   artistId: string;
   activeContracts: ActiveBrandContract[];
   incomingProposals: IncomingBrandProposal[];
+  completedContractIds?: string[];
   brandAffinityByOfferId: Record<string, number>;
   totalGrossGenerated: number;
   totalLabelCutEarned: number;
   totalArtistCutEarned: number;
+  dailyEndorsementIncomeToday?: number;
+  dailyProductRoyaltiesToday?: number;
   lastPromotionMessage?: string | null;
 }
 
@@ -545,6 +551,17 @@ export function executeRosterArtistBrandShoot(
   const contract = record.activeContracts.find((c) => c.offerId === offerId);
   if (!contract) {
     return { success: false, message: 'Active brand contract not found.', nextState: state };
+  }
+
+  const cooldown = contract.shootCooldownDays || 10;
+  const daysSince = contract.daysSinceLastShoot ?? cooldown;
+  if (daysSince < cooldown) {
+    const waitDays = cooldown - daysSince;
+    return {
+      success: false,
+      message: `Next campaign deliverable for ${contract.brandName} will be ready in ${waitDays} day(s).`,
+      nextState: state,
+    };
   }
 
   const offer = BRAND_OFFERS_CATALOG.find((o) => o.id === offerId);
@@ -1917,4 +1934,406 @@ export function saveRosterArtistQuickAvatar(
     },
   };
 }
+
+// ============================================================================
+// 8. UNIFIED ROSTER BRAND DEALS PROXY STATE ADAPTER & DAILY STEP ENGINE
+//    Allows BrandDealsApp.tsx to render the exact same 4-tab Maison experience
+//    (Offers, Contracts, Products, Impact, Real Logos, Real Product Photos,
+//    Campaign Deliverable Cooldowns, Capsule Drops & Board Reviews) for every
+//    signed Roster Artist and Official Group!
+// ============================================================================
+
+export function buildRosterArtistBrandDealsProxyState(
+  state: GameState,
+  artistId: string
+): GameState | null {
+  const rl = getEnsuredRecordLabelState(state);
+  const dateStr = state.date ? String(state.date).split('T')[0] : '2026-01-01';
+  const rawArtist = rl.imprint.signedRoster.find((a) => a.id === artistId);
+  if (!rawArtist) return null;
+
+  const artist = ensureRosterArtistFullFields(rawArtist, dateStr);
+  const dual = getArtistDualContractStatus(artist);
+  const record = getEnsuredRosterBrandDealsRecord(state, artist);
+
+  const proxyBrandDealsState: BrandDealsState = {
+    initialized: true,
+    activeContracts: Array.isArray(record.activeContracts) ? record.activeContracts : [],
+    incomingProposals: Array.isArray(record.incomingProposals) ? record.incomingProposals : [],
+    completedContractIds: Array.isArray(record.completedContractIds)
+      ? record.completedContractIds
+      : [],
+    totalEndorsementIncomeAllTime: Number(record.totalGrossGenerated) || 0,
+    dailyEndorsementIncomeToday: Number(record.dailyEndorsementIncomeToday) || 0,
+    dailyProductRoyaltiesToday: Number(record.dailyProductRoyaltiesToday) || 0,
+    brandAffinityByOfferId: { ...(record.brandAffinityByOfferId || {}) },
+    lastAutoPromotionMessage: record.lastPromotionMessage || null,
+  };
+
+  const proxyArtist = {
+    ...(state.artist || {}),
+    name: dual.formattedStageName,
+    genre: artist.genre || 'Pop',
+    region: (artist as any).region || 'USA',
+    gender: (artist as any).gender || 'Female',
+    avatar: artist.avatarUrl || buildRosterArtistAvatarSvg(dual.formattedStageName),
+    popularity: Number(artist.popularity) || 35,
+    hype: Number(artist.hype) || 45,
+  } as any;
+
+  const proxyState: GameState = {
+    ...state,
+    artist: proxyArtist,
+    popularity: Number(artist.popularity) || 35,
+    hype: Number(artist.hype) || 45,
+    fans: Number(artist.fans) || 25_000,
+    songs: Array.isArray(artist.songs) ? artist.songs : [],
+    projects: Array.isArray(artist.projects) ? artist.projects : [],
+    brandDealsState: proxyBrandDealsState,
+  } as any;
+
+  // Ensure brandDealsState has valid proposals/metrics via getEnsuredBrandDealsState
+  const ensuredBrandState = getEnsuredBrandDealsState(proxyState);
+  return {
+    ...proxyState,
+    brandDealsState: ensuredBrandState,
+  } as any;
+}
+
+export function applyRosterArtistBrandDealsProxyUpdate(
+  realState: GameState,
+  nextProxyState: GameState,
+  artistId: string
+): {
+  nextState: GameState;
+  blockedReason?: string;
+  splitSummary?: string;
+} {
+  const rl = getEnsuredRecordLabelState(realState);
+  const imprint = rl.imprint;
+  const dateStr = realState.date ? String(realState.date).split('T')[0] : '2026-01-01';
+  const rawArtist = imprint.signedRoster.find((a) => a.id === artistId);
+  if (!rawArtist) {
+    return { nextState: realState, blockedReason: 'Roster artist not found.' };
+  }
+
+  const artist = ensureRosterArtistFullFields(rawArtist, dateStr);
+  const dual = getArtistDualContractStatus(artist);
+
+  if (dual.isGroupMember && !dual.canManageSoloStudio) {
+    return {
+      nextState: realState,
+      blockedReason: `${dual.formattedStageName} only renewed their Group Contract. Solo brand deals are held by their outside agency — switch to their Official Group (${dual.groupName}) or re-acquire their Solo Contract in the CEO Suite!`,
+    };
+  }
+
+  const prevRecord = getEnsuredRosterBrandDealsRecord(realState, artist);
+  const nextBrandState: BrandDealsState =
+    (nextProxyState as any).brandDealsState || getEnsuredBrandDealsState(nextProxyState);
+
+  const realMoneyBefore = Number(realState.money) || 0;
+  const proxyMoneyAfter = Number(nextProxyState.money) || 0;
+  const deltaMoney = Math.round(proxyMoneyAfter - realMoneyBefore);
+
+  const labelShareRatio = Math.max(
+    0.25,
+    Math.min(0.85, (Number((artist as any).imprintRoyaltyPct) || 70) / 100)
+  );
+
+  let labelCutDelta = 0;
+  let artistCutDelta = 0;
+  let grossAdded = 0;
+  let splitSummary: string | undefined;
+
+  if (deltaMoney > 0) {
+    grossAdded = deltaMoney;
+    labelCutDelta = Math.round(deltaMoney * labelShareRatio);
+    artistCutDelta = deltaMoney - labelCutDelta;
+    splitSummary = `Gross Payout: $${deltaMoney.toLocaleString()} • Your Label Cut (${Math.round(
+      labelShareRatio * 100
+    )}%): +$${labelCutDelta.toLocaleString()} • ${
+      dual.formattedStageName
+    }'s Cut: +$${artistCutDelta.toLocaleString()}`;
+  } else if (deltaMoney < 0) {
+    // Contract buyout fee paid by label
+    labelCutDelta = deltaMoney;
+  }
+
+  const updatedRecord: RosterArtistBrandDealsRecord = {
+    artistId: artist.id,
+    activeContracts: nextBrandState.activeContracts || [],
+    incomingProposals: nextBrandState.incomingProposals || [],
+    completedContractIds: nextBrandState.completedContractIds || [],
+    brandAffinityByOfferId: nextBrandState.brandAffinityByOfferId || {},
+    totalGrossGenerated: Math.max(
+      Number(prevRecord.totalGrossGenerated) || 0,
+      (Number(prevRecord.totalGrossGenerated) || 0) + grossAdded
+    ),
+    totalLabelCutEarned:
+      (Number(prevRecord.totalLabelCutEarned) || 0) + Math.max(0, labelCutDelta),
+    totalArtistCutEarned:
+      (Number(prevRecord.totalArtistCutEarned) || 0) + Math.max(0, artistCutDelta),
+    dailyEndorsementIncomeToday: nextBrandState.dailyEndorsementIncomeToday || 0,
+    dailyProductRoyaltiesToday: nextBrandState.dailyProductRoyaltiesToday || 0,
+    lastPromotionMessage: nextBrandState.lastAutoPromotionMessage || null,
+  };
+
+  const popDelta = Math.max(
+    0,
+    (Number(nextProxyState.popularity) || Number(artist.popularity) || 35) -
+      (Number(artist.popularity) || 35)
+  );
+  const hypeDelta =
+    (Number(nextProxyState.hype) || Number(artist.hype) || 45) -
+    (Number(artist.hype) || 45);
+  const fansDelta = Math.max(
+    0,
+    (Number(nextProxyState.fans) || Number(artist.fans) || 25_000) -
+      (Number(artist.fans) || 25_000)
+  );
+
+  const activeBrandBadges = (updatedRecord.activeContracts || [])
+    .map(
+      (c) =>
+        `${c.brandName} (${
+          getAmbassadorRoleTierMeta(c.roleTierId || 'brand_ambassador').shortBadge
+        })`
+    )
+    .slice(0, 5);
+
+  const nextRoster = imprint.signedRoster.map((r) => {
+    if (r.id !== artistId) return r;
+    const ens = ensureRosterArtistFullFields(r, dateStr);
+    return {
+      ...ens,
+      popularity: Math.max(
+        1,
+        Math.min(100, Number(((ens.popularity || 35) + popDelta).toFixed(2)))
+      ),
+      hype: Math.max(
+        5,
+        Math.min(100, Number(((ens.hype || 45) + hypeDelta).toFixed(2)))
+      ),
+      fans: (ens.fans || 25_000) + fansDelta,
+      labelTrust: Math.min(
+        100,
+        ((ens as any).labelTrust ?? 78) + (grossAdded > 0 ? 2 : 0)
+      ),
+      totalGrossRevenue:
+        (((ens as any).totalGrossRevenue as number) || 0) + Math.max(0, grossAdded),
+      totalLabelProfit:
+        (((ens as any).totalLabelProfit as number) || 0) + Math.max(0, labelCutDelta),
+      activeBrandBadges,
+    } as any;
+  });
+
+  // Check if a new contract was signed or a campaign shoot / capsule drop was executed to post an X update
+  let nextXPosts = Array.isArray(realState.xPosts) ? [...realState.xPosts] : [];
+  const newlySignedContract = (updatedRecord.activeContracts || []).find(
+    (nc) => !(prevRecord.activeContracts || []).some((pc) => pc.offerId === nc.offerId)
+  );
+  const newlyShotContract = (updatedRecord.activeContracts || []).find((nc) => {
+    const prevC = (prevRecord.activeContracts || []).find((pc) => pc.offerId === nc.offerId);
+    return prevC && (nc.shootsCompleted || 0) > (prevC.shootsCompleted || 0);
+  });
+
+  if (newlySignedContract) {
+    const offer = BRAND_OFFERS_CATALOG.find((o) => o.id === newlySignedContract.offerId);
+    if (offer) {
+      const roleMeta = getAmbassadorRoleTierMeta(newlySignedContract.roleTierId);
+      const heroProd = offer.signatureProducts[0];
+      const prodImg = heroProd
+        ? getBrandSignatureProductSvgDataUri(heroProd, offer.brandName)
+        : getBrandAuthenticLogoSvgDataUri(offer.id, offer.accentColor, offer.logoText);
+      const xAnnouncement: XPost = {
+        id: `roster_brand_${artist.id}_${offer.id}_${Date.now()}`,
+        authorName: 'Pop Base',
+        authorHandle: '@PopBase',
+        authorAvatar:
+          'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=150&q=80',
+        isVerified: true,
+        verifiedType: 'blue',
+        category: 'media',
+        timeAgo: 'Just now',
+        dateCreated: dateStr,
+        content: `OFFICIAL: ${offer.brandName} has appointed ${dual.formattedStageName} (${imprint.imprintName}) as ${newlySignedContract.roleTitle} for their "${offer.campaignTitle}" global campaign! ✨👜`,
+        image: prodImg,
+        mediaBadge: roleMeta.shortBadge,
+        mediaTitle: `${dual.formattedStageName} × ${offer.brandName}`,
+        mediaSubtitle: `${newlySignedContract.roleTitle} • ${newlySignedContract.productRoyaltyPct}% Global Product Royalty`,
+        likes: Math.round(35_000 + (artist.popularity || 40) * 1_800),
+        reposts: Math.round(8_400 + (artist.popularity || 40) * 420),
+        replies: 1_240,
+        views: Math.round(420_000 + (artist.popularity || 40) * 19_000),
+        isPlayerPost: false,
+        daysOld: 0,
+      };
+      nextXPosts = [xAnnouncement, ...nextXPosts].slice(0, 120);
+    }
+  } else if (newlyShotContract) {
+    const offer = BRAND_OFFERS_CATALOG.find((o) => o.id === newlyShotContract.offerId);
+    const heroProd = offer?.signatureProducts?.[0];
+    const prodImg =
+      heroProd && offer
+        ? getBrandSignatureProductSvgDataUri(heroProd, offer.brandName)
+        : offer
+        ? getBrandAuthenticLogoSvgDataUri(offer.id, offer.accentColor, offer.logoText)
+        : undefined;
+    const fanAccount = getRosterArtistFandomXAccountMeta(realState, artist);
+    const fanPost: XPost = {
+      id: `roster_brand_shoot_${artist.id}_${Date.now()}`,
+      authorName: fanAccount.fandomAccountName,
+      authorHandle: fanAccount.fandomHandle,
+      authorAvatar:
+        artist.avatarUrl || buildRosterArtistAvatarSvg(dual.formattedStageName),
+      isVerified: true,
+      verifiedType: 'blue',
+      category: 'fanbase',
+      timeAgo: 'Just now',
+      dateCreated: dateStr,
+      content: `📸 GLOBAL CAMPAIGN IMPACT: ${dual.formattedStageName} stars in ${newlyShotContract.brandName}'s "${newlyShotContract.shootDeliverableName}" as ${newlyShotContract.roleTitle}!\n\n• Featured Product: ${heroProd?.name || newlyShotContract.campaignTitle}\n• Campaign Impact XP: ${newlyShotContract.brandAffinityXp} pts\n• Sold Out across flagship boutiques worldwide 🔥`,
+      image: prodImg,
+      mediaBadge: `${newlyShotContract.brandName.toUpperCase()} × ${dual.formattedStageName.toUpperCase()}`,
+      likes: Math.round(24_000 + (artist.popularity || 40) * 1_450),
+      reposts: Math.round(6_800 + (artist.popularity || 40) * 380),
+      replies: 890,
+      views: Math.round(290_000 + (artist.popularity || 40) * 14_000),
+      isPlayerPost: false,
+      daysOld: 0,
+    };
+    nextXPosts = [fanPost, ...nextXPosts].slice(0, 120);
+  }
+
+  const nextState: GameState = {
+    ...realState,
+    money: Math.max(0, realMoneyBefore + labelCutDelta),
+    xPosts: nextXPosts,
+    rosterBrandDealsByArtistId: {
+      ...((realState as any).rosterBrandDealsByArtistId || {}),
+      [artist.id]: updatedRecord,
+    },
+    recordLabelState: {
+      ...rl,
+      imprint: {
+        ...imprint,
+        signedRoster: nextRoster,
+        totalRevenueGenerated:
+          (imprint.totalRevenueGenerated || 0) + Math.max(0, labelCutDelta),
+      },
+    },
+  } as any;
+
+  return {
+    nextState,
+    splitSummary,
+  };
+}
+
+/**
+ * Advances all signed Roster Artists' Brand Deals by 1 day during Next Day:
+ * - Increments daysSinceLastShoot + 1 (enforcing Campaign Shoot cooldowns!)
+ * - Increments daysSinceLastCapsuleDrop + 1
+ * - Decrements contract daysRemaining - 1
+ * - Pays daily retainers & daily product sales royalties (splitting Label Cut vs Artist Cut)
+ * - Evaluates automatic Executive Board tier promotions
+ */
+export function processDailyRosterBrandDealsStep(state: GameState): {
+  nextState: GameState;
+  dailyLabelBrandProfit: number;
+} {
+  const rl = getEnsuredRecordLabelState(state);
+  const imprint = rl.imprint;
+  if (!imprint.isFounded || !Array.isArray(imprint.signedRoster) || imprint.signedRoster.length === 0) {
+    return { nextState: state, dailyLabelBrandProfit: 0 };
+  }
+
+  const dateStr = state.date ? String(state.date).split('T')[0] : '2026-01-01';
+  const nextByArtistId: Record<string, RosterArtistBrandDealsRecord> = {
+    ...((state as any).rosterBrandDealsByArtistId || {}),
+  };
+
+  let dailyLabelBrandProfit = 0;
+
+  const nextRoster = imprint.signedRoster.map((raw) => {
+    const artist = ensureRosterArtistFullFields(raw, dateStr);
+    const dual = getArtistDualContractStatus(artist);
+    if (dual.isGroupMember && !dual.canManageSoloStudio) {
+      return artist;
+    }
+
+    const prevRecord = getEnsuredRosterBrandDealsRecord(state, artist);
+    const proxyState = buildRosterArtistBrandDealsProxyState(state, artist.id);
+    if (!proxyState) return artist;
+
+    const step = processDailyBrandDealsStep(proxyState);
+    const updatedBrandState = step.updatedBrandDealsState;
+    const grossDaily = Math.max(0, Math.round(step.dailyEndorsementPayout || 0));
+
+    const labelShareRatio = Math.max(
+      0.25,
+      Math.min(0.85, (Number((artist as any).imprintRoyaltyPct) || 70) / 100)
+    );
+    const labelCut = Math.round(grossDaily * labelShareRatio);
+    const artistCut = grossDaily - labelCut;
+
+    dailyLabelBrandProfit += labelCut;
+
+    nextByArtistId[artist.id] = {
+      artistId: artist.id,
+      activeContracts: updatedBrandState.activeContracts || [],
+      incomingProposals: updatedBrandState.incomingProposals || [],
+      completedContractIds: updatedBrandState.completedContractIds || [],
+      brandAffinityByOfferId: updatedBrandState.brandAffinityByOfferId || {},
+      totalGrossGenerated: (Number(prevRecord.totalGrossGenerated) || 0) + grossDaily,
+      totalLabelCutEarned: (Number(prevRecord.totalLabelCutEarned) || 0) + labelCut,
+      totalArtistCutEarned: (Number(prevRecord.totalArtistCutEarned) || 0) + artistCut,
+      dailyEndorsementIncomeToday: updatedBrandState.dailyEndorsementIncomeToday || 0,
+      dailyProductRoyaltiesToday: updatedBrandState.dailyProductRoyaltiesToday || 0,
+      lastPromotionMessage: updatedBrandState.lastAutoPromotionMessage || null,
+    };
+
+    const activeBrandBadges = (updatedBrandState.activeContracts || [])
+      .map(
+        (c) =>
+          `${c.brandName} (${
+            getAmbassadorRoleTierMeta(c.roleTierId || 'brand_ambassador').shortBadge
+          })`
+      )
+      .slice(0, 5);
+
+    const dailyHypeFromContracts =
+      (updatedBrandState.activeContracts || []).length * 0.25;
+
+    return {
+      ...artist,
+      hype: Math.min(
+        100,
+        Number(((artist.hype || 45) + dailyHypeFromContracts).toFixed(2))
+      ),
+      totalGrossRevenue: (((artist as any).totalGrossRevenue as number) || 0) + grossDaily,
+      totalLabelProfit: (((artist as any).totalLabelProfit as number) || 0) + labelCut,
+      activeBrandBadges,
+    } as any;
+  });
+
+  const nextState: GameState = {
+    ...state,
+    rosterBrandDealsByArtistId: nextByArtistId,
+    recordLabelState: {
+      ...rl,
+      imprint: {
+        ...imprint,
+        signedRoster: nextRoster,
+        totalRevenueGenerated:
+          (imprint.totalRevenueGenerated || 0) + dailyLabelBrandProfit,
+      },
+    },
+  } as any;
+
+  return {
+    nextState,
+    dailyLabelBrandProfit,
+  };
+}
+
 

@@ -2,24 +2,16 @@ import React, { useMemo, useState } from 'react';
 import {
   Award,
   Briefcase,
-  Camera,
   CheckCircle2,
   Crown,
   ExternalLink,
   Lock,
-  Sparkles,
   TrendingUp,
   Trophy,
   Users,
   X,
 } from 'lucide-react';
 import { GameState } from '../../types';
-import {
-  BRAND_OFFERS_CATALOG,
-  getAmbassadorRoleTierMeta,
-  getBrandAuthenticLogoSvgDataUri,
-  getBrandSignatureProductSvgDataUri,
-} from '../../data/brandDealsEngine';
 import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
 import {
   buildRosterArtistAvatarSvg,
@@ -28,15 +20,12 @@ import {
 import { getArtistDualContractStatus } from '../../data/rosterGroupAndDualContractEngine';
 import {
   ROSTER_FYC_CAMPAIGN_TIERS,
-  acceptRosterArtistBrandDeal,
-  executeRosterArtistBrandShoot,
   getEnsuredRosterAwardFycEntry,
-  getEnsuredRosterBrandDealsRecord,
-  pitchBrandForRosterArtist,
   purchaseRosterArtistFycCampaign,
   submitRosterArtistAwardFycEntry,
 } from '../../data/rosterBrandDealsAndAwardsEngine';
 import { AwardShowType } from '../../data/awardsCategoriesConfig';
+import { BrandDealsApp } from './BrandDealsApp';
 
 interface RosterBrandDealsAndAwardsModalProps {
   isOpen: boolean;
@@ -73,9 +62,6 @@ export const RosterBrandDealsAndAwardsModal: React.FC<
   const [selectedArtistId, setSelectedArtistId] = useState<string>(
     () => initialArtistId || rosterList[0]?.id || ''
   );
-  const [brandSubView, setBrandSubView] = useState<'active' | 'inbox' | 'catalog'>(
-    'inbox'
-  );
   const [awardShow, setAwardShow] = useState<AwardShowType>('grammys');
 
   // Sync when modal opens with a specific artist or tab
@@ -99,14 +85,6 @@ export const RosterBrandDealsAndAwardsModal: React.FC<
   const dualStatus = useMemo(
     () => (currentArtist ? getArtistDualContractStatus(currentArtist) : null),
     [currentArtist]
-  );
-
-  const brandRecord = useMemo(
-    () =>
-      currentArtist
-        ? getEnsuredRosterBrandDealsRecord(gameState, currentArtist)
-        : null,
-    [gameState, currentArtist]
   );
 
   const fycEntry = useMemo(
@@ -157,41 +135,6 @@ export const RosterBrandDealsAndAwardsModal: React.FC<
   const isSoloLocked = Boolean(
     dualStatus?.isGroupMember && !dualStatus?.canManageSoloStudio
   );
-
-  const handleAcceptBrandProposal = (offerId: string) => {
-    if (!currentArtist) return;
-    const res = acceptRosterArtistBrandDeal(gameState, currentArtist.id, offerId);
-    if (!res.success) {
-      onNotify(res.message, 'error');
-      return;
-    }
-    setGameState(res.nextState);
-    setBrandSubView('active');
-    onNotify(res.message, 'success');
-  };
-
-  const handleRunBrandShoot = (offerId: string) => {
-    if (!currentArtist) return;
-    const res = executeRosterArtistBrandShoot(gameState, currentArtist.id, offerId);
-    if (!res.success) {
-      onNotify(res.message, 'error');
-      return;
-    }
-    setGameState(res.nextState);
-    onNotify(res.message, 'success');
-  };
-
-  const handlePitchMaison = (offerId: string) => {
-    if (!currentArtist) return;
-    const res = pitchBrandForRosterArtist(gameState, currentArtist.id, offerId);
-    if (!res.success) {
-      onNotify(res.message, 'error');
-      return;
-    }
-    setGameState(res.nextState);
-    setBrandSubView('inbox');
-    onNotify(res.message, 'success');
-  };
 
   const handleSaveFycSubmission = () => {
     if (!currentArtist) return;
@@ -408,341 +351,25 @@ export const RosterBrandDealsAndAwardsModal: React.FC<
               </div>
 
               {/* ===============================================================
-                  TAB 1: ROSTER BRAND DEALS & MAISONS
+                  TAB 1: ROSTER BRAND DEALS & MAISONS (100% IDENTICAL TO PLAYER BRAND DEALS APP)
                  =============================================================== */}
-              {activeTab === 'brands' && brandRecord && (
-                <div className="space-y-3.5">
-                  {/* Financial Split & Brand Impact Strip */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="rounded-xl border border-white/10 bg-black/40 p-2.5 text-center">
-                      <div className="text-[9px] uppercase text-zinc-400">
-                        Active Maisons
-                      </div>
-                      <div className="mt-0.5 font-mono text-sm font-black text-white">
-                        {brandRecord.activeContracts.length}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-center">
-                      <div className="text-[9px] uppercase text-emerald-300">
-                        Your Label Cut
-                      </div>
-                      <div className="mt-0.5 font-mono text-sm font-black text-emerald-400">
-                        ${brandRecord.totalLabelCutEarned.toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-2.5 text-center">
-                      <div className="text-[9px] uppercase text-amber-300">
-                        Artist Cut
-                      </div>
-                      <div className="mt-0.5 font-mono text-sm font-black text-amber-300">
-                        ${brandRecord.totalArtistCutEarned.toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Sub-Tab Bar: Active Deals | Incoming Brand Offers | Pitch All Maisons */}
-                  <div className="grid grid-cols-3 gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] p-1">
-                    {[
-                      {
-                        id: 'active' as const,
-                        label: `Active (${brandRecord.activeContracts.length})`,
-                      },
-                      {
-                        id: 'inbox' as const,
-                        label: `Offers (${brandRecord.incomingProposals.length})`,
-                      },
-                      {
-                        id: 'catalog' as const,
-                        label: `All Maisons (${BRAND_OFFERS_CATALOG.length})`,
-                      },
-                    ].map((st) => (
-                      <button
-                        key={st.id}
-                        onClick={() => setBrandSubView(st.id)}
-                        className={`rounded-lg py-1.5 text-[10px] font-black uppercase transition ${
-                          brandSubView === st.id
-                            ? 'bg-amber-500 text-black'
-                            : 'text-zinc-400 hover:text-white'
-                        }`}
-                      >
-                        {st.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* SUB-VIEW A: ACTIVE ROSTER BRAND CONTRACTS */}
-                  {brandSubView === 'active' && (
-                    <div className="space-y-3">
-                      {brandRecord.activeContracts.length === 0 ? (
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 text-center space-y-2">
-                          <Sparkles className="mx-auto h-6 w-6 text-amber-400" />
-                          <div className="text-xs font-black text-white">
-                            No Active Brand Deals for {dualStatus.formattedStageName}
-                          </div>
-                          <p className="text-[11px] text-zinc-400">
-                            Open the <strong>Offers</strong> tab to accept an incoming
-                            Maison contract!
-                          </p>
-                        </div>
-                      ) : (
-                        brandRecord.activeContracts.map((contract) => {
-                          const offer = BRAND_OFFERS_CATALOG.find(
-                            (o) => o.id === contract.offerId
-                          );
-                          const roleMeta = getAmbassadorRoleTierMeta(contract.roleTierId);
-                          const logoUri = offer
-                            ? getBrandAuthenticLogoSvgDataUri(
-                                offer.id,
-                                offer.accentColor,
-                                offer.logoText
-                              )
-                            : '';
-
-                          return (
-                            <div
-                              key={contract.offerId}
-                              className="rounded-2xl border border-amber-500/35 bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-3.5 space-y-3"
-                            >
-                              <div className="flex items-start justify-between gap-2.5">
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  {logoUri && (
-                                    <img
-                                      src={logoUri}
-                                      alt={contract.brandName}
-                                      className="h-11 w-11 shrink-0 rounded-xl border border-white/15 object-cover"
-                                    />
-                                  )}
-                                  <div className="min-w-0">
-                                    <span
-                                      className="inline-block rounded px-1.5 py-0.5 text-[9px] font-black uppercase"
-                                      style={{
-                                        backgroundColor: `${roleMeta.badgeColor}25`,
-                                        color: roleMeta.badgeColor,
-                                      }}
-                                    >
-                                      {roleMeta.shortBadge}
-                                    </span>
-                                    <h4 className="truncate text-sm font-black text-white mt-0.5">
-                                      {contract.brandName}
-                                    </h4>
-                                    <p className="truncate text-[10px] text-zinc-300">
-                                      {contract.roleTitle}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <div className="font-mono text-xs font-black text-emerald-400">
-                                    ${contract.totalEarnedFromContract.toLocaleString()}
-                                  </div>
-                                  <div className="text-[9px] text-zinc-400">
-                                    Impact XP: {contract.brandAffinityXp || 18}
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Signature Collaborating Products */}
-                              {offer && offer.signatureProducts.length > 0 && (
-                                <div className="space-y-1.5">
-                                  <div className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
-                                    Endorsed Products ({contract.productRoyaltyPct}% Royalty)
-                                  </div>
-                                  <div className="grid grid-cols-3 gap-1.5">
-                                    {offer.signatureProducts.map((prod) => (
-                                      <div
-                                        key={prod.id}
-                                        className="rounded-xl border border-white/10 bg-black/50 p-1.5 text-center"
-                                      >
-                                        <img
-                                          src={getBrandSignatureProductSvgDataUri(
-                                            prod,
-                                            offer.brandName
-                                          )}
-                                          alt={prod.name}
-                                          className="mx-auto h-11 w-full rounded-lg object-cover"
-                                        />
-                                        <div className="mt-1 truncate text-[9px] font-bold text-white">
-                                          {prod.name}
-                                        </div>
-                                        <div className="font-mono text-[9px] text-amber-300">
-                                          ${prod.retailPrice.toLocaleString()}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              <button
-                                disabled={isSoloLocked}
-                                onClick={() => handleRunBrandShoot(contract.offerId)}
-                                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 py-2 text-xs font-black text-black shadow hover:opacity-95 disabled:opacity-40"
-                              >
-                                <Camera className="h-3.5 w-3.5" />
-                                <span>
-                                  Execute Campaign Shoot (+$
-                                  {contract.shootBonusPayout.toLocaleString()} + Product
-                                  Royalties)
-                                </span>
-                              </button>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-
-                  {/* SUB-VIEW B: INCOMING BRAND PROPOSALS */}
-                  {brandSubView === 'inbox' && (
-                    <div className="space-y-3">
-                      {brandRecord.incomingProposals.map((prop) => {
-                        const offer = BRAND_OFFERS_CATALOG.find(
-                          (o) => o.id === prop.offerId
-                        );
-                        const roleMeta = getAmbassadorRoleTierMeta(
-                          prop.offeredRoleTierId
-                        );
-                        const logoUri = offer
-                          ? getBrandAuthenticLogoSvgDataUri(
-                              offer.id,
-                              offer.accentColor,
-                              offer.logoText
-                            )
-                          : '';
-                        const labelCutPreview = Math.round(
-                          prop.signingBonus *
-                            (((currentArtist as any).imprintRoyaltyPct || 70) / 100)
-                        );
-
-                        return (
-                          <div
-                            key={prop.id}
-                            className="rounded-2xl border border-white/15 bg-white/[0.03] p-3.5 space-y-2.5"
-                          >
-                            <div className="flex items-start justify-between gap-2.5">
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                {logoUri && (
-                                  <img
-                                    src={logoUri}
-                                    alt={prop.brandName}
-                                    className="h-11 w-11 shrink-0 rounded-xl border border-white/15 object-cover"
-                                  />
-                                )}
-                                <div className="min-w-0">
-                                  <span
-                                    className="inline-block rounded px-1.5 py-0.5 text-[9px] font-black uppercase"
-                                    style={{
-                                      backgroundColor: `${roleMeta.badgeColor}25`,
-                                      color: roleMeta.badgeColor,
-                                    }}
-                                  >
-                                    BRAND OFFER: {roleMeta.shortBadge}
-                                  </span>
-                                  <h4 className="truncate text-sm font-black text-white mt-0.5">
-                                    {prop.brandName}
-                                  </h4>
-                                  <p className="truncate text-[10px] text-zinc-400">
-                                    {prop.offeredRoleTitle}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <div className="font-mono text-xs font-black text-emerald-400">
-                                  +${prop.signingBonus.toLocaleString()}
-                                </div>
-                                <div className="text-[9px] text-amber-300 font-bold">
-                                  Label Cut: +${labelCutPreview.toLocaleString()}
-                                </div>
-                              </div>
-                            </div>
-
-                            <p className="rounded-xl border border-white/10 bg-black/40 p-2 text-[10px] italic text-zinc-300 leading-relaxed">
-                              {prop.offerLetterQuote}
-                            </p>
-
-                            {offer && offer.signatureProducts[0] && (
-                              <div className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-black/50 p-2">
-                                <img
-                                  src={getBrandSignatureProductSvgDataUri(
-                                    offer.signatureProducts[0],
-                                    offer.brandName
-                                  )}
-                                  alt={offer.signatureProducts[0].name}
-                                  className="h-10 w-14 shrink-0 rounded-lg object-cover"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <div className="truncate text-[10px] font-black text-white">
-                                    Hero Product: {offer.signatureProducts[0].name}
-                                  </div>
-                                  <div className="text-[9px] text-zinc-400">
-                                    Retail ${offer.signatureProducts[0].retailPrice.toLocaleString()}{' '}
-                                    • {prop.productRoyaltyPct}% Global Royalty
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            <button
-                              disabled={isSoloLocked}
-                              onClick={() => handleAcceptBrandProposal(prop.offerId)}
-                              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2 text-xs font-black text-black shadow hover:bg-emerald-400 disabled:opacity-40"
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              <span>
-                                Sign {dualStatus.formattedStageName} (Label Cut: +$
-                                {labelCutPreview.toLocaleString()})
-                              </span>
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* SUB-VIEW C: ALL 20 MAISONS DIRECTORY */}
-                  {brandSubView === 'catalog' && (
-                    <div className="space-y-2.5">
-                      {BRAND_OFFERS_CATALOG.map((offer) => {
-                        const logoUri = getBrandAuthenticLogoSvgDataUri(
-                          offer.id,
-                          offer.accentColor,
-                          offer.logoText
-                        );
-                        const isSigned = brandRecord.activeContracts.some(
-                          (c) => c.offerId === offer.id
-                        );
-                        return (
-                          <div
-                            key={offer.id}
-                            className="flex items-center justify-between gap-2.5 rounded-2xl border border-white/10 bg-white/[0.03] p-3"
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <img
-                                src={logoUri}
-                                alt={offer.brandName}
-                                className="h-10 w-10 shrink-0 rounded-xl border border-white/15 object-cover"
-                              />
-                              <div className="min-w-0">
-                                <div className="text-xs font-black text-white truncate">
-                                  {offer.brandName}
-                                </div>
-                                <div className="text-[10px] text-zinc-400 truncate">
-                                  {offer.verticalLabel} • Min Pop{' '}
-                                  {Math.max(10, offer.minPopularity - 8)}
-                                </div>
-                              </div>
-                            </div>
-                            <button
-                              disabled={isSigned || isSoloLocked}
-                              onClick={() => handlePitchMaison(offer.id)}
-                              className="shrink-0 rounded-xl border border-amber-400/50 bg-amber-500/20 px-3 py-1.5 text-[10px] font-black text-amber-200 hover:bg-amber-500 hover:text-black disabled:opacity-40"
-                            >
-                              {isSigned ? 'Signed ✓' : 'Pitch Artist'}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+              {activeTab === 'brands' && currentArtist && (
+                <div className="-mx-4 -mb-4 overflow-hidden rounded-b-3xl border-t border-white/10">
+                  <BrandDealsApp
+                    embeddedMode
+                    forcedRosterArtistId={currentArtist.id}
+                    gameState={gameState}
+                    onUpdateState={(next) => setGameState(next)}
+                    onShowAlert={(title, message) => {
+                      const lower = title.toLowerCase();
+                      const isErr =
+                        lower.includes('cannot') ||
+                        lower.includes('unavailable') ||
+                        lower.includes('locked') ||
+                        lower.includes('error');
+                      onNotify(`${title} — ${message}`, isErr ? 'error' : 'success');
+                    }}
+                  />
                 </div>
               )}
 
