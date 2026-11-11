@@ -25,6 +25,8 @@ import RiaaCertificationApp from './components/Apps/RiaaCertificationApp';
 import WorldTourApp from './components/Apps/WorldTourApp';
 import StaffTeamApp from './components/Apps/StaffTeamApp';
 import RecordLabelApp from './components/Apps/RecordLabelApp';
+import BrandDealsApp from './components/Apps/BrandDealsApp';
+import LuxuryAssetsApp from './components/Apps/LuxuryAssetsApp';
 import AwardCeremonyLiveModal from './components/Modals/AwardCeremonyLiveModal';
 import { resolveCurrentTheme, applyThemeToDocument } from './data/themeSystemEngine';
 
@@ -92,6 +94,8 @@ export default function MainApp() {
       {state.activeApp === 'tour' && <WorldTourApp />}
       {state.activeApp === 'staff' && <StaffTeamApp />}
       {state.activeApp === 'label' && <RecordLabelApp />}
+      {state.activeApp === 'brands' && <BrandDealsApp />}
+      {state.activeApp === 'luxury' && <LuxuryAssetsApp />}
 
       {activeModalSeason && (
         <AwardCeremonyLiveModal

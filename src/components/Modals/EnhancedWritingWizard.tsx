@@ -14,6 +14,11 @@ import {
   calculateSongwritingQuality,
   getSkillTierLabel
 } from '../../data/skillSystemEngine';
+import {
+  SAMPLE_CATALOG,
+  SongSampleInfo,
+  calculateEffectiveSampleClearanceTerms
+} from '../../data/sampleClearanceAndLegalEngine';
 import { compressImageFile } from '../../utils/imageOptimizer';
 
 interface EnhancedWritingWizardProps {
@@ -54,6 +59,20 @@ export default function EnhancedWritingWizard({ onClose }: EnhancedWritingWizard
   const [days, setDays] = useState('2');
   const [collab, setCollab] = useState('none');
   const [collabContract, setCollabContract] = useState<SignedCollabContract | null>(null);
+  const [selectedSampleId, setSelectedSampleId] = useState<string>('none');
+  const [sampleClearanceMode, setSampleClearanceMode] = useState<'cleared' | 'uncleared'>('cleared');
+
+  const selectedSampleObj = useMemo(
+    () => SAMPLE_CATALOG.find(s => s.id === selectedSampleId) || null,
+    [selectedSampleId]
+  );
+  const sampleTerms = useMemo(
+    () =>
+      selectedSampleObj
+        ? calculateEffectiveSampleClearanceTerms(state, selectedSampleObj)
+        : null,
+    [selectedSampleObj, state]
+  );
 
   const skills = getEnsuredSkillState(state.skills);
 
@@ -101,12 +120,16 @@ export default function EnhancedWritingWizard({ onClose }: EnhancedWritingWizard
 
     const writerCost = writer === 'pro' ? 2500 : 0;
     const collabFee = collab !== 'none' && collabContract ? collabContract.agreedFee : 0;
-    const totalCost = writerCost + collabFee;
+    const sampleFee =
+      selectedSampleObj && sampleClearanceMode === 'cleared' && sampleTerms
+        ? sampleTerms.effectiveUpfrontFee
+        : 0;
+    const totalCost = writerCost + collabFee + sampleFee;
 
     if (state.money < totalCost) {
       return setInfoModal({ 
         title: 'Insufficient Funds', 
-        desc: `You need $${formatNumFull(totalCost)} ($${formatNumFull(writerCost)} Co-Writer + $${formatNumFull(collabFee)} Collab Feature Fee) to start this session.` 
+        desc: `You need $${formatNumFull(totalCost)} ($${formatNumFull(writerCost)} Co-Writer + $${formatNumFull(collabFee)} Collab Fee + $${formatNumFull(sampleFee)} Sample Clearance) to start this session.` 
       });
     }
 
@@ -121,10 +144,33 @@ export default function EnhancedWritingWizard({ onClose }: EnhancedWritingWizard
       deterministic: false
     });
 
+    const sampleQualityBoost = selectedSampleObj ? selectedSampleObj.qualityBoost : 0;
+    const finalRolledQuality = Math.min(100, sessionRoll.finalQuality + sampleQualityBoost);
+
     const newMoney = state.money - totalCost;
     const cover = imagePreview || resolveAuthenticCover(state.artist?.name || 'Artist', title || 'Single');
     const selectedTheme = WRITING_THEMES.find(t => t.id === selectedThemeId) || WRITING_THEMES[0];
     const selectedMeaning = MEANING_FOCUS_OPTIONS.find(m => m.id === selectedMeaningId) || MEANING_FOCUS_OPTIONS[0];
+
+    const sampleInfoPayload: SongSampleInfo | undefined = selectedSampleObj
+      ? {
+          sampleId: selectedSampleObj.id,
+          tier: selectedSampleObj.tier,
+          sampleTitle: selectedSampleObj.sampleTitle,
+          originalArtist: selectedSampleObj.originalArtist,
+          eraLabel: selectedSampleObj.eraLabel,
+          qualityBoost: selectedSampleObj.qualityBoost,
+          viralPotentialMult: selectedSampleObj.viralPotentialMult,
+          clearanceStatus: sampleClearanceMode,
+          upfrontFeePaid: sampleFee,
+          publishingRoyaltyPct:
+            sampleClearanceMode === 'cleared' && sampleTerms
+              ? sampleTerms.effectiveRoyaltyPct
+              : 0,
+          royaltyPaidToday: 0,
+          royaltyPaidTotal: 0
+        }
+      : undefined;
 
     const newSong = {
       id: state.songsIdCounter,
@@ -134,12 +180,13 @@ export default function EnhancedWritingWizard({ onClose }: EnhancedWritingWizard
       cover,
       status: 'writing' as const,
       daysLeft: parseInt(days),
-      quality: sessionRoll.finalQuality,
+      quality: finalRolledQuality,
       collabId: collab,
       collabFeePaid: collab !== 'none' && collabContract ? collabContract.agreedFee : 0,
       collabRoyaltyPercent: collab !== 'none' && collabContract ? collabContract.agreedRoyaltyPercent : 0,
       collabRoyaltyPaidToday: 0,
       collabRoyaltyPaidTotal: 0,
+      sampleInfo: sampleInfoPayload,
       theme: selectedTheme.name,
       meaning: selectedMeaning.name,
       writingFocus: selectedMeaning.subSkillBonus,
@@ -581,6 +628,59 @@ export default function EnhancedWritingWizard({ onClose }: EnhancedWritingWizard
                 />
               )}
 
+              {/* Sample Interpolation & Pre-Clearance Selector */}
+              <div className="rounded-xl p-3.5 bg-white border border-neutral-200/90 space-y-2.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-600">
+                  Sample Interpolation &amp; Legal Clearance (Optional)
+                </label>
+                <select
+                  value={selectedSampleId}
+                  onChange={e => setSelectedSampleId(e.target.value)}
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-bold text-neutral-900"
+                >
+                  <option value="none">Original Composition (No Sample)</option>
+                  {SAMPLE_CATALOG.map(s => (
+                    <option key={s.id} value={s.id}>
+                      [{s.tierLabel}] {s.sampleTitle} (+{s.qualityBoost} Qual · {s.originalArtist})
+                    </option>
+                  ))}
+                </select>
+
+                {selectedSampleObj && sampleTerms && (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setSampleClearanceMode('cleared')}
+                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition ${
+                        sampleClearanceMode === 'cleared'
+                          ? 'bg-neutral-900 text-white border-neutral-900'
+                          : 'bg-neutral-50 text-neutral-800 border-neutral-200'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Pre-Clear Sample</div>
+                      <div className="text-[10px] font-mono tabular-nums opacity-80 mt-0.5">
+                        ${formatNumFull(sampleTerms.effectiveUpfrontFee)} + {sampleTerms.effectiveRoyaltyPct}% Split
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSampleClearanceMode('uncleared')}
+                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition ${
+                        sampleClearanceMode === 'uncleared'
+                          ? 'bg-rose-600 text-white border-rose-600'
+                          : 'bg-neutral-50 text-neutral-800 border-neutral-200'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Release Uncleared</div>
+                      <div className="text-[10px] font-mono tabular-nums opacity-80 mt-0.5">
+                        $0 Upfront · Lawsuit Risk
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Modern Output Projection Card */}
               <div className="bg-neutral-900 text-white rounded-xl p-4 border border-neutral-800 space-y-3 shadow-md">
                 <div className="flex items-center justify-between">
@@ -701,9 +801,14 @@ export default function EnhancedWritingWizard({ onClose }: EnhancedWritingWizard
               <span>
                 Start Writing (
                 {(() => {
+                  const sampleFee =
+                    selectedSampleObj && sampleClearanceMode === 'cleared' && sampleTerms
+                      ? sampleTerms.effectiveUpfrontFee
+                      : 0;
                   const total =
                     (writer === 'pro' ? 2500 : 0) +
-                    (collab !== 'none' && collabContract ? collabContract.agreedFee : 0);
+                    (collab !== 'none' && collabContract ? collabContract.agreedFee : 0) +
+                    sampleFee;
                   return total > 0 ? `$${formatNumFull(total)}` : 'Free';
                 })()}
                 {collab !== 'none' && collabContract ? ` • ${collabContract.agreedRoyaltyPercent}% Royalty` : ''})

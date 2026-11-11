@@ -50,13 +50,19 @@ import {
 } from '../../data/recordLabelCeoEngine';
 import { produceRosterArtistVideoPlayerStyle } from '../../data/rosterSharedWorldBridge';
 import { RosterStudioAdapter } from '../Tabs/RosterStudioAdapter';
+import {
+  getArtistDualContractStatus,
+  reacquireMemberSoloContract,
+  renewMemberDualOrGroupContract,
+} from '../../data/rosterGroupAndDualContractEngine';
 
 interface RosterPaperContractModalProps {
   gameState: GameState;
   setGameState: React.Dispatch<React.SetStateAction<GameState>>;
   candidate: ImprintScoutCandidate | null; // null = Custom New Signing
   onClose: () => void;
-  onNotify: (msg: string, type?: 'success' | 'error') => void;
+  onNotify?: (msg: string, type?: 'success' | 'error') => void;
+  onSuccess?: (msg: string) => void;
 }
 
 export const RosterPaperContractModal: React.FC<RosterPaperContractModalProps> = ({
@@ -65,7 +71,12 @@ export const RosterPaperContractModal: React.FC<RosterPaperContractModalProps> =
   candidate,
   onClose,
   onNotify,
+  onSuccess,
 }) => {
+  const notify = (msg: string, type: 'success' | 'error' = 'success') => {
+    if (onNotify) onNotify(msg, type);
+    else if (onSuccess) onSuccess(msg);
+  };
   const labelState = useMemo(() => getEnsuredRecordLabelState(gameState), [gameState]);
   const imprint = labelState.imprint;
 
@@ -148,11 +159,11 @@ export const RosterPaperContractModal: React.FC<RosterPaperContractModalProps> =
   const handleExecute = () => {
     const res = executeRosterArtistPaperContract(gameState, proposal);
     if (!res.success) {
-      onNotify(res.message, 'error');
+      notify(res.message, 'error');
       return;
     }
     setGameState(res.nextState);
-    onNotify(res.message, 'success');
+    notify(res.message, 'success');
     onClose();
   };
 
@@ -461,7 +472,7 @@ interface RosterArtistCeoManagerModalProps {
   artistId: string;
   initialSubTab?: 'identity' | 'studio' | 'staff' | 'contract';
   onClose: () => void;
-  onNotify: (msg: string, type?: 'success' | 'error') => void;
+  onNotify?: (msg: string, type?: 'success' | 'error') => void;
 }
 
 export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalProps> = ({
@@ -472,6 +483,9 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
   onClose,
   onNotify,
 }) => {
+  const notify = (msg: string, type: 'success' | 'error' = 'success') => {
+    if (onNotify) onNotify(msg, type);
+  };
   const [subTab, setSubTab] = useState<'identity' | 'studio' | 'staff' | 'contract'>(
     initialSubTab
   );
@@ -485,6 +499,11 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
     [rawArtist, dateStr]
   );
 
+  const dualStatus = useMemo(
+    () => (artist ? getArtistDualContractStatus(artist) : null),
+    [artist]
+  );
+
   // Identity Editor State (Original Genre & Country of Origin are locked for authenticity)
   const [stageNameInput, setStageNameInput] = useState<string>(
     artist?.stageName || artist?.name || ''
@@ -492,37 +511,23 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
   const [realNameInput, setRealNameInput] = useState<string>(artist?.realName || '');
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Songwriting & Studio State
-  const [studioMode, setStudioMode] = useState<'single' | 'album'>('single');
-  const [songTitleInput, setSongTitleInput] = useState<string>('');
-  const [songCollabInput, setSongCollabInput] = useState<string>('');
-  const [producerTier, setProducerTier] = useState<
-    'in_house' | 'hitmaker' | 'executive_legend'
-  >('hitmaker');
-  const [releaseImmediately, setReleaseImmediately] = useState<boolean>(true);
-  const [songCoverPreview, setSongCoverPreview] = useState<string>('');
-  const songCoverInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Album / EP Creator State
-  const [projectTitleInput, setProjectTitleInput] = useState<string>('');
-  const [projectType, setProjectType] = useState<'album' | 'ep'>('album');
-  const [projectCoverPreview, setProjectCoverPreview] = useState<string>('');
-  const [selectedSongIds, setSelectedSongIds] = useState<number[]>([]);
-  const projectCoverInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Player-Identical MV / Video Production Settings in Studio
-  const [mvDistributor, setMvDistributor] = useState<'standard' | 'vevo'>('vevo');
-  const [mvPromoteAds, setMvPromoteAds] = useState<boolean>(false);
-
   // Staff Filter State
   const [staffScope, setStaffScope] = useState<'artist' | 'label'>('artist');
   const [selectedStaffRole, setSelectedStaffRole] = useState<StaffRoleId>('manager');
 
-  if (!artist) return null;
+  if (!artist || !dualStatus) return null;
 
   const staffBuffs = getRosterArtistStaffBuffs(gameState, artist);
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!dualStatus.canManageSoloStudio && !dualStatus.isGroupEntity) {
+      notify(
+        dualStatus.soloLockReason ||
+          'Solo profile rights are held by an outside agency.',
+        'error'
+      );
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
@@ -533,7 +538,7 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
         });
         if (res.success) {
           setGameState(res.nextState);
-          onNotify('Updated artist profile photo!', 'success');
+          notify('Updated artist profile photo!', 'success');
         }
       }
     };
@@ -541,109 +546,24 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
   };
 
   const handleSaveIdentity = () => {
+    if (!dualStatus.canManageSoloStudio && !dualStatus.isGroupEntity) {
+      notify(
+        dualStatus.soloLockReason ||
+          'Solo identity management is locked under a Group-Only Contract.',
+        'error'
+      );
+      return;
+    }
     const res = updateRosterArtistIdentity(gameState, artist.id, {
       stageName: stageNameInput,
       realName: realNameInput,
     });
     if (!res.success) {
-      onNotify(res.message, 'error');
+      notify(res.message, 'error');
       return;
     }
     setGameState(res.nextState);
-    onNotify(res.message, 'success');
-  };
-
-  const handleCoverUpload = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    target: 'song' | 'project'
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        if (target === 'song') setSongCoverPreview(reader.result);
-        else setProjectCoverPreview(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleWriteAndRecordSong = () => {
-    if (!songTitleInput.trim()) {
-      onNotify('Enter a song title first.', 'error');
-      return;
-    }
-    const res = writeAndRecordRosterSong(gameState, artist.id, {
-      title: songTitleInput,
-      genre: artist.genre,
-      coverUrl: songCoverPreview || undefined,
-      producerTier,
-      collaboratorName: songCollabInput,
-      releaseImmediately,
-    });
-    if (!res.success) {
-      onNotify(res.message, 'error');
-      return;
-    }
-    setGameState(res.nextState);
-    setSongTitleInput('');
-    setSongCollabInput('');
-    setSongCoverPreview('');
-    onNotify(res.message, 'success');
-  };
-
-  const handleReleaseVaultSong = (songId: number) => {
-    const res = releaseRecordedRosterSong(gameState, artist.id, songId);
-    if (!res.success) {
-      onNotify(res.message, 'error');
-      return;
-    }
-    setGameState(res.nextState);
-    onNotify(res.message, 'success');
-  };
-
-  const handleReleaseProject = () => {
-    if (!projectTitleInput.trim()) {
-      onNotify('Enter an Album or EP title first.', 'error');
-      return;
-    }
-    const res = createAndReleaseRosterAlbumOrEp(gameState, artist.id, {
-      title: projectTitleInput,
-      type: projectType,
-      coverUrl: projectCoverPreview || undefined,
-      includedSongIds: selectedSongIds,
-      autoGenerateRemainingTracks: true,
-    });
-    if (!res.success) {
-      onNotify(res.message, 'error');
-      return;
-    }
-    setGameState(res.nextState);
-    setProjectTitleInput('');
-    setProjectCoverPreview('');
-    setSelectedSongIds([]);
-    onNotify(res.message, 'success');
-  };
-
-  const handleQuickUploadVisual = (
-    songId: number,
-    visualType: 'mv' | 'lyric_video' | 'visualizer'
-  ) => {
-    const res = produceRosterArtistVideoPlayerStyle(gameState, artist.id, {
-      songId,
-      videoType: visualType,
-      mvDistributor,
-      mvPromoteAds,
-      lyricStyle: 'kinetic',
-      visualizerStyle: 'loop_3d',
-    });
-    if (!res.success) {
-      onNotify(res.message, 'error');
-      return;
-    }
-    setGameState(res.nextState);
-    onNotify(res.message, 'success');
+    notify(res.message, 'success');
   };
 
   const handleHireStaff = (
@@ -651,20 +571,48 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
     cycle: StaffPayrollCycle = 'monthly',
     term: StaffContractTermMonths = 12
   ) => {
+    if (staffScope === 'artist' && !dualStatus.canManageSoloStudio && !dualStatus.isGroupEntity) {
+      notify(
+        dualStatus.soloLockReason ||
+          'Cannot manage solo staff for a Group-Only Contract member.',
+        'error'
+      );
+      return;
+    }
     const targetKey = staffScope === 'label' ? 'label' : artist.id;
     const res = hireStaffForRosterOrLabel(gameState, targetKey, candidateId, cycle, undefined, term);
     if (!res.success) {
-      onNotify(res.message, 'error');
+      notify(res.message, 'error');
       return;
     }
     setGameState(res.nextState);
-    onNotify(res.message, 'success');
+    notify(res.message, 'success');
   };
 
   const handleReleaseStaff = (roleId: StaffRoleId) => {
     const targetKey = staffScope === 'label' ? 'label' : artist.id;
     setGameState((prev) => releaseStaffFromRosterOrLabel(prev, targetKey, roleId));
-    onNotify('Released staff member from contract.', 'success');
+    notify('Released staff member from contract.', 'success');
+  };
+
+  const handleRenewDealInModal = (mode: 'auto' | 'full_dual' | 'group_only') => {
+    const res = renewMemberDualOrGroupContract(gameState, artist.id, mode);
+    if (!res.success) {
+      notify(res.message, 'error');
+      return;
+    }
+    setGameState(res.nextState);
+    notify(res.message, 'success');
+  };
+
+  const handleBuyBackSoloInModal = () => {
+    const res = reacquireMemberSoloContract(gameState, artist.id);
+    if (!res.success) {
+      notify(res.message, 'error');
+      return;
+    }
+    setGameState(res.nextState);
+    notify(res.message, 'success');
   };
 
   const activeStaffMap =
@@ -678,25 +626,43 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
         {/* Top Artist Header */}
         <div className="shrink-0 border-b border-white/10 bg-gradient-to-r from-[#1A162B] to-[#12101B] p-4">
           <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <img
                 src={artist.avatarUrl || buildRosterArtistAvatarSvg(artist.name)}
                 alt={artist.stageName}
                 className="h-14 w-14 shrink-0 rounded-2xl border border-amber-400/50 object-cover shadow-lg"
               />
-              <div>
-                <div className="flex items-center gap-1.5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[9px] font-black uppercase text-amber-300">
                     {labelState.imprint.imprintName} Roster
                   </span>
                   <span className="text-[10px] font-bold text-zinc-400">
                     {artist.genre} • {artist.country}
                   </span>
+                  {dualStatus.isGroupEntity && (
+                    <span className="rounded bg-pink-500/20 px-2 py-0.5 text-[9px] font-black uppercase text-pink-300">
+                      Official Group
+                    </span>
+                  )}
+                  {dualStatus.isGroupMember && (
+                    <span
+                      className={`rounded px-2 py-0.5 text-[9px] font-black uppercase ${
+                        dualStatus.contractScope === 'full_dual'
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : 'bg-rose-500/25 text-rose-300'
+                      }`}
+                    >
+                      {dualStatus.contractScope === 'full_dual'
+                        ? 'Group + Solo Full Rights'
+                        : 'Group-Only (No Solo Rights)'}
+                    </span>
+                  )}
                 </div>
-                <h3 className="mt-0.5 text-lg font-black text-white">
+                <h3 className="mt-0.5 truncate text-lg font-black text-white">
                   {artist.stageName || artist.name}
                 </h3>
-                <p className="text-[11px] text-zinc-400">
+                <p className="truncate text-[11px] text-zinc-400">
                   Real Name: {artist.realName || artist.name}
                 </p>
               </div>
@@ -784,6 +750,12 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
              =============================================================== */}
           {subTab === 'identity' && (
             <div className="space-y-4">
+              {!dualStatus.canManageSoloStudio && !dualStatus.isGroupEntity && (
+                <div className="rounded-2xl border border-rose-500/40 bg-rose-500/15 p-3 text-xs text-rose-200">
+                  <strong>Group-Only Contract Restriction:</strong>{' '}
+                  {dualStatus.soloLockReason}
+                </div>
+              )}
               <div className="flex flex-col items-center rounded-2xl border border-white/10 bg-black/35 p-4 text-center">
                 <img
                   src={artist.avatarUrl || buildRosterArtistAvatarSvg(artist.name)}
@@ -799,8 +771,9 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
                 />
                 <button
                   type="button"
+                  disabled={!dualStatus.canManageSoloStudio && !dualStatus.isGroupEntity}
                   onClick={() => avatarInputRef.current?.click()}
-                  className="mt-3 flex items-center gap-1.5 rounded-xl border border-amber-400/50 bg-amber-500/20 px-4 py-2 text-xs font-black text-amber-200 hover:bg-amber-500 hover:text-black"
+                  className="mt-3 flex items-center gap-1.5 rounded-xl border border-amber-400/50 bg-amber-500/20 px-4 py-2 text-xs font-black text-amber-200 hover:bg-amber-500 hover:text-black disabled:opacity-40"
                 >
                   <ImagePlus className="h-4 w-4" />
                   Upload Custom Artist Photo
@@ -814,9 +787,10 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
                   </label>
                   <input
                     type="text"
+                    disabled={!dualStatus.canManageSoloStudio && !dualStatus.isGroupEntity}
                     value={stageNameInput}
                     onChange={(e) => setStageNameInput(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-xs font-bold text-white"
+                    className="mt-1 w-full rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-xs font-bold text-white disabled:opacity-45"
                   />
                 </div>
                 <div>
@@ -825,9 +799,10 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
                   </label>
                   <input
                     type="text"
+                    disabled={!dualStatus.canManageSoloStudio && !dualStatus.isGroupEntity}
                     value={realNameInput}
                     onChange={(e) => setRealNameInput(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-xs font-bold text-white"
+                    className="mt-1 w-full rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-xs font-bold text-white disabled:opacity-45"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
@@ -855,8 +830,9 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
 
                 <button
                   type="button"
+                  disabled={!dualStatus.canManageSoloStudio && !dualStatus.isGroupEntity}
                   onClick={handleSaveIdentity}
-                  className="w-full rounded-xl bg-amber-500 py-2.5 text-xs font-black uppercase text-black transition hover:bg-amber-400"
+                  className="w-full rounded-xl bg-amber-500 py-2.5 text-xs font-black uppercase text-black transition hover:bg-amber-400 disabled:opacity-40"
                 >
                   Save Stage Name &amp; Identity
                 </button>
@@ -1019,53 +995,110 @@ export const RosterArtistCeoManagerModal: React.FC<RosterArtistCeoManagerModalPr
           )}
 
           {/* ===============================================================
-              SUB-TAB 4: PHYSICAL PAPER CONTRACT VIEWER FOR ROSTER ARTIST
+              SUB-TAB 4: PHYSICAL PAPER CONTRACT VIEWER & DUAL CONTRACT DESK
              =============================================================== */}
           {subTab === 'contract' && (
-            <div className="rounded-xl border-4 border-[#8B7355] bg-[#FBF8F1] p-4 text-[#181613]">
-              <div className="border-2 border-[#8B7355]/60 p-3.5 space-y-3 font-serif text-xs">
-                <div className="border-b-2 border-[#181613] pb-3 text-center">
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-[#5C4D3C]">
-                    {labelState.imprint.imprintName} • OFFICIAL RECORDING CONTRACT
+            <div className="space-y-3">
+              <div className="rounded-xl border-4 border-[#8B7355] bg-[#FBF8F1] p-4 text-[#181613]">
+                <div className="border-2 border-[#8B7355]/60 p-3.5 space-y-3 font-serif text-xs">
+                  <div className="border-b-2 border-[#181613] pb-3 text-center">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-[#5C4D3C]">
+                      {labelState.imprint.imprintName} • OFFICIAL RECORDING CONTRACT
+                    </div>
+                    <div className="mt-0.5 text-sm font-black uppercase">
+                      ARTIST AGREEMENT: {artist.stageName} ({artist.realName})
+                    </div>
+                    <div className="font-mono text-[9px] text-[#5C4D3C]">
+                      REF: {artist.contractRef} • SIGNED: {artist.signedDate}
+                    </div>
                   </div>
-                  <div className="mt-0.5 text-sm font-black uppercase">
-                    ARTIST AGREEMENT: {artist.stageName} ({artist.realName})
-                  </div>
-                  <div className="font-mono text-[9px] text-[#5C4D3C]">
-                    REF: {artist.contractRef} • SIGNED: {artist.signedDate}
-                  </div>
-                </div>
 
-                <p>
-                  <strong>1. ADVANCE &amp; RECOUPMENT:</strong> Label wired{' '}
-                  <strong>${artist.advancePaid.toLocaleString()}</strong> (Remaining Unrecouped:{' '}
-                  <strong>${artist.unrecoupedAdvance.toLocaleString()}</strong>).
-                </p>
-                <p>
-                  <strong>2. ROYALTY SPLIT:</strong>{' '}
-                  <strong>{artist.imprintRoyaltyCutPct}% to {labelState.imprint.imprintName}</strong>{' '}
-                  / <strong>{100 - artist.imprintRoyaltyCutPct}% to {artist.stageName}</strong>{' '}
-                  (360 Cut: {artist.ancillary360CutPct || 15}%).
-                </p>
-                <p>
-                  <strong>3. DELIVERY QUOTA:</strong>{' '}
-                  <strong>
-                    {artist.albumsReleased}/{artist.albumsCommitted} Albums
-                  </strong>{' '}
-                  &amp;{' '}
-                  <strong>
-                    {artist.singlesReleased || 0}/{artist.singlesCommitted || 4} Singles
-                  </strong>{' '}
-                  ({artist.daysRemaining || 720} days remaining in term).
-                </p>
-                <p>
-                  <strong>4. FINANCIAL LEDGER:</strong> Generated{' '}
-                  <strong>
-                    ${(artist.totalNetProfitForImprint || 0).toLocaleString()}
-                  </strong>{' '}
-                  in net master profit for {labelState.imprint.imprintName}.
-                </p>
+                  <p>
+                    <strong>1. ADVANCE &amp; RECOUPMENT:</strong> Label wired{' '}
+                    <strong>${artist.advancePaid.toLocaleString()}</strong> (Remaining Unrecouped:{' '}
+                    <strong>${artist.unrecoupedAdvance.toLocaleString()}</strong>).
+                  </p>
+                  <p>
+                    <strong>2. ROYALTY SPLIT:</strong>{' '}
+                    <strong>{artist.imprintRoyaltyCutPct}% to {labelState.imprint.imprintName}</strong>{' '}
+                    / <strong>{100 - artist.imprintRoyaltyCutPct}% to {artist.stageName}</strong>{' '}
+                    (360 Cut: {artist.ancillary360CutPct || 15}%).
+                  </p>
+                  <p>
+                    <strong>3. DELIVERY QUOTA:</strong>{' '}
+                    <strong>
+                      {artist.albumsReleased}/{artist.albumsCommitted} Albums
+                    </strong>{' '}
+                    &amp;{' '}
+                    <strong>
+                      {artist.singlesReleased || 0}/{artist.singlesCommitted || 4} Singles
+                    </strong>{' '}
+                    ({artist.daysRemaining || 720} days remaining in term).
+                  </p>
+                  {dualStatus.isGroupMember && (
+                    <div className="rounded border border-[#8B7355] bg-[#EFE8D8] p-2.5 font-sans text-[11px] space-y-1">
+                      <div className="font-black uppercase text-[#181613]">
+                        4. K-POP DUAL CONTRACT SCOPE ({dualStatus.groupName})
+                      </div>
+                      <div>
+                        • <strong>Group Contract:</strong> Active ({dualStatus.groupContractDaysLeft} days left)
+                      </div>
+                      <div>
+                        • <strong>Solo Exclusive Contract:</strong>{' '}
+                        {dualStatus.contractScope === 'full_dual'
+                          ? `Active (${dualStatus.soloContractDaysLeft} days left — 100% Solo & Group Rights)`
+                          : 'Held by Outside Agency (No Solo Management or Release Rights)'}
+                      </div>
+                      <div>
+                        • <strong>Renewal Forecast ({dualStatus.labelTrust}% Trust):</strong>{' '}
+                        {dualStatus.renewalOutcomeDetail}
+                      </div>
+                    </div>
+                  )}
+                  <p>
+                    <strong>5. FINANCIAL LEDGER:</strong> Generated{' '}
+                    <strong>
+                      ${(artist.totalNetProfitForImprint || 0).toLocaleString()}
+                    </strong>{' '}
+                    in net master profit for {labelState.imprint.imprintName}.
+                  </p>
+                </div>
               </div>
+
+              {/* Dual Contract Renewal Actions */}
+              {dualStatus.isGroupMember && (
+                <div className="rounded-2xl border border-pink-500/35 bg-white/[0.04] p-3.5 space-y-2.5">
+                  <div className="text-xs font-black uppercase text-pink-300">
+                    Dual Contract Negotiation ({dualStatus.formattedStageName})
+                  </div>
+                  {dualStatus.contractScope === 'group_only' ? (
+                    <button
+                      type="button"
+                      onClick={handleBuyBackSoloInModal}
+                      className="w-full rounded-xl bg-sky-500 py-2.5 text-xs font-black uppercase text-black"
+                    >
+                      Acquire Solo Exclusive Contract (Requires 76%+ Label Trust)
+                    </button>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRenewDealInModal('full_dual')}
+                        className="rounded-xl bg-emerald-500 py-2.5 text-[11px] font-black uppercase text-black"
+                      >
+                        Renew Group + Solo (74%+ Trust)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRenewDealInModal('group_only')}
+                        className="rounded-xl border border-amber-400/50 bg-amber-500/20 py-2.5 text-[11px] font-black uppercase text-amber-200"
+                      >
+                        Renew Group-Only (48%+ Trust)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -29,6 +29,10 @@ import {
   generateAuthenticISRC,
   generateAuthenticUPC
 } from '../../data/realWorldMusicDistributionEngine';
+import {
+  formatProjectTypeBadge,
+  getProjectFormatMeta
+} from '../../data/advancedProjectFormatsEngine';
 
 interface EnhancedReleaseModalProps {
   onClose: () => void;
@@ -123,12 +127,12 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
         kind: 'project' as const,
         id: p.id,
         title: p.title,
-        subtitle: `${p.type === 'album' ? 'Studio Album' : p.type === 'ep' ? 'EP' : 'Single Pack'} · ${p.songs.length} Tracks`,
+        subtitle: `${formatProjectTypeBadge(p)} · ${p.songs.length} Tracks`,
         cover: p.cover,
         quality: Math.round(p.quality || 50),
         trackCount: p.songs.length,
         hasCollab: p.songs.some(s => s.collabId && s.collabId !== 'none'),
-        parentProjectId: undefined,
+        parentProjectId: p.parentProjectId,
         parentProjectTitle: undefined,
         defaultRole: 'single' as ExtendedTrackRole
       }));
@@ -228,11 +232,23 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
       };
     }
 
+    const projFormatMeta = getProjectFormatMeta(selectedProjectObj?.type);
+    const isFreeStreetMixtape =
+      selectedProjectObj?.type === 'mixtape' &&
+      (selectedProjectObj as any)?.mixtapeModel === 'free_street';
+    const formatHypeMult =
+      selectedItem.kind === 'project'
+        ? isFreeStreetMixtape
+          ? 1.45
+          : projFormatMeta.hypeMultiplier
+        : 1.0;
+
     const roleHypeExtra = selectedItem.kind === 'single' ? activeSingleRoleMeta.hypeBonus : 0;
     const rawHypeBoost =
-      activeCampaign.baseHypeBoost * activeDistro.hypeMultiplier +
-      roleHypeExtra +
-      activeAudioFormat.playlistBonus * 0.4;
+      (activeCampaign.baseHypeBoost * activeDistro.hypeMultiplier +
+        roleHypeExtra +
+        activeAudioFormat.playlistBonus * 0.4) *
+      formatHypeMult;
     const projectedHype = Math.min(100, Number(((state.hype || 0) + rawHypeBoost).toFixed(1)));
     const hypeGain = Number((projectedHype - (state.hype || 0)).toFixed(1));
 
@@ -255,7 +271,8 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
             (projectedHype * 0.15)) *
           tierMultiplier *
           activeDistro.potentialMultiplier *
-          activeAudioFormat.streamRetentionMult;
+          activeAudioFormat.streamRetentionMult *
+          projFormatMeta.streamVelocityMultiplier;
 
     const skills = getEnsuredSkillState(state.skills);
     const fanDemo = getDetailedFanDemographics(
@@ -433,13 +450,17 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
               )
             : 0;
 
+        const projFormatMeta = getProjectFormatMeta(project?.type);
+        const parentAlbumId = (project as any)?.parentProjectId as number | undefined;
+
         nextP.projects = nextP.projects.map(pr => {
           if (pr.id === id) {
             projBasePot =
               ((pr.quality * 0.5) + (state.popularity * 0.4) + (newHype * 0.15)) *
               tierMultiplier *
               activeDistro.potentialMultiplier *
-              activeAudioFormat.streamRetentionMult;
+              activeAudioFormat.streamRetentionMult *
+              projFormatMeta.streamVelocityMultiplier;
             return {
               ...pr,
               status: targetStatus,
@@ -460,6 +481,13 @@ export default function EnhancedReleaseModal({ onClose }: EnhancedReleaseModalPr
               physicalRetailPush,
               marketingStrategy: strategy,
               focusTrackId: focusTrackId !== 'none' ? focusTrackId : pr.focusTrackId
+            };
+          }
+          // If this is a Deluxe Edition or Anniversary Remaster of a parent album, boost the parent album's momentum too!
+          if (parentAlbumId && pr.id === parentAlbumId && isImmediateRelease) {
+            return {
+              ...pr,
+              momentum: Math.max((pr.momentum || 1.0) + 0.35, 1.35)
             };
           }
           return pr;

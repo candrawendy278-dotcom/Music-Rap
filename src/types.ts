@@ -82,12 +82,13 @@ export interface Song {
   contentIdEnabled?: boolean;
   priorityRegion?: string;
   physicalRetailPush?: 'none' | 'indie_record_stores' | 'global_retail_chains';
+  sampleInfo?: any;
 }
 
 export interface Project {
   id: number;
   title: string;
-  type: 'single_pack' | 'ep' | 'album';
+  type: 'single_pack' | 'ep' | 'album' | 'mixtape' | 'deluxe' | 'remaster' | 'compilation';
   cover: string;
   songs: Song[];
   status: 'created' | 'scheduled' | 'released';
@@ -119,6 +120,9 @@ export interface Project {
   marketingStrategy?: string;
   recordLabel?: string;
   focusTrackId?: number;
+  parentProjectId?: number;
+  bonusTrackIds?: number[];
+  mixtapeModel?: 'free_street' | 'commercial';
 }
 
 export interface ChartItem {
@@ -232,7 +236,7 @@ export interface GameState {
   xPosts?: XPost[];
   xProfile?: XProfile;
   activeTab: 'dashboard' | 'studio' | 'apps' | 'settings';
-  activeApp: 'none' | 'spotify' | 'youtube' | 'billboard' | 'radio' | 'itunes' | 'statistic' | 'skills' | 'x' | 'jobs' | 'grammys' | 'vmas' | 'vanguard' | 'pitchfork' | 'metacritic' | 'merch' | 'riaa' | 'tour' | 'staff' | 'label';
+  activeApp: 'none' | 'spotify' | 'youtube' | 'billboard' | 'radio' | 'itunes' | 'statistic' | 'skills' | 'x' | 'jobs' | 'grammys' | 'vmas' | 'vanguard' | 'pitchfork' | 'metacritic' | 'merch' | 'riaa' | 'tour' | 'staff' | 'label' | 'brands' | 'luxury';
   gameMode?: 'normal' | 'realtime';
   lastRealTimeUpdate?: number;
   currentStreamRate?: number;
@@ -250,6 +254,9 @@ export interface GameState {
   radioEcosystemState?: any;
   staffState?: any;
   recordLabelState?: any;
+  brandDealsState?: any;
+  luxuryAssetsState?: any;
+  sampleLegalState?: any;
 }
 
 export interface NPC {

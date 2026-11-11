@@ -9,6 +9,11 @@ import { GameState, Project, Song } from '../../types';
 import { ImprintSignedArtist, getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
 import { ensureRosterArtistFullFields } from '../../data/recordLabelCeoEngine';
 import { isRosterArtistContractExpired, renewRosterArtistContract } from '../../data/rosterLifecycleAndNpcDedupEngine';
+import {
+  getArtistDualContractStatus,
+  reacquireMemberSoloContract,
+  renewMemberDualOrGroupContract,
+} from '../../data/rosterGroupAndDualContractEngine';
 import EnhancedWritingWizard from '../Modals/EnhancedWritingWizard';
 import EnhancedRecordingStudio from '../Modals/EnhancedRecordingStudio';
 import EnhancedProjectCreatorModal from '../Modals/EnhancedProjectCreatorModal';
@@ -55,6 +60,10 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
   const stageName = ensuredArtist.stageName || ensuredArtist.name;
   const trustAndHiatusInfo = useMemo(
     () => getRosterTrustAndHiatusInfo(ensuredArtist),
+    [ensuredArtist]
+  );
+  const dualContractStatus = useMemo(
+    () => getArtistDualContractStatus(ensuredArtist),
     [ensuredArtist]
   );
 
@@ -108,8 +117,8 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
           artist: {
             name: liveStageName,
             country: liveTarget.country || prevRealState.artist?.country || 'US',
-            image: liveTarget.avatar || prevRealState.artist?.image || '',
-            avatar: liveTarget.avatar || prevRealState.artist?.avatar || '',
+            image: liveTarget.avatarUrl || (liveTarget as any).avatar || prevRealState.artist?.image || '',
+            avatar: liveTarget.avatarUrl || (liveTarget as any).avatar || prevRealState.artist?.avatar || '',
             tier: (liveTarget.popularity ?? 35) >= 75 ? 2 : (liveTarget.popularity ?? 35) >= 45 ? 1 : 3,
             startYear: 2026
           },
@@ -171,12 +180,12 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
           songs: updatedSongs,
           projects: updatedProjects,
           releasesCount:
-            (liveTarget.releasesCount || 0) +
+            ((liveTarget as any).releasesCount || 0) +
             newlyReleasedProjectsCount +
             newlyReleasedSongsCount,
           albumsDelivered:
-            (liveTarget.albumsDelivered || 0) + newlyReleasedProjectsCount
-        };
+            ((liveTarget as any).albumsDelivered || 0) + newlyReleasedProjectsCount
+        } as ImprintSignedArtist;
 
         if (newlyReleasedProjectsCount > 0 || newlyReleasedSongsCount > 0) {
           updatedArtist = applyRosterComebackReleaseFatigue(
@@ -271,7 +280,9 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
   ).length;
 
   const handleRenewContractClick = () => {
-    const res = renewRosterArtistContract(realState, ensuredArtist.id);
+    const res = dualContractStatus.isGroupMember
+      ? renewMemberDualOrGroupContract(realState, ensuredArtist.id, 'auto')
+      : renewRosterArtistContract(realState, ensuredArtist.id);
     if (!res.success) {
       setInfoModal({
         title: 'Contract Renewal Notice',
@@ -282,6 +293,22 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
     realSetState(res.nextState);
     setInfoModal({
       title: 'Roster Contract Renewed',
+      desc: res.message
+    });
+  };
+
+  const handleBuyBackSoloContractClick = () => {
+    const res = reacquireMemberSoloContract(realState, ensuredArtist.id);
+    if (!res.success) {
+      setInfoModal({
+        title: 'Solo Contract Acquisition Notice',
+        desc: res.message
+      });
+      return;
+    }
+    realSetState(res.nextState);
+    setInfoModal({
+      title: 'Solo Exclusive Contract Acquired!',
       desc: res.message
     });
   };
@@ -307,6 +334,24 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
                 <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30">
                   {ensuredArtist.genre} • {ensuredArtist.country || 'US'}
                 </span>
+                {dualContractStatus.isGroupEntity && (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-pink-500/20 text-pink-600 dark:text-pink-300 border border-pink-500/40">
+                    Official Group Entity
+                  </span>
+                )}
+                {dualContractStatus.isGroupMember && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${
+                      dualContractStatus.contractScope === 'full_dual'
+                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/35'
+                        : 'bg-rose-500/20 text-rose-600 dark:text-rose-300 border-rose-500/40'
+                    }`}
+                  >
+                    {dualContractStatus.contractScope === 'full_dual'
+                      ? `Group + Solo Full Rights (${dualContractStatus.groupName})`
+                      : `Group-Only Deal • No Solo Rights`}
+                  </span>
+                )}
                 {isExpired && (
                   <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/40">
                     Contract Expired (Inactive Career)
@@ -362,6 +407,30 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
             <p className="leading-relaxed">
               {stageName}&apos;s existing discography continues to stream and chart passively around the world, but their active music career is paused until their contract is renewed. Note: Contract renewal depends on {stageName}&apos;s <strong>Label Trust ({trustAndHiatusInfo.labelTrust}%)</strong>. You can renew their deal above if their trust is high enough, or remove former roster artists in <strong>Settings</strong>.
             </p>
+          </div>
+        ) : !dualContractStatus.canManageSoloStudio ? (
+          <div className="bg-rose-500/10 border border-rose-500/35 rounded-2xl p-4 text-xs text-rose-800 dark:text-rose-200 space-y-3">
+            <div className="font-black text-sm flex items-center gap-1.5">
+              <i className="ph-fill ph-lock-key text-base"></i>
+              <span>
+                Group-Only Contract Active — No Solo Management Rights for {dualContractStatus.baseStageName}
+              </span>
+            </div>
+            <p className="leading-relaxed">
+              {dualContractStatus.soloLockReason}
+            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <span className="font-mono text-[11px] font-bold">
+                Current Label Trust: {dualContractStatus.labelTrust}% (Requires 76%+ Trust to Re-Sign Solo Contract)
+              </span>
+              <button
+                type="button"
+                onClick={handleBuyBackSoloContractClick}
+                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-black transition cursor-pointer"
+              >
+                Acquire Solo Exclusive Contract
+              </button>
+            </div>
           </div>
         ) : (
           /* EXACT SAME 2x2 + YOUTUBE VIDEO STUDIO BUTTONS AS PLAYER STUDIO */

@@ -1022,6 +1022,15 @@ export function writeAndRecordRosterSong(
     };
   }
 
+  // Enforce K-Pop Dual Contract: Group-Only members cannot release Solo music under your label
+  if (!(artist as any).isGroupEntity && (artist as any).contractScope === 'group_only') {
+    return {
+      nextState: state,
+      success: false,
+      message: `${artist.stageName || artist.name} only renewed their ${(artist as any).groupName || 'Group'} Group Contract with your label. You do not hold their Solo Exclusive Contract—raise their Label Trust to 76%+ and acquire their Solo Contract first, or release music under ${(artist as any).groupName || 'their Group'}!`,
+    };
+  }
+
   const studioCost =
     input.producerTier === 'executive_legend'
       ? 25000
@@ -1087,16 +1096,43 @@ export function writeAndRecordRosterSong(
       ? 1.15
       : 1.0;
 
+  // Authentic Public Reception Roll: Not every roster release is guaranteed to go viral!
+  // ~16% Viral Smash (1.45x), ~30% Solid Hit (1.08x), ~34% Moderate Single (0.78x), ~20% Underperforming Flop (0.42x)
+  const receptionRoll = Math.random();
+  const isGroupRelease = Boolean((artist as any).isGroupEntity);
+  let receptionMult = 0.82;
+  let receptionLabel = 'Moderate Reception';
+  if (receptionRoll >= 0.84) {
+    receptionMult = 1.45;
+    receptionLabel = 'Viral Smash';
+  } else if (receptionRoll >= 0.54) {
+    receptionMult = 1.08;
+    receptionLabel = 'Solid Hit';
+  } else if (receptionRoll < 0.20) {
+    receptionMult = 0.42;
+    receptionLabel = 'Commercial Flop';
+  }
+
   const debutDailyStreams = input.releaseImmediately
     ? Math.round(
-        ((artist.popularity || 35) * 1650 + quality * 480 + (artist.hype || 45) * 260) *
+        ((artist.popularity || 35) * 1450 + quality * 360 + (artist.hype || 45) * 220) *
           distMult *
-          buffs.streamVelocityMult
+          buffs.streamVelocityMult *
+          receptionMult *
+          (isGroupRelease ? 1.18 : 1.0)
       )
     : 0;
 
+  const fanCollectorBoost = isGroupRelease ? 1.35 : 1.0;
   const debutSales = input.releaseImmediately
-    ? Math.max(40, Math.round(debutDailyStreams * 0.015))
+    ? Math.max(
+        25,
+        Math.round(
+          (debutDailyStreams * 0.016 + Math.pow(Math.max(1000, artist.fans || 15000) / 1000, 0.72) * 12) *
+            fanCollectorBoost *
+            (receptionMult >= 1.08 ? 1.2 : receptionMult <= 0.45 ? 0.55 : 0.9)
+        )
+      )
     : 0;
 
   const newSong: Song = {
@@ -1127,20 +1163,22 @@ export function writeAndRecordRosterSong(
     views: 0,
     dailyViews: 0,
     weeklyViews: 0,
-    momentum: 1.0,
+    momentum: receptionMult >= 1.08 ? 1.04 : receptionMult <= 0.45 ? 0.78 : 0.94,
     basePotential: Math.min(100, Math.round((artist.potential + quality) / 2)),
   };
 
   const nextSongs = [newSong, ...(artist.songs || [])];
   const nextSinglesReleased = nextSongs.filter((s) => s.status === 'released').length;
+  const popDelta = receptionMult >= 1.35 ? 2.2 : receptionMult >= 1.0 ? 1.2 : receptionMult <= 0.45 ? -0.4 : 0.5;
+  const hypeDelta = receptionMult >= 1.35 ? 14 : receptionMult >= 1.0 ? 8 : receptionMult <= 0.45 ? -4 : 3;
   const nextPop = input.releaseImmediately
-    ? Math.min(100, Number(((artist.popularity || 35) + 1.5).toFixed(1)))
+    ? Math.max(1, Math.min(100, Number(((artist.popularity || 35) + popDelta).toFixed(1))))
     : artist.popularity;
   const nextHype = input.releaseImmediately
-    ? Math.min(100, Number(((artist.hype || 45) + 10).toFixed(1)))
+    ? Math.max(5, Math.min(100, Number(((artist.hype || 45) + hypeDelta).toFixed(1))))
     : artist.hype;
   const nextFans = input.releaseImmediately
-    ? (artist.fans || 50000) + Math.round(debutDailyStreams * 0.08 * buffs.fanGrowthMult)
+    ? (artist.fans || 50000) + Math.round(debutDailyStreams * 0.065 * buffs.fanGrowthMult)
     : artist.fans || 50000;
 
   const updatedArtist: ImprintSignedArtist = {
@@ -1167,8 +1205,8 @@ export function writeAndRecordRosterSong(
     nextStatements.unshift({
       id: `stmt_roster_s_${Date.now()}`,
       date: dateStr,
-      title: `${labelState.imprint.imprintName} Single Release: ${artist.stageName} - "${fullTitle}"`,
-      detail: `Studio Quality ${quality}/100 • Debuted with ${debutDailyStreams.toLocaleString()} streams & ${debutSales.toLocaleString()} pure sales.`,
+      title: `${labelState.imprint.imprintName} Single Release: ${artist.stageName} - "${fullTitle}" (${receptionLabel})`,
+      detail: `Studio Quality ${quality}/100 • ${receptionLabel} • Debuted with ${debutDailyStreams.toLocaleString()} streams & ${debutSales.toLocaleString()} pure sales.`,
       amount: studioCost,
       direction: 'debit',
       category: 'imprint',
@@ -1195,7 +1233,7 @@ export function writeAndRecordRosterSong(
     nextState,
     success: true,
     message: input.releaseImmediately
-      ? `Produced and released "${fullTitle}" by ${artist.stageName} (Quality ${quality}/100 • ${debutDailyStreams.toLocaleString()} debut streams)!`
+      ? `Released "${fullTitle}" by ${artist.stageName} (Quality ${quality}/100 • ${receptionLabel}: ${debutDailyStreams.toLocaleString()} debut streams & ${debutSales.toLocaleString()} sales)!`
       : `Recorded "${fullTitle}" for ${artist.stageName} (Quality ${quality}/100) — saved to their studio vault!`,
   };
 }
@@ -1216,6 +1254,14 @@ export function releaseRecordedRosterSong(
   }
 
   const artist = ensureRosterArtistFullFields(rawArtist, dateStr);
+  if (!(artist as any).isGroupEntity && (artist as any).contractScope === 'group_only') {
+    return {
+      nextState: state,
+      success: false,
+      message: `${artist.stageName || artist.name} is on a Group-Only Contract. Acquire their Solo Exclusive Contract first to release solo singles.`,
+    };
+  }
+
   const targetSong = (artist.songs || []).find((s) => s.id === songId);
   if (!targetSong || targetSong.status === 'released') {
     return {
@@ -1226,11 +1272,21 @@ export function releaseRecordedRosterSong(
   }
 
   const buffs = getRosterArtistStaffBuffs(state, artist);
+  const receptionRoll = Math.random();
+  const receptionMult =
+    receptionRoll >= 0.84 ? 1.45 : receptionRoll >= 0.54 ? 1.08 : receptionRoll < 0.20 ? 0.42 : 0.80;
   const debutDailyStreams = Math.round(
-    ((artist.popularity || 35) * 1650 + (targetSong.quality || 75) * 480) *
-      buffs.streamVelocityMult
+    ((artist.popularity || 35) * 1450 + (targetSong.quality || 75) * 360) *
+      buffs.streamVelocityMult *
+      receptionMult
   );
-  const debutSales = Math.max(40, Math.round(debutDailyStreams * 0.015));
+  const debutSales = Math.max(
+    25,
+    Math.round(
+      (debutDailyStreams * 0.016 + Math.pow(Math.max(1000, artist.fans || 15000) / 1000, 0.72) * 10) *
+        (receptionMult >= 1.08 ? 1.2 : receptionMult <= 0.45 ? 0.55 : 0.9)
+    )
+  );
 
   const nextSongs = (artist.songs || []).map((s) => {
     if (s.id !== songId) return s;
@@ -1249,9 +1305,9 @@ export function releaseRecordedRosterSong(
 
   const updatedArtist: ImprintSignedArtist = {
     ...artist,
-    popularity: Math.min(100, Number(((artist.popularity || 35) + 1.4).toFixed(1))),
-    hype: Math.min(100, Number(((artist.hype || 45) + 10).toFixed(1))),
-    fans: (artist.fans || 50000) + Math.round(debutDailyStreams * 0.08),
+    popularity: Math.min(100, Number(((artist.popularity || 35) + (receptionMult >= 1.0 ? 1.4 : 0.3)).toFixed(1))),
+    hype: Math.min(100, Number(((artist.hype || 45) + (receptionMult >= 1.0 ? 10 : 2)).toFixed(1))),
+    fans: (artist.fans || 50000) + Math.round(debutDailyStreams * 0.065),
     dailyStreams: (artist.dailyStreams || 0) + debutDailyStreams,
     totalStreamsGenerated: (artist.totalStreamsGenerated || 0) + debutDailyStreams,
     singlesReleased: nextSongs.filter((s) => s.status === 'released').length,
@@ -1277,7 +1333,7 @@ export function releaseRecordedRosterSong(
   return {
     nextState,
     success: true,
-    message: `Released "${targetSong.title}" by ${artist.stageName} to global streaming platforms!`,
+    message: `Released "${targetSong.title}" by ${artist.stageName} (${debutDailyStreams.toLocaleString()} debut streams & ${debutSales.toLocaleString()} pure sales)!`,
   };
 }
 
@@ -1303,6 +1359,13 @@ export function createAndReleaseRosterAlbumOrEp(
   }
 
   const artist = ensureRosterArtistFullFields(rawArtist, dateStr);
+  if (!(artist as any).isGroupEntity && (artist as any).contractScope === 'group_only') {
+    return {
+      nextState: state,
+      success: false,
+      message: `${artist.stageName || artist.name} is on a Group-Only Contract. Acquire their Solo Exclusive Contract first to release solo albums/EPs.`,
+    };
+  }
   const packagingCost = input.type === 'album' ? 35000 : 18000;
   const currentMoney = Math.round(Number(state.money) || 0);
   if (currentMoney < packagingCost) {

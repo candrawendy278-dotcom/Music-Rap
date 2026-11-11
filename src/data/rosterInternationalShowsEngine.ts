@@ -496,9 +496,9 @@ export function getRosterShowStaffSynergy(
     artist.staffRoster || {};
 
   const showRoles: StaffRoleId[] = [
-    'booking_agent',
+    'tour_agent',
     'publicist',
-    'marketing_vp',
+    'radio_plugger',
     'manager',
   ];
 

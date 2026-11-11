@@ -47,6 +47,9 @@ import { processDailyRecordLabelStep } from '../data/recordLabelSystemEngine';
 import { syncActiveRosterArtistsToSharedWorld } from '../data/rosterSharedWorldBridge';
 import { processDailyRecordLabelMerchStep } from '../data/recordLabelMerchEngine';
 import { syncWorldNpcDeduplicationWithRoster } from '../data/rosterLifecycleAndNpcDedupEngine';
+import { processDailyBrandDealsStep } from '../data/brandDealsEngine';
+import { processDailyLuxuryAssetsStep } from '../data/luxuryAssetsEngine';
+import { processDailySampleClearanceAndLawsuitsStep } from '../data/sampleClearanceAndLegalEngine';
 
 syncNpcRealisticReleaseWorkflow('2026-01-01T00:00:00');
 
@@ -273,6 +276,17 @@ export function useGame() {
       nextState.songs = collabRoyaltyStep.updatedSongs;
       nextState.projects = marketResult.updatedProjects;
 
+      // Process Sample Clearance Publishing Royalty Splits & Uncleared Copyright Lawsuit Checks
+      const sampleLegalStep = processDailySampleClearanceAndLawsuitsStep(
+        nextState,
+        Math.max(0, marketResult.totalRevenue - collabRoyaltyStep.totalCollabRoyaltyDeducted)
+      );
+      nextState.songs = sampleLegalStep.updatedSongs;
+      (nextState as any).sampleLegalState = sampleLegalStep.updatedLegalState;
+      if (sampleLegalStep.newXPosts.length > 0) {
+        nextState.xPosts = [...sampleLegalStep.newXPosts, ...(nextState.xPosts || [])].slice(0, 120);
+      }
+
       // Process Official Artist Merch & Vinyl Webstore daily sales, pre-order waves & Billboard pure sales credits
       const merchStep = processDailyMerchWebstoreStep(nextState, date);
       nextState.projects = merchStep.updatedProjects;
@@ -289,12 +303,25 @@ export function useGame() {
       const totalSales = marketResult.totalSales + merchStep.dailyBillboardUnitsAdded;
       const netRevenueAfterCollabRoyalties = Math.max(
         0,
-        marketResult.totalRevenue - collabRoyaltyStep.totalCollabRoyaltyDeducted
+        marketResult.totalRevenue -
+          collabRoyaltyStep.totalCollabRoyaltyDeducted -
+          sampleLegalStep.totalSampleRoyaltyDeductedToday
       );
+
+      // Process Daily Brand Ambassadorship Retainers
+      const brandDealsStep = processDailyBrandDealsStep(nextState);
+      (nextState as any).brandDealsState = brandDealsStep.updatedBrandDealsState;
 
       nextState.dailyStreamsTotal = totalStreams;
       const safeMerchDailyIncome = Math.max(0, Math.round(Number(merchStep.dailyMerchRevenue) || 0));
-      nextState.dailyIncome = Math.max(0, Math.round(netRevenueAfterCollabRoyalties + safeMerchDailyIncome));
+      nextState.dailyIncome = Math.max(
+        0,
+        Math.round(
+          netRevenueAfterCollabRoyalties +
+            safeMerchDailyIncome +
+            (brandDealsStep.dailyEndorsementPayout || 0)
+        )
+      );
 
       // Process Executive Staff Team daily progression, XP leveling, directive cooldowns & passive/active buffs
       processDailyStaffTeamStep(nextState, date);
@@ -338,13 +365,18 @@ export function useGame() {
         isHiatus: nextState.isHiatus
       });
 
+      // Apply Luxury Real Estate & Flex Assets Hype retention floor
+      const luxStep = processDailyLuxuryAssetsStep(nextState);
+      (nextState as any).luxuryAssetsState = luxStep.updatedLuxuryState;
+      const resolvedHypeWithLuxuryFloor = Math.max(luxStep.hypeFloorApplied, growth.newHype);
+
       nextState.popularity = growth.newPopularity;
-      nextState.hype = growth.newHype;
+      nextState.hype = resolvedHypeWithLuxuryFloor;
       nextState.popDelta = growth.popDelta;
-      nextState.hypeDelta = growth.hypeDelta;
+      nextState.hypeDelta = Number((resolvedHypeWithLuxuryFloor - (prev.hype || 15.0)).toFixed(2));
       if (nextState.artist) {
-        nextState.artist.popularity = growth.newPopularity;
-        nextState.artist.hype = growth.newHype;
+        (nextState.artist as any).popularity = growth.newPopularity;
+        (nextState.artist as any).hype = resolvedHypeWithLuxuryFloor;
       }
 
       // Process Daily Fan Growth

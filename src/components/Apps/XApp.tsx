@@ -25,6 +25,15 @@ import {
   updateOfficialLabelXProfile,
   ensureRosterArtistFullFields
 } from '../../data/recordLabelCeoEngine';
+import {
+  generateRosterFandomStatsUpdateTweets,
+  buildRosterArtistXProxyState,
+  getRosterArtistSavedXPosts,
+  saveRosterArtistXPost,
+  saveRosterArtistXProfile,
+  saveRosterArtistQuickAvatar
+} from '../../data/rosterBrandDealsAndAwardsEngine';
+import { getArtistDualContractStatus } from '../../data/rosterGroupAndDualContractEngine';
 
 /**
  * Formats tweet text by highlighting @handles, #hashtags, and domain links in X Blue (#1D9BF0)
@@ -51,11 +60,25 @@ function renderFormattedTweetText(content: string) {
 
 export default function XApp() {
   const { state, setState } = useGameContext();
+  const initialRosterArtistId = (state as any).selectedRosterProfileArtistId as string | undefined;
   const [activeView, setActiveView] = useState<'feed' | 'profile'>('feed');
-  const [xAccountMode, setXAccountMode] = useState<'personal' | 'label'>('personal');
+  const [xAccountMode, setXAccountMode] = useState<'personal' | 'label' | 'roster'>(
+    initialRosterArtistId ? 'roster' : 'personal'
+  );
+  const [selectedRosterXArtistId, setSelectedRosterXArtistId] = useState<string>(
+    initialRosterArtistId || ''
+  );
   const [promoRosterArtistId, setPromoRosterArtistId] = useState<string>('');
   const [profileSubTab, setProfileSubTab] = useState<'posts' | 'replies' | 'highlights' | 'media' | 'likes'>('posts');
   const [feedFilter, setFeedFilter] = useState<'all' | 'charts' | 'platforms' | 'fanbase'>('all');
+
+  React.useEffect(() => {
+    if ((state as any).selectedRosterProfileArtistId) {
+      setSelectedRosterXArtistId((state as any).selectedRosterProfileArtistId);
+      setXAccountMode('roster');
+      setState(prev => ({ ...prev, selectedRosterProfileArtistId: undefined } as any));
+    }
+  }, [(state as any).selectedRosterProfileArtistId]);
   const [composerText, setComposerText] = useState('');
   const [composerImage, setComposerImage] = useState<string | null>(null);
   const [isCompressingImage, setIsCompressingImage] = useState(false);
@@ -72,10 +95,32 @@ export default function XApp() {
   const imprint = rlState.imprint;
   const labelX = useMemo(() => getEnsuredLabelXAccount(imprint), [imprint]);
 
-  const artist = state.artist;
-  const personalProfile = useMemo(() => getEnsuredXProfile(state), [state.xProfile, state.artist, state.fans, state.popularity, state.songs, state.xPosts]);
+  const resolvedRosterArtistId =
+    selectedRosterXArtistId || imprint.signedRoster[0]?.id || '';
+
+  const rosterProxyState = useMemo(
+    () =>
+      xAccountMode === 'roster' && imprint.isFounded && resolvedRosterArtistId
+        ? buildRosterArtistXProxyState(state, resolvedRosterArtistId)
+        : null,
+    [xAccountMode, imprint.isFounded, resolvedRosterArtistId, state]
+  );
 
   const isLabelMode = xAccountMode === 'label' && imprint.isFounded;
+  const isRosterMode = xAccountMode === 'roster' && Boolean(rosterProxyState);
+  const activeEffectiveState =
+    isRosterMode && rosterProxyState ? rosterProxyState : state;
+
+  const artist = activeEffectiveState.artist;
+  const personalOnlyProfile = useMemo(
+    () => getEnsuredXProfile(state),
+    [state.xProfile, state.artist, state.fans, state.popularity, state.songs, state.xPosts]
+  );
+  const activeArtistProfile = useMemo(
+    () => getEnsuredXProfile(activeEffectiveState),
+    [activeEffectiveState]
+  );
+
   const profile = useMemo(() => {
     if (isLabelMode) {
       return {
@@ -87,8 +132,8 @@ export default function XApp() {
         following: labelX.following
       };
     }
-    return personalProfile;
-  }, [isLabelMode, labelX, personalProfile]);
+    return activeArtistProfile;
+  }, [isLabelMode, labelX, activeArtistProfile]);
 
   const syncedLabelLogo =
     imprint.logoUrl ||
@@ -97,36 +142,95 @@ export default function XApp() {
 
   const personalArtistAvatar =
     artist?.image ||
-    `https://placehold.co/400x400/1C1C1E/FFFFFF?text=${encodeURIComponent((personalProfile.name || 'A').charAt(0))}`;
+    `https://placehold.co/400x400/1C1C1E/FFFFFF?text=${encodeURIComponent((activeArtistProfile.name || 'A').charAt(0))}`;
 
   const artistAvatar = isLabelMode ? syncedLabelLogo : personalArtistAvatar;
 
-  const releasedSongs = useMemo(() => (state.songs || []).filter(s => s.status === 'released'), [state.songs]);
+  const releasedSongs = useMemo(
+    () => (activeEffectiveState.songs || []).filter(s => s.status === 'released'),
+    [activeEffectiveState.songs]
+  );
   const latestReleasedSong = releasedSongs[releasedSongs.length - 1];
 
-  // Keep player or label posts from GameState
+  // Keep player, roster artist, or label posts from GameState (with permanent backup in savedPlayerPosts)
   const playerPosts = useMemo<XPost[]>(() => {
     if (isLabelMode) {
       return labelX.posts || [];
     }
-    return (state.xPosts || []).filter(
-      p => p.isPlayerPost && !String(p.id || '').startsWith('lbl_x_') && p.verifiedType !== 'gold'
-    );
-  }, [isLabelMode, labelX.posts, state.xPosts]);
+    if (isRosterMode && resolvedRosterArtistId) {
+      return getRosterArtistSavedXPosts(state, resolvedRosterArtistId);
+    }
+    const map = new Map<string, XPost>();
+    (state.xProfile?.savedPlayerPosts || []).forEach(p => {
+      if (
+        p &&
+        p.id &&
+        !p.rosterArtistId &&
+        !String(p.id).startsWith('lbl_x_') &&
+        !String(p.id).startsWith('roster_')
+      ) {
+        map.set(p.id, p);
+      }
+    });
+    (state.xPosts || []).forEach(p => {
+      if (
+        p &&
+        p.id &&
+        p.isPlayerPost &&
+        !p.rosterArtistId &&
+        !String(p.id).startsWith('lbl_x_') &&
+        !String(p.id).startsWith('roster_') &&
+        p.verifiedType !== 'gold'
+      ) {
+        if (!map.has(p.id)) {
+          map.set(p.id, p);
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [isLabelMode, isRosterMode, resolvedRosterArtistId, labelX.posts, state]);
 
-  // Combined feed: player posts + industry/fan tweets stored in state.xPosts, reconciled with live chart truth
+  // Combined feed: uses the exact same engine for both Player and Roster Artists!
   const allFeedTweets = useMemo<XPost[]>(() => {
-    const rawFeed =
-      !state.xPosts || state.xPosts.length === 0
-        ? generateIndustryFeedTweets(state)
-        : !state.xPosts.some(p => Boolean(p.visualCard))
-        ? [...generateRichVisualXFeedTweets(state), ...state.xPosts]
-        : state.xPosts;
+    let rawFeed: XPost[] = [];
 
-    const spGlobal = state.spotify?.charts?.['daily_global'] || [];
-    const itGlobal = state.itunes?.charts?.['daily_global'] || [];
-    const ytGlobal = state.youtube?.charts?.['daily_global'] || [];
-    const hot100 = state.billboard?.hot100 || [];
+    if (isRosterMode && rosterProxyState) {
+      const richVisual = generateRichVisualXFeedTweets(rosterProxyState);
+      const industryFeed = generateIndustryFeedTweets(rosterProxyState);
+      const customGlobalForArtist = (state.xPosts || []).filter(
+        p =>
+          p.rosterArtistId === resolvedRosterArtistId ||
+          String(p.id || '').includes(`_${resolvedRosterArtistId}_`)
+      );
+      const feedMap = new Map<string, XPost>();
+      [...playerPosts, ...customGlobalForArtist, ...richVisual, ...industryFeed].forEach(p => {
+        if (p && p.id && !feedMap.has(p.id)) {
+          feedMap.set(p.id, p);
+        }
+      });
+      rawFeed = Array.from(feedMap.values());
+    } else {
+      const baseFeed =
+        !state.xPosts || state.xPosts.length === 0
+          ? generateIndustryFeedTweets(state)
+          : !state.xPosts.some(p => Boolean(p.visualCard))
+          ? [...generateRichVisualXFeedTweets(state), ...state.xPosts]
+          : state.xPosts;
+
+      const rosterFandomPosts = generateRosterFandomStatsUpdateTweets(state);
+      const feedMap = new Map<string, XPost>();
+      [...playerPosts, ...rosterFandomPosts, ...baseFeed].forEach(p => {
+        if (p && p.id && !feedMap.has(p.id)) {
+          feedMap.set(p.id, p);
+        }
+      });
+      rawFeed = Array.from(feedMap.values());
+    }
+
+    const spGlobal = activeEffectiveState.spotify?.charts?.['daily_global'] || [];
+    const itGlobal = activeEffectiveState.itunes?.charts?.['daily_global'] || [];
+    const ytGlobal = activeEffectiveState.youtube?.charts?.['daily_global'] || [];
+    const hot100 = activeEffectiveState.billboard?.hot100 || [];
     const pNameLower = (profile.name || '').toLowerCase();
 
     const normTitle = (t: string) =>
@@ -212,16 +316,30 @@ export default function XApp() {
 
       return post;
     });
-  }, [state.xPosts, state.songs, state.projects, state.fans, state.popularity, state.hype, state.billboard, state.itunes, state.spotify, state.youtube, state.date, profile.name, profile.handle, latestReleasedSong]);
+  }, [
+    isRosterMode,
+    rosterProxyState,
+    resolvedRosterArtistId,
+    playerPosts,
+    state,
+    activeEffectiveState,
+    profile.name,
+    profile.handle,
+    latestReleasedSong
+  ]);
 
-  // Ensure initial feed is populated if xPosts is empty
+  // Ensure initial feed is populated if xPosts is empty (without overwriting existing player posts!)
   React.useEffect(() => {
     if (!state.xPosts || state.xPosts.length === 0) {
       const initial = generateIndustryFeedTweets(state);
-      setState(prev => ({
-        ...prev,
-        xPosts: initial
-      }));
+      setState(prev => {
+        if (prev.xPosts && prev.xPosts.length > 0) return prev;
+        const saved = prev.xProfile?.savedPlayerPosts || [];
+        return {
+          ...prev,
+          xPosts: [...saved, ...initial]
+        };
+      });
     }
   }, []);
 
@@ -254,7 +372,14 @@ export default function XApp() {
     if (file && artist) {
       const compressed = await compressImageFile(file, 384, 0.82);
       if (compressed) {
-        if (isLabelMode) {
+        if (isRosterMode && resolvedRosterArtistId) {
+          setState(prev => {
+            const updated = saveRosterArtistQuickAvatar(prev, resolvedRosterArtistId, compressed);
+            saveGameStateSafely(updated).catch(console.error);
+            return updated;
+          });
+          showNotification('Profile picture updated!');
+        } else if (isLabelMode) {
           setState(prev => {
             const updated = updatePlayerImprintLogo(prev, compressed);
             saveGameStateSafely(updated).catch(console.error);
@@ -264,14 +389,25 @@ export default function XApp() {
         } else {
           setState(prev => {
             if (!prev.artist) return prev;
+            const updatedSaved = (prev.xProfile?.savedPlayerPosts || []).map(p => ({
+              ...p,
+              authorAvatar: compressed
+            }));
             const updated = {
               ...prev,
               artist: {
                 ...prev.artist,
                 image: compressed
               },
+              xProfile: {
+                ...(prev.xProfile || {}),
+                savedPlayerPosts: updatedSaved
+              },
               xPosts: (prev.xPosts || []).map(p =>
-                p.isPlayerPost && !String(p.id || '').startsWith('lbl_x_') && p.verifiedType !== 'gold'
+                p.isPlayerPost &&
+                !p.rosterArtistId &&
+                !String(p.id || '').startsWith('lbl_x_') &&
+                p.verifiedType !== 'gold'
                   ? { ...p, authorAvatar: compressed }
                   : p
               )
@@ -324,15 +460,46 @@ export default function XApp() {
       return;
     }
 
+    if (isRosterMode && resolvedRosterArtistId && rosterProxyState) {
+      const newRosterPost = createPlayerPost(
+        rosterProxyState,
+        composerText,
+        composerImage || undefined
+      );
+      setState(prev => {
+        const updatedState = saveRosterArtistXPost(
+          prev,
+          resolvedRosterArtistId,
+          newRosterPost
+        );
+        saveGameStateSafely(updatedState).catch(console.error);
+        return updatedState;
+      });
+      setComposerText('');
+      setComposerImage(null);
+      showNotification('Post published to your timeline! (+0.35% Hype)');
+      return;
+    }
+
     const newPost = createPlayerPost(state, composerText, composerImage || undefined);
 
     setState(prev => {
       const updatedPosts = [newPost, ...(prev.xPosts || [])];
+      const existingSaved = prev.xProfile?.savedPlayerPosts || [];
+      const updatedSavedPosts = [
+        newPost,
+        ...existingSaved.filter(p => p && p.id !== newPost.id)
+      ].slice(0, 150);
+
       // Posting on X also gives a subtle organic social buzz nudge (+0.35% hype up to 100)
       const nextHype = Math.min(100, Number(((prev.hype || 10) + 0.35).toFixed(2)));
       const updatedState = {
         ...prev,
         hype: nextHype,
+        xProfile: {
+          ...(prev.xProfile || {}),
+          savedPlayerPosts: updatedSavedPosts
+        },
         xPosts: updatedPosts
       };
       saveGameStateSafely(updatedState).catch(console.error);
@@ -389,6 +556,16 @@ export default function XApp() {
       return;
     }
 
+    if (isRosterMode && resolvedRosterArtistId) {
+      setState(prev => {
+        const nextState = saveRosterArtistXProfile(prev, resolvedRosterArtistId, updated);
+        saveGameStateSafely(nextState).catch(console.error);
+        return nextState;
+      });
+      showNotification('Profile updated successfully!');
+      return;
+    }
+
     setState(prev => {
       const updatedArtist = prev.artist ? {
         ...prev.artist,
@@ -396,16 +573,26 @@ export default function XApp() {
         image: updated.avatar || prev.artist.image
       } : prev.artist;
 
+      const updatedSavedPosts = (prev.xProfile?.savedPlayerPosts || []).map(p => ({
+        ...p,
+        authorName: updated.name,
+        authorHandle: updated.handle,
+        authorAvatar: updated.avatar || p.authorAvatar
+      }));
+
       const updatedProfile = {
         ...(prev.xProfile || {}),
         name: updated.name,
         handle: updated.handle,
         bio: updated.bio,
-        banner: updated.banner
+        banner: updated.banner,
+        savedPlayerPosts: updatedSavedPosts
       };
 
       const updatedPosts = (prev.xPosts || []).map(p => {
-        if (!p.isPlayerPost) return p;
+        if (!p.isPlayerPost || p.rosterArtistId || String(p.id || '').startsWith('lbl_x_')) {
+          return p;
+        }
         return {
           ...p,
           authorName: updated.name,
@@ -724,13 +911,13 @@ export default function XApp() {
         />
       </header>
 
-      {/* Account Switcher Bar: Personal Artist Account vs Official Record Label X Account */}
+      {/* Account Switcher Bar: Personal Artist Account vs Label HQ vs Signed Roster Artists (Exact Same X Experience!) */}
       {imprint.isFounded && (
         <div className="bg-[#0D1014] border-b border-[#2F3336] px-3.5 py-2 flex items-center justify-between gap-2">
           <span className="text-[10px] font-mono uppercase tracking-widest text-[#71767B] shrink-0">
-            ACTIVE X ACCOUNT:
+            X HUB:
           </span>
-          <div className="flex items-center gap-1.5 overflow-x-auto">
+          <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar">
             <button
               type="button"
               onClick={() => setXAccountMode('personal')}
@@ -740,7 +927,7 @@ export default function XApp() {
                   : 'bg-[#16181C] text-[#71767B] hover:text-white border border-[#2F3336]'
               }`}
             >
-              Personal ({personalProfile.handle})
+              Personal ({personalOnlyProfile.handle})
             </button>
             <button
               type="button"
@@ -754,6 +941,36 @@ export default function XApp() {
               <i className="ph-fill ph-seal-check text-xs" />
               <span>Label HQ ({labelX.handle})</span>
             </button>
+            {imprint.signedRoster.map(raw => {
+              const ens = ensureRosterArtistFullFields(raw);
+              const dual = getArtistDualContractStatus(ens);
+              const isSelectedRoster =
+                xAccountMode === 'roster' && resolvedRosterArtistId === ens.id;
+              return (
+                <button
+                  key={ens.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedRosterXArtistId(ens.id);
+                    setXAccountMode('roster');
+                  }}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    isSelectedRoster
+                      ? 'bg-[#1D9BF0] text-white'
+                      : 'bg-[#16181C] text-[#71767B] hover:text-white border border-[#2F3336]'
+                  }`}
+                >
+                  {ens.avatarUrl && (
+                    <img
+                      src={ens.avatarUrl}
+                      alt={dual.formattedStageName}
+                      className="w-3.5 h-3.5 rounded-full object-cover shrink-0"
+                    />
+                  )}
+                  <span>{dual.formattedStageName}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -792,7 +1009,7 @@ export default function XApp() {
         </div>
       )}
 
-      {/* --- 1. FEED VIEW --- */}
+      {/* --- 1. FEED VIEW (Identical for Player, Label & Roster Artists!) --- */}
       {activeView === 'feed' && (
         <div className="flex-1 flex flex-col divide-y divide-[#2F3336]">
           {/* Tweet Composer */}
@@ -956,7 +1173,7 @@ export default function XApp() {
         </div>
       )}
 
-      {/* --- 2. ARTIST PROFILE VIEW --- */}
+      {/* --- 2. ARTIST PROFILE VIEW (Identical for Player, Label & Roster Artists!) --- */}
       {activeView === 'profile' && (
         <div className="flex-1 flex flex-col">
           {/* Profile Header Banner */}

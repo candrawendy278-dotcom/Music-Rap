@@ -23,7 +23,7 @@ export interface ProjectSnapshotData {
   projectTitle: string;
   artistName: string;
   cover: string;
-  projectType: 'single_pack' | 'ep' | 'album' | 'song';
+  projectType: Project['type'] | 'song';
   projectTypeLabel: string;
   releaseYear: number;
   daysSinceRelease: number;
@@ -128,7 +128,7 @@ export function generateProjectStreamSnapshot(
   let rawSongs: Song[] = [];
   let cover = '';
   let projectTitle = '';
-  let projectType: 'single_pack' | 'ep' | 'album' | 'song' = 'album';
+  let projectType: Project['type'] | 'song' = 'album';
   let projectTypeLabel = 'STUDIO ALBUM';
   let releaseDateStr = state.date;
 
@@ -140,6 +140,14 @@ export function generateProjectStreamSnapshot(
     projectTypeLabel =
       proj.type === 'album'
         ? 'STUDIO ALBUM'
+        : proj.type === 'deluxe'
+        ? 'DELUXE EDITION'
+        : proj.type === 'mixtape'
+        ? 'OFFICIAL MIXTAPE'
+        : proj.type === 'remaster'
+        ? 'REMASTERED EDITION'
+        : proj.type === 'compilation'
+        ? 'GREATEST HITS'
         : proj.type === 'ep'
         ? 'EXTENDED PLAY (EP)'
         : 'SINGLE PACK';

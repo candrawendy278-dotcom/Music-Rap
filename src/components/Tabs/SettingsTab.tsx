@@ -324,7 +324,7 @@ export default function SettingsTab() {
                           <button
                             type="button"
                             onClick={() => {
-                              const res = renewExpiredRosterArtistContract(state, art.id, 24);
+                              const res = renewExpiredRosterArtistContract(state, art.id, { termYears: 2 });
                               if (!res.success) {
                                 setInfoModal({
                                   title: 'Renewal Failed',

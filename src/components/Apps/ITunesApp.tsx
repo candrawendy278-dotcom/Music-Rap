@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useGameContext } from '../../GameContext';
 import { Song, Project } from '../../types';
 import ItunesHomeView from './ItunesHomeView';
@@ -6,14 +6,37 @@ import ItunesChartsView from './ItunesChartsView';
 import ItunesArtistProfileView from './ItunesArtistProfileView';
 import ItunesTabTransition from './ItunesTabTransition';
 import { ItunesReleaseDetailModal } from './ItunesReleaseDetailModal';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
+import { ensureRosterArtistFullFields } from '../../data/recordLabelCeoEngine';
+import { getArtistDualContractStatus } from '../../data/rosterGroupAndDualContractEngine';
 
 export default function ITunesApp() {
   const { state, setState } = useGameContext();
-  const [activeTab, setActiveTab] = useState<'home' | 'chart' | 'profile'>('home');
+  const initialTargetArtist = (state as any).selectedItunesArtistName;
+  const [activeTab, setActiveTab] = useState<'home' | 'chart' | 'profile'>(
+    initialTargetArtist ? 'profile' : 'home'
+  );
   const [chartRegion, setChartRegion] = useState<string>('global');
   const [chartType, setChartType] = useState<'singles' | 'albums'>('singles');
-  const [selectedArtist, setSelectedArtist] = useState<string>(state.artist?.name || 'Player Artist');
+  const [selectedArtist, setSelectedArtist] = useState<string>(
+    initialTargetArtist || state.artist?.name || 'Player Artist'
+  );
   const [selectedRelease, setSelectedRelease] = useState<Song | Project | any | null>(null);
+
+  const rlState = useMemo(() => getEnsuredRecordLabelState(state), [state]);
+  const signedRosterList = useMemo(() => {
+    if (!rlState.imprint.isFounded) return [];
+    const dateStr = state.date ? String(state.date).split('T')[0] : '2026-01-01';
+    return (rlState.imprint.signedRoster || []).map(r => ensureRosterArtistFullFields(r, dateStr));
+  }, [rlState.imprint, state.date]);
+
+  useEffect(() => {
+    if ((state as any).selectedItunesArtistName) {
+      setSelectedArtist((state as any).selectedItunesArtistName);
+      setActiveTab('profile');
+      setState(prev => ({ ...prev, selectedItunesArtistName: undefined } as any));
+    }
+  }, [(state as any).selectedItunesArtistName]);
 
   const handleClose = () => setState(p => ({ ...p, activeApp: 'none' }));
 
@@ -156,6 +179,50 @@ export default function ITunesApp() {
               </span>
             </div>
           </div>
+
+          {/* Label Roster & Official Groups Quick iTunes Artist Profile Switcher */}
+          {signedRosterList.length > 0 && (
+            <div className="flex items-center gap-1.5 pt-1.5 border-t border-white/[0.05] overflow-x-auto hide-scrollbar">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#0a84ff] shrink-0 mr-1">
+                {rlState.imprint.imprintName} iTunes Profiles:
+              </span>
+              <button
+                onClick={() => handleSelectArtist(state.artist?.name || 'Player Artist')}
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition shrink-0 cursor-pointer border ${
+                  activeTab === 'profile' && selectedArtist === (state.artist?.name || 'Player Artist')
+                    ? 'bg-[#0a84ff] text-white border-[#0a84ff]'
+                    : 'bg-white/[0.05] text-zinc-300 border-white/10 hover:text-white'
+                }`}
+              >
+                {state.artist?.name || 'You'} (CEO)
+              </button>
+              {signedRosterList.map(rArt => {
+                const d = getArtistDualContractStatus(rArt);
+                const isSelected = activeTab === 'profile' && selectedArtist === d.formattedStageName;
+                const isGrp = Boolean((rArt as any).isGroupEntity);
+                return (
+                  <button
+                    key={rArt.id}
+                    onClick={() => handleSelectArtist(d.formattedStageName)}
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition shrink-0 cursor-pointer border flex items-center gap-1 ${
+                      isSelected
+                        ? isGrp
+                          ? 'bg-pink-500 text-white border-pink-400'
+                          : 'bg-[#0a84ff] text-white border-[#0a84ff]'
+                        : 'bg-white/[0.05] text-zinc-300 border-white/10 hover:text-white'
+                    }`}
+                  >
+                    <span>{d.formattedStageName}</span>
+                    {isGrp && (
+                      <span className="text-[9px] uppercase px-1 rounded bg-black/40 text-pink-200">
+                        Group
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </header>
 

@@ -866,6 +866,7 @@ interface UnifiedAwardCandidate {
   fans: number;
   tier: number;
   isPreferredByPlayer?: boolean;
+  rosterCampaignBonus?: number;
   alreadyNominatedBna?: boolean;
 }
 
@@ -1216,6 +1217,12 @@ function collectUnifiedCandidates(
       const rHype = rArt.hype || 52;
       const rFans = rArt.fans || 50000;
       const rTier = rPop >= 75 ? 1 : rPop >= 45 ? 2 : 3;
+      const isOfficialGroup = Boolean((rArt as any).isGroupEntity);
+
+      // Read CEO Award FYC Submissions & Outreach Campaign Bonus for this Roster Artist
+      const fycMap = (state as any).rosterAwardFycByArtistId || {};
+      const artistFyc = fycMap[rArt.id]?.[show];
+      const rFycBonus = Number(artistFyc?.campaignBonusScore) || 0;
 
       const allReleasedRosterSongs = (rArt.songs || []).filter(s => s && s.status === 'released');
       const allReleasedRosterProjects = (rArt.projects || []).filter(
@@ -1281,6 +1288,13 @@ function collectUnifiedCandidates(
         const fullRosterSongArtistName =
           hasCollab && collabPartnerName ? `${rName} & ${collabPartnerName}` : rName;
 
+        const isPrefRosterSong = artistFyc?.preferredSongId
+          ? artistFyc.preferredSongId === song.id
+          : true;
+        const isPrefRosterVideo = artistFyc?.preferredVideoSongId
+          ? artistFyc.preferredVideoSongId === song.id
+          : isPrefRosterSong;
+
         candidates.push({
           id: `roster_song_${rArt.id}_${song.id}`,
           artistName: fullRosterSongArtistName,
@@ -1304,10 +1318,12 @@ function collectUnifiedCandidates(
           popularity: rPop,
           hype: rHype,
           fans: rFans,
-          tier: rTier
+          tier: rTier,
+          isPreferredByPlayer: isPrefRosterSong,
+          rosterCampaignBonus: rFycBonus
         });
 
-        if (hasCollab) {
+        if (hasCollab || isOfficialGroup) {
           candidates.push({
             id: `roster_collab_${rArt.id}_${song.id}`,
             artistName: fullRosterSongArtistName,
@@ -1315,7 +1331,9 @@ function collectUnifiedCandidates(
             isRosterArtist: true,
             avatar: rAvatar,
             workTitle: songTitle,
-            secondaryLabel: `Official Collaboration · ${song.genre || rArt.genre || 'Pop'}`,
+            secondaryLabel: isOfficialGroup
+              ? `Official Group Performance · ${song.genre || rArt.genre || 'Pop'}`
+              : `Official Collaboration · ${song.genre || rArt.genre || 'Pop'}`,
             coverArt: song.cover || rAvatar,
             genre: song.genre || rArt.genre || 'Pop',
             subjectType: 'collab',
@@ -1331,7 +1349,9 @@ function collectUnifiedCandidates(
             popularity: rPop,
             hype: rHype,
             fans: rFans,
-            tier: rTier
+            tier: rTier,
+            isPreferredByPlayer: isPrefRosterSong,
+            rosterCampaignBonus: rFycBonus
           });
         }
 
@@ -1359,7 +1379,9 @@ function collectUnifiedCandidates(
             popularity: rPop,
             hype: rHype,
             fans: rFans,
-            tier: rTier
+            tier: rTier,
+            isPreferredByPlayer: isPrefRosterVideo,
+            rosterCampaignBonus: rFycBonus
           });
         }
       });
@@ -1386,6 +1408,10 @@ function collectUnifiedCandidates(
             ? Math.max(1, Math.min(60, Math.round(90 - Math.log10(totalStreams) * 9 - rPop * 0.3)))
             : null);
 
+        const isPrefRosterAlb = artistFyc?.preferredAlbumId
+          ? artistFyc.preferredAlbumId === proj.id
+          : true;
+
         candidates.push({
           id: `roster_album_${rArt.id}_${proj.id}`,
           artistName: rName,
@@ -1409,7 +1435,9 @@ function collectUnifiedCandidates(
           popularity: rPop,
           hype: rHype,
           fans: rFans,
-          tier: rTier
+          tier: rTier,
+          isPreferredByPlayer: isPrefRosterAlb,
+          rosterCampaignBonus: rFycBonus
         });
       });
 
@@ -1836,7 +1864,9 @@ export function evaluateCandidateForCategory(
   if (candidate.isPlayer || candidate.isRosterArtist) {
     const rawCampaign = isGrammys ? playerCampaignBonus * 0.52 : playerCampaignBonus * 0.72;
     const preferredBoost = candidate.isPreferredByPlayer ? (isGrammys ? 1.1 : 1.5) : 0;
-    const labelRosterBreakoutBoost = candidate.isRosterArtist ? (isBna ? 4.8 : 2.2) : 0;
+    const labelRosterBreakoutBoost = candidate.isRosterArtist
+      ? (isBna ? 4.8 : 2.2) + (candidate.rosterCampaignBonus || 0)
+      : 0;
     campaignBonus = Math.min(isGrammys ? 6.5 : 7.5, rawCampaign + preferredBoost + labelRosterBreakoutBoost);
   } else {
     const npcSeed = hashSeed(`${candidate.id}_${category.id}_${editionYear}`);

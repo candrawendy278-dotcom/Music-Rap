@@ -157,20 +157,20 @@ export function evaluateSingleDebutDynamics(params: {
   const pop = Math.max(0, Math.min(100, artistPopularity));
 
   const trackHash = getSingleTrackHash(song);
-  // Wide organic per-track public reception divergence (0.74 to 1.34)
-  // Ensures two singles by the same artist never debut with identical cookie-cutter numbers!
-  const uniqueTrackFactor = 0.74 + ((trackHash % 61) / 100);
+  // Wide organic per-track public reception divergence (0.48 to 1.34)
+  // Prevents high-skill player or roster tracks from going viral on every single release!
+  const uniqueTrackFactor = 0.48 + ((trackHash % 87) / 100);
 
-  // Quality & potential synergy (continuous curve, no arbitrary caps)
-  const qualitySynergy = Math.pow(quality / 60, 0.55) * Math.pow(Math.min(130, potential) / 60, 0.35);
+  // Normalized around 78 so high quality helps without guaranteeing a viral smash every time
+  const qualitySynergy = Math.pow(quality / 78, 0.45) * Math.pow(Math.min(130, potential) / 78, 0.30);
 
   // Lead singles receive stronger editorial focus
-  const leadPriorityBoost = isLeadSingle ? 1.18 : 1.0;
+  const leadPriorityBoost = isLeadSingle ? 1.15 : 1.0;
 
   // Collaboration modifier on debut (chemistry-dependent: forced features can underperform, strong synergy gives a modest lift)
   const hasCollab = Boolean(song.collabId && song.collabId !== 'none');
   const collabBoost = hasCollab
-    ? (uniqueTrackFactor < 0.88 || quality < 62 ? 0.96 : uniqueTrackFactor >= 1.15 && quality >= 78 ? 1.07 : 1.03)
+    ? (uniqueTrackFactor < 0.82 || quality < 62 ? 0.92 : uniqueTrackFactor >= 1.15 && quality >= 78 ? 1.08 : 1.02)
     : 1.0;
 
   // Release proximity / cannibalization check
@@ -179,61 +179,73 @@ export function evaluateSingleDebutDynamics(params: {
 
   // Composite launch intensity
   const compositeLaunchStrength = (
-    (uniqueTrackFactor * 0.42) +
-    (qualitySynergy * 0.30) +
+    (uniqueTrackFactor * 0.48) +
+    (qualitySynergy * 0.24) +
     (leadPriorityBoost * 0.13) +
     ((hype / 100) * 0.15)
   ) * collabBoost * proximity.streamProximityFactor;
 
   let viralDebutRating: 'moderate' | 'solid' | 'smash' | 'viral_blockbuster' = 'solid';
-  if (compositeLaunchStrength >= 1.32) {
+  if (compositeLaunchStrength >= 1.18) {
     viralDebutRating = 'viral_blockbuster';
-  } else if (compositeLaunchStrength >= 1.10) {
+  } else if (compositeLaunchStrength >= 1.02) {
     viralDebutRating = 'smash';
-  } else if (compositeLaunchStrength < 0.90) {
+  } else if (compositeLaunchStrength < 0.86) {
     viralDebutRating = 'moderate';
   }
 
   // --- 1. STREAMING DEBUT MULTIPLIER (Front-loaded Day 1 Debut -> Natural Day 2-7 Cooldown) ---
-  // Day 0 is the Day 1 premiere rush; Day 1 (Day 2 on charts) naturally cools down as curiosity streams settle.
+  // Tracks that miss public reception (compositeLaunchStrength < 0.84) experience a noticeably softer debut and faster drop.
+  const isLukewarmOrFlop = compositeLaunchStrength < 0.84;
   let debutStreamMultiplier = 1.0;
   if (daysSinceRelease === 0) {
-    // Day 1 Debut Spike: Front-loaded launch rush
-    debutStreamMultiplier = (1.38 + compositeLaunchStrength * 0.48) * proximity.olderTrackSpotlightPenalty;
+    // Day 1 Debut Spike: Viral hits surge; lukewarm/flop singles underperform expectations
+    debutStreamMultiplier = (isLukewarmOrFlop
+      ? 0.64 + compositeLaunchStrength * 0.38
+      : 1.18 + compositeLaunchStrength * 0.46) * proximity.olderTrackSpotlightPenalty;
   } else if (daysSinceRelease === 1) {
-    // Day 2: Natural post-premiere cooldown (-20% to -32% from Day 1 peak)
-    debutStreamMultiplier = (1.06 + compositeLaunchStrength * 0.24) * proximity.olderTrackSpotlightPenalty;
+    // Day 2: Natural post-premiere cooldown
+    debutStreamMultiplier = (isLukewarmOrFlop
+      ? 0.52 + compositeLaunchStrength * 0.25
+      : 0.96 + compositeLaunchStrength * 0.24) * proximity.olderTrackSpotlightPenalty;
   } else if (daysSinceRelease === 2) {
     // Day 3: Settling into true daily listener velocity
-    debutStreamMultiplier = (0.98 + compositeLaunchStrength * 0.14) * proximity.olderTrackSpotlightPenalty;
+    debutStreamMultiplier = (isLukewarmOrFlop
+      ? 0.48 + compositeLaunchStrength * 0.20
+      : 0.90 + compositeLaunchStrength * 0.16) * proximity.olderTrackSpotlightPenalty;
   } else if (daysSinceRelease <= 5) {
     // Days 4-6: Mid-week stabilization
-    debutStreamMultiplier = (0.94 + compositeLaunchStrength * 0.08) * proximity.olderTrackSpotlightPenalty;
+    debutStreamMultiplier = (isLukewarmOrFlop
+      ? 0.45 + compositeLaunchStrength * 0.16
+      : 0.88 + compositeLaunchStrength * 0.10) * proximity.olderTrackSpotlightPenalty;
   } else {
     // Day 7+: Handed off completely to organic lifecycle & fanbase retention
-    debutStreamMultiplier = 1.0 * proximity.olderTrackSpotlightPenalty;
+    debutStreamMultiplier = (isLukewarmOrFlop ? 0.78 : 1.0) * proximity.olderTrackSpotlightPenalty;
   }
 
   // --- 2. DIGITAL PURE SALES DEBUT SURGE (Front-loaded Stan Rush on Day 1, Tapering Days 2-7) ---
-  // Note: Fan loyalty and hype conversion are already applied in calculateOrganicDailySales,
-  // so this multiplier provides a clean Day 1 pre-order/launch surge without exponential double-counting.
-  const stanLaunchBoost = (0.92 + (hype / 100) * 0.28 + (pop / 100) * 0.18) * proximity.salesWalletFactor;
+  const stanLaunchBoost = (0.94 + (hype / 100) * 0.34 + (pop / 100) * 0.22) * proximity.salesWalletFactor;
+  const receptionSalesFactor = isLukewarmOrFlop
+    ? Math.max(0.45, uniqueTrackFactor * 0.78)
+    : compositeLaunchStrength >= 1.15
+    ? uniqueTrackFactor * 1.22
+    : uniqueTrackFactor * 1.04;
 
   let debutSalesMultiplier = 1.0;
   if (daysSinceRelease === 0) {
     // Day 1: Pre-order fulfillment & launch day buying rush
-    debutSalesMultiplier = 1.48 * stanLaunchBoost * (isLeadSingle ? 1.14 : 1.05) * uniqueTrackFactor;
+    debutSalesMultiplier = 1.62 * stanLaunchBoost * (isLeadSingle ? 1.18 : 1.06) * receptionSalesFactor;
   } else if (daysSinceRelease === 1) {
     // Day 2: Post-debut sales cooldown as Day 1 pre-orders clear
-    debutSalesMultiplier = 1.12 * stanLaunchBoost * uniqueTrackFactor;
+    debutSalesMultiplier = 1.18 * stanLaunchBoost * receptionSalesFactor;
   } else if (daysSinceRelease === 2) {
-    debutSalesMultiplier = 0.96 * stanLaunchBoost * uniqueTrackFactor;
+    debutSalesMultiplier = 0.98 * stanLaunchBoost * receptionSalesFactor;
   } else if (daysSinceRelease <= 6) {
     // Days 4-7: Gradual taper through end of Week 1
-    const dayTaper = Math.max(0.76, 0.92 - (daysSinceRelease - 2) * 0.04);
-    debutSalesMultiplier = dayTaper * proximity.salesWalletFactor * uniqueTrackFactor;
+    const dayTaper = Math.max(0.74, 0.92 - (daysSinceRelease - 2) * 0.04);
+    debutSalesMultiplier = dayTaper * proximity.salesWalletFactor * receptionSalesFactor;
   } else {
-    debutSalesMultiplier = 0.72 * proximity.olderTrackSpotlightPenalty;
+    debutSalesMultiplier = 0.74 * proximity.olderTrackSpotlightPenalty * (isLukewarmOrFlop ? 0.68 : 1.0);
   }
 
   // --- 3. YOUTUBE MUSIC VIDEO PREMIERE VELOCITY (Balanced with NPC YouTube Engine) ---

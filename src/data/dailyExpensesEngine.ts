@@ -1,5 +1,7 @@
 import type { GameState } from '../types';
 import { calculateStaffTeamSynergyBuffs } from './staffTeamEngine';
+import { calculateLuxuryPortfolioMetrics } from './luxuryAssetsEngine';
+import { getEnsuredSampleLegalState } from './sampleClearanceAndLegalEngine';
 
 export interface DailyExpenseItem {
   id: string;
@@ -80,7 +82,18 @@ export function calculateDailyExpensesBreakdown(state: GameState): DailyExpenses
   // 6. Executive Staff Team Payroll (Daily-billed staff deducted daily; Monthly/Yearly settled on payday)
   const staffPayrollRaw = staffSynergy.totalDailyCyclePayroll;
 
-  const rawRecurringExpense = livingRaw + studioRaw + managementRaw + distributionRaw + securityRaw + staffPayrollRaw;
+  // 7. Luxury Real Estate, Supercars, Jets & Jewelry Upkeep
+  const luxuryPortfolio = calculateLuxuryPortfolioMetrics(state);
+  const luxuryUpkeepRaw = luxuryPortfolio.totalDailyUpkeep;
+
+  const rawRecurringExpense =
+    livingRaw +
+    studioRaw +
+    managementRaw +
+    distributionRaw +
+    securityRaw +
+    staffPayrollRaw +
+    luxuryUpkeepRaw;
   const discountMultiplier = isHiatus ? 0.2 : 1.0;
 
   const livingEffective = Math.round(livingRaw * discountMultiplier);
@@ -89,6 +102,8 @@ export function calculateDailyExpensesBreakdown(state: GameState): DailyExpenses
   const distributionEffective = Math.round(distributionRaw * discountMultiplier);
   const securityEffective = Math.round(securityRaw * discountMultiplier);
   const staffPayrollEffective = Math.round(staffPayrollRaw * discountMultiplier);
+  // Luxury real estate & asset maintenance is not discounted by artist hiatus
+  const luxuryUpkeepEffective = luxuryUpkeepRaw;
 
   const effectiveRecurringExpense =
     livingEffective +
@@ -96,7 +111,8 @@ export function calculateDailyExpensesBreakdown(state: GameState): DailyExpenses
     managementEffective +
     distributionEffective +
     securityEffective +
-    staffPayrollEffective;
+    staffPayrollEffective +
+    luxuryUpkeepEffective;
 
   const hiatusSavings = Math.max(0, rawRecurringExpense - effectiveRecurringExpense);
 
@@ -167,6 +183,21 @@ export function calculateDailyExpensesBreakdown(state: GameState): DailyExpenses
                 : `All ${staffSynergy.hiredCount} hired staff are on Monthly/Annual payroll contracts (~$${staffSynergy.totalDailyEquivalentCost}/day eq).`,
             detailBadge: `${staffSynergy.hiredCount}/6 Signed`,
             icon: 'ph-users-three'
+          }
+        ]
+      : []),
+    ...(luxuryPortfolio.ownedCount > 0
+      ? [
+          {
+            id: 'luxury_assets_upkeep',
+            title: 'Luxury Estates, Garage & Aviation Upkeep',
+            category: 'recurring' as const,
+            amount: luxuryUpkeepEffective,
+            rawAmount: luxuryUpkeepRaw,
+            description:
+              'Property tax, estate staff, supercar insurance, private jet hangar fees, and jewelry vault security.',
+            detailBadge: `${luxuryPortfolio.ownedCount} Assets · Flex ${luxuryPortfolio.flexScore}`,
+            icon: 'ph-crown'
           }
         ]
       : [])
@@ -241,10 +272,26 @@ export function calculateDailyExpensesBreakdown(state: GameState): DailyExpenses
       description: 'Venue rental, stage rigging, road crew logistics, promoter cut, and opening act fees on show days.',
       detailBadge: tourShowBadge,
       icon: 'ph-microphone-stage'
-    }
+    },
+    ...(getEnsuredSampleLegalState(state).sampleRoyaltiesPaidToday > 0
+      ? [
+          {
+            id: 'sample_publishing_royalties',
+            title: 'Sample Publishing Royalty Splits',
+            category: 'operational' as const,
+            amount: getEnsuredSampleLegalState(state).sampleRoyaltiesPaidToday,
+            description:
+              'Daily publishing royalties paid to original rights-holders for cleared or settled song samples.',
+            detailBadge: 'Publishing Split',
+            icon: 'ph-scales'
+          }
+        ]
+      : [])
   ];
 
-  const operationalDeductionsToday = collabRoyaltyToday + totalMerchOperationalToday + tourShowExpenseToday;
+  const sampleRoyaltiesToday = getEnsuredSampleLegalState(state).sampleRoyaltiesPaidToday || 0;
+  const operationalDeductionsToday =
+    collabRoyaltyToday + totalMerchOperationalToday + tourShowExpenseToday + sampleRoyaltiesToday;
   const totalAllExpensesToday = effectiveRecurringExpense + operationalDeductionsToday;
   const dailyIncomeSafe = Math.max(0, Math.round(Number(state.dailyIncome) || 0));
   const netDailyCashflow = dailyIncomeSafe - effectiveRecurringExpense;

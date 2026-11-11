@@ -16,7 +16,7 @@ export interface UnifiedCountdownRelease {
   title: string;
   artistName: string;
   artistAvatar?: string;
-  type: 'album' | 'ep' | 'single_pack';
+  type: Project['type'];
   releaseDate: string;
   cover?: string;
   preSaves: number;

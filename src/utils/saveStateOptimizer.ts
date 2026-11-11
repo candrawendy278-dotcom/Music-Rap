@@ -331,15 +331,44 @@ export function compactSaveState(
     });
   }
 
-  // 11. Preserve and cap X (Social Media) posts to keep memory fast and lag-free
-  const compactedXPosts = (state.xPosts || []).slice(0, 110).map(post => ({
+  // 11. Preserve ALL Player / Roster / Label authored X posts + cap industry posts to keep memory fast and lag-free
+  const isAuthoredXPost = (p: any) =>
+    Boolean(
+      p &&
+        (p.isPlayerPost ||
+          p.rosterArtistId ||
+          String(p.id || '').startsWith('post-') ||
+          String(p.id || '').startsWith('lbl_x_') ||
+          String(p.id || '').startsWith('roster_custom_x_'))
+    );
+
+  const authoredMap = new Map<string, any>();
+  (state.xProfile?.savedPlayerPosts || []).forEach(p => {
+    if (p && p.id) authoredMap.set(p.id, p);
+  });
+  (state.xPosts || []).filter(isAuthoredXPost).forEach(p => {
+    if (p && p.id) authoredMap.set(p.id, p);
+  });
+
+  const authoredList = Array.from(authoredMap.values()).slice(0, 150);
+  const industryList = (state.xPosts || [])
+    .filter(p => p && !authoredMap.has(p.id))
+    .slice(0, 85);
+
+  const sanitizeXPostItem = (post: any, keepImgDataUri: boolean) => ({
     ...post,
     authorName: post.authorName ? post.authorName.slice(0, 50) : playerName,
     content: post.content ? post.content.slice(0, 2000) : '',
     image: post.image
-      ? sanitizeImageStringFast(post.image, post.id, playerName, false)
+      ? sanitizeImageStringFast(post.image, post.id, playerName, keepImgDataUri)
       : undefined
-  }));
+  });
+
+  const compactedAuthoredPosts = authoredList.map(p => sanitizeXPostItem(p, true));
+  const compactedXPosts = [
+    ...compactedAuthoredPosts,
+    ...industryList.map(p => sanitizeXPostItem(p, false))
+  ];
 
   const compactedXProfile = state.xProfile
     ? {
@@ -350,9 +379,16 @@ export function compactSaveState(
           ? sanitizeImageStringFast(state.xProfile.banner, 'banner', playerName, true)
           : undefined,
         followers: state.xProfile.followers,
-        following: state.xProfile.following
+        following: state.xProfile.following,
+        savedPlayerPosts: compactedAuthoredPosts.filter(
+          p => p.isPlayerPost && !p.rosterArtistId && !String(p.id || '').startsWith('lbl_x_')
+        )
       }
-    : undefined;
+    : {
+        savedPlayerPosts: compactedAuthoredPosts.filter(
+          p => p.isPlayerPost && !p.rosterArtistId && !String(p.id || '').startsWith('lbl_x_')
+        )
+      };
 
   return {
     ...state,

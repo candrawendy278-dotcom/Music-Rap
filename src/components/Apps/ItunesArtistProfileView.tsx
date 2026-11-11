@@ -8,6 +8,13 @@ import {
   getCollaborationsForNpcArtist,
   resolveSongMetadataAndCollabCredits
 } from '../../data/spotifyTrackMetadataAndCollabEngine';
+import {
+  findSignedRosterArtistForItunes,
+  getEnsuredRosterBrandDealsRecord
+} from '../../data/rosterBrandDealsAndAwardsEngine';
+import { getArtistDualContractStatus } from '../../data/rosterGroupAndDualContractEngine';
+import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
+import { buildRosterArtistAvatarSvg } from '../../data/recordLabelCeoEngine';
 
 interface ItunesArtistProfileViewProps {
   state: GameState;
@@ -25,18 +32,44 @@ export const ItunesArtistProfileView: React.FC<ItunesArtistProfileViewProps> = (
   onSelectRelease
 }) => {
   const isPlayer = !artistName || artistName === state.artist?.name || artistName === 'Player Artist' || artistName === 'You';
-  const effectiveArtistName = isPlayer ? (state.artist?.name || 'Player Artist') : artistName;
+
+  // Check if this artist is a signed Record Label Roster Artist or Official Group
+  const rosterArtist = useMemo(() => {
+    if (isPlayer) return null;
+    return findSignedRosterArtistForItunes(state, artistName);
+  }, [isPlayer, state, artistName]);
+
+  const rosterDualStatus = useMemo(
+    () => (rosterArtist ? getArtistDualContractStatus(rosterArtist) : null),
+    [rosterArtist]
+  );
+
+  const rosterBrandRecord = useMemo(
+    () =>
+      rosterArtist
+        ? getEnsuredRosterBrandDealsRecord(state, rosterArtist)
+        : null,
+    [state, rosterArtist]
+  );
+
+  const rlState = useMemo(() => getEnsuredRecordLabelState(state), [state]);
+
+  const effectiveArtistName = isPlayer
+    ? (state.artist?.name || 'Player Artist')
+    : rosterDualStatus
+    ? rosterDualStatus.formattedStageName
+    : artistName;
 
   // Find NPC data from REAL_WORLD_NPCS (155 synced NPCs) or fallback to DETAILED_NPCS / NPCS
   const npcData: DetailedNPC | undefined = useMemo(() => {
-    if (isPlayer) return undefined;
+    if (isPlayer || rosterArtist) return undefined;
     const target = artistName.trim().toLowerCase();
     return (
       (REAL_WORLD_NPCS.find(n => n.name.toLowerCase() === target) as any) ||
       DETAILED_NPCS.find(n => n.name.toLowerCase() === target) ||
       (NPCS.find(n => n.name.toLowerCase() === target) as any)
     );
-  }, [isPlayer, artistName, state.date]);
+  }, [isPlayer, rosterArtist, artistName, state.date]);
 
   const playerReleasedSongs = useMemo(() => {
     return state.songs.filter(s => s.status === 'released');
@@ -87,6 +120,47 @@ export const ItunesArtistProfileView: React.FC<ItunesArtistProfileViewProps> = (
       }));
 
       return [...songs, ...projs].sort((a, b) => b.sales - a.sales);
+    } else if (rosterArtist) {
+      const rSongs = (rosterArtist.songs || [])
+        .filter(s => s && s.status === 'released')
+        .map(s => {
+          const meta = resolveSongMetadataAndCollabCredits(s, effectiveArtistName, state);
+          return {
+            id: `roster_song_${s.id}`,
+            title: meta.cleanTitle,
+            artist: meta.formattedArtistCredits,
+            cover: s.cover || rosterArtist.avatarUrl || buildRosterArtistAvatarSvg(effectiveArtistName),
+            type: 'Single',
+            sales: s.pureSales || 0,
+            streams: s.streams || 0,
+            releaseDate: s.releaseDate || state.date.split('T')[0],
+            genre: s.genre || rosterArtist.genre || 'Pop',
+            year: s.releaseDate ? s.releaseDate.split('-')[0] : gameYear,
+            isAlbum: false,
+            isPlayer: true,
+            rawItem: s
+          };
+        });
+
+      const rProjs = (rosterArtist.projects || [])
+        .filter(p => p && p.status === 'released')
+        .map(p => ({
+          id: `roster_proj_${p.id}`,
+          title: p.title,
+          artist: effectiveArtistName,
+          cover: p.cover || rosterArtist.avatarUrl || buildRosterArtistAvatarSvg(effectiveArtistName),
+          type: p.type === 'ep' ? 'EP' : 'Album',
+          sales: p.pureSales || 0,
+          streams: p.totalStreams || 0,
+          releaseDate: p.releaseDate || state.date.split('T')[0],
+          genre: rosterArtist.genre || 'Pop',
+          year: p.releaseDate ? p.releaseDate.split('-')[0] : gameYear,
+          isAlbum: true,
+          isPlayer: true,
+          rawItem: p
+        }));
+
+      return [...rSongs, ...rProjs].sort((a, b) => b.sales - a.sales);
     } else {
       const npcSongs = (npcData?.songs || []).map((t: any, idx: number) => {
         const meta = resolveSongMetadataAndCollabCredits(t, effectiveArtistName, state);
@@ -190,7 +264,7 @@ export const ItunesArtistProfileView: React.FC<ItunesArtistProfileViewProps> = (
 
       return Array.from(dedupedMap.values()).sort((a, b) => b.sales - a.sales);
     }
-  }, [isPlayer, effectiveArtistName, playerReleasedSongs, playerReleasedProjects, npcData, state, gameYear]);
+  }, [isPlayer, rosterArtist, effectiveArtistName, playerReleasedSongs, playerReleasedProjects, npcData, state, gameYear]);
 
   // Total Lifetime Digital Pure Sales
   const totalPureSales = useMemo(() => {
@@ -241,13 +315,21 @@ export const ItunesArtistProfileView: React.FC<ItunesArtistProfileViewProps> = (
 
   const artistAvatar = isPlayer
     ? (state.artist?.avatar || getTrackCoverArt(effectiveArtistName, 'Debut'))
+    : rosterArtist
+    ? (rosterArtist.avatarUrl || buildRosterArtistAvatarSvg(effectiveArtistName))
     : (npcData?.avatar || npcData?.image || getTrackCoverArt(effectiveArtistName, 'Hit'));
 
   const countryName = isPlayer
     ? (COUNTRY_NAMES[state.artist?.country || 'US'] || 'United States')
+    : rosterArtist
+    ? (COUNTRY_NAMES[rosterArtist.country || 'US'] || rosterArtist.country || 'United States')
     : (npcData?.country ? (COUNTRY_NAMES[npcData.country] || npcData.country) : 'United States');
 
-  const mainGenre = isPlayer ? (state.artist?.genre || 'Pop') : (npcData?.genre || 'Pop');
+  const mainGenre = isPlayer
+    ? (state.artist?.genre || 'Pop')
+    : rosterArtist
+    ? (rosterArtist.genre || 'Pop')
+    : (npcData?.genre || 'Pop');
 
   return (
     <div className="space-y-8 pb-32">
@@ -256,7 +338,7 @@ export const ItunesArtistProfileView: React.FC<ItunesArtistProfileViewProps> = (
         <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-start gap-6">
           {/* Artist Portrait */}
           <div className="relative shrink-0">
-            {isPlayer && state.artist?.avatar ? (
+            {(isPlayer && state.artist?.avatar) || rosterArtist ? (
               <img
                 src={artistAvatar}
                 alt={effectiveArtistName}
@@ -277,7 +359,11 @@ export const ItunesArtistProfileView: React.FC<ItunesArtistProfileViewProps> = (
           <div className="flex-1 text-center sm:text-left min-w-0">
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 text-xs text-zinc-400 mb-1">
               <span className="text-[#0a84ff] font-semibold tracking-wider uppercase text-[11px]">
-                iTunes Store Artist
+                {rosterArtist
+                  ? (rosterArtist as any).isGroupEntity
+                    ? `Official Group · ${rlState.imprint.imprintName}`
+                    : `Official Roster Artist · ${rlState.imprint.imprintName}`
+                  : 'iTunes Store Artist'}
               </span>
               <span aria-hidden="true" className="text-zinc-600">·</span>
               <span>{mainGenre}</span>
@@ -292,8 +378,23 @@ export const ItunesArtistProfileView: React.FC<ItunesArtistProfileViewProps> = (
             <p className="text-zinc-400 text-xs sm:text-sm mt-2 leading-relaxed max-w-2xl">
               {isPlayer
                 ? (state.artist?.bio || 'Official digital storefront catalog available in 24-bit Apple Digital Master and Lossless audio.')
+                : rosterArtist
+                ? `${effectiveArtistName} is an official recording act signed to ${rlState.imprint.imprintName}. Available in 24-bit Apple Digital Master with ${(rosterArtist.fans || 0).toLocaleString()} global fans and ${(rosterArtist.totalStreamsGenerated || 0).toLocaleString()} career streams.`
                 : (npcData?.bio || `Acclaimed ${mainGenre} recording artist with an extensive Mastered for iTunes catalog.`)}
             </p>
+
+            {rosterBrandRecord && rosterBrandRecord.activeContracts.length > 0 && (
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 mt-2.5">
+                {rosterBrandRecord.activeContracts.map(c => (
+                  <span
+                    key={c.offerId}
+                    className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/35 text-[10px] font-bold text-amber-300"
+                  >
+                    👜 {c.brandName} ({c.roleTitle})
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Quick Store Actions */}
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 mt-4">

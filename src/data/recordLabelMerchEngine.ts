@@ -184,7 +184,7 @@ export function createRecordLabelMerchProduct(params: {
       (template.unitManufacturingCost * tierMeta.costMultiplier +
         signedExtraCost +
         obiExtraCost) *
-        batchOption.costDiscountMultiplier *
+        (batchOption.discount || 1) *
         100
     ) / 100
   );
@@ -221,7 +221,7 @@ export function createRecordLabelMerchProduct(params: {
     id: `lbl_merch_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     rosterArtistId: rosterArtist.id,
     rosterArtistName: artistDisplayName,
-    rosterArtistAvatar: rosterArtist.avatar,
+    rosterArtistAvatar: rosterArtist.avatarUrl || (rosterArtist as any).avatar,
     name: customName && customName.trim() ? customName.trim() : defaultTitle,
     subtitle:
       customSubtitle && customSubtitle.trim() ? customSubtitle.trim() : defaultSubtitle,
@@ -235,7 +235,7 @@ export function createRecordLabelMerchProduct(params: {
       : `${artistDisplayName} Official Capsule`,
     isPreOrderRelease: Boolean(isPhysicalMusic && isPreOrderRelease),
     scheduledReleaseDate: isPhysicalMusic ? scheduledReleaseDate : undefined,
-    coverArt: coverArt || rosterArtist.avatar || state.artist?.image || '',
+    coverArt: coverArt || rosterArtist.avatarUrl || (rosterArtist as any).avatar || state.artist?.image || '',
     colorwayId: colorway.id,
     colorwayName: colorway.name,
     primaryColor: colorway.primaryColor,
@@ -286,8 +286,8 @@ export function createRecordLabelMerchProduct(params: {
       imprint: {
         ...rl.imprint,
         totalImprintExpenses:
-          (rl.imprint.totalImprintExpenses || 0) + totalManufacturingCost
-      }
+          ((rl.imprint as any).totalImprintExpenses || 0) + totalManufacturingCost
+      } as any
     },
     labelMerchStore: nextStore
   } as any;
@@ -314,7 +314,7 @@ export function restockRecordLabelMerchProduct(
     BATCH_PRESSING_OPTIONS.find(b => b.units === additionalUnits) ||
     BATCH_PRESSING_OPTIONS[1];
   const restockCost = Math.round(
-    target.unitCost * additionalUnits * batchMeta.costDiscountMultiplier
+    target.unitCost * additionalUnits * (batchMeta.discount || 1)
   );
 
   if (state.money < restockCost) {
@@ -347,8 +347,8 @@ export function restockRecordLabelMerchProduct(
         ...rl,
         imprint: {
           ...rl.imprint,
-          totalImprintExpenses: (rl.imprint.totalImprintExpenses || 0) + restockCost
-        }
+          totalImprintExpenses: ((rl.imprint as any).totalImprintExpenses || 0) + restockCost
+        } as any
       },
       labelMerchStore: {
         ...store,
@@ -493,11 +493,9 @@ export function processDailyRecordLabelMerchStep(
     const elasticity = evaluateMerchPricingElasticity(
       template,
       effectivePrice,
-      pop,
-      hype,
-      item.specTier || 'standard',
       item.isSigned,
-      Boolean(item.hasObiStrip)
+      item.isLimitedEdition,
+      item.specTier || 'standard'
     );
 
     const daysActive = (item.daysActiveOnStore || 0) + 1;
@@ -543,7 +541,7 @@ export function processDailyRecordLabelMerchStep(
 
     // Split net proceeds according to Roster Artist's label royalty split (Label typically keeps 50%-80% of Label Store D2C)
     const labelSharePct = rosterArt
-      ? Math.max(35, Math.min(85, rosterArt.labelRoyaltySplit || 55))
+      ? Math.max(35, Math.min(85, (rosterArt as any).labelRoyaltySplit || 55))
       : 60;
     const labelCut = Math.round(netMerchProceeds * (labelSharePct / 100));
     const artistCut = Math.max(0, netMerchProceeds - labelCut);
@@ -648,13 +646,13 @@ export function processDailyRecordLabelMerchStep(
       };
     });
 
-    const nextUnrecouped = Math.max(0, (art.unrecoupedBalance || 0) - artistCut);
+    const nextUnrecouped = Math.max(0, (art.unrecoupedAdvance || (art as any).unrecoupedBalance || 0) - artistCut);
 
     return {
       ...art,
       songs: nextSongs,
       projects: nextProjects,
-      unrecoupedBalance: nextUnrecouped
+      unrecoupedAdvance: nextUnrecouped
     };
   });
 
@@ -676,8 +674,8 @@ export function processDailyRecordLabelMerchStep(
 
   (state as any).labelMerchStore = nextStore;
   rl.imprint.signedRoster = updatedRoster;
-  rl.imprint.totalImprintRevenue =
-    (rl.imprint.totalImprintRevenue || 0) + dailyNetLabelRevenue;
+  (rl.imprint as any).totalImprintRevenue =
+    ((rl.imprint as any).totalImprintRevenue || 0) + dailyNetLabelRevenue;
   (state as any).recordLabel = rl;
   (state as any).recordLabelState = rl;
 

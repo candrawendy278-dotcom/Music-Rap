@@ -200,7 +200,17 @@ export function purgeDuplicateNpcFromGameState(state: GameState): GameState {
 
   if (nextState.xPosts && Array.isArray(nextState.xPosts)) {
     nextState.xPosts = nextState.xPosts.filter(post => {
-      if ((post as any).isPlayer || (post as any).authorId === 'player') return true;
+      if (
+        post.isPlayerPost ||
+        (post as any).isPlayer ||
+        (post as any).authorId === 'player' ||
+        Boolean((post as any).rosterArtistId) ||
+        String(post.id || '').startsWith('post-') ||
+        String(post.id || '').startsWith('lbl_x_') ||
+        String(post.id || '').startsWith('roster_')
+      ) {
+        return true;
+      }
       return !isNpcMatchingPlayerName(post.authorName, playerName);
     });
   }

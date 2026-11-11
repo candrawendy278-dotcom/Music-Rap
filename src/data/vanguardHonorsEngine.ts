@@ -546,7 +546,7 @@ function buildCategoryNomineesAndWinner(
     );
     if (rSongs.length === 0 && rAlbums.length === 0) return;
 
-    const rSkillScore = clamp100((rArtist.vocalSkill || 68) * 0.55 + (rArtist.stagePresence || 68) * 0.45);
+    const rSkillScore = clamp100((((rArtist as any).vocalSkill || 68) * 0.55) + (((rArtist as any).stagePresence || 68) * 0.45));
     const rHypePillar = clamp100((rArtist.hype || 60) * 0.52 + (rArtist.popularity || 55) * 0.48 + 8);
     const rCampaignBonus = Math.min(6.5, (campaign.totalBonusScore || 0) * 0.8 + 1.5);
 
@@ -565,7 +565,7 @@ function buildCategoryNomineesAndWinner(
           const streams = Number(song.streams) || 0;
           const sales = Number(song.pureSales) || Math.round(streams * 0.004);
           const views = Number(song.views) || Math.round(streams * 0.35);
-          const { peak, weeks } = getSongChartPeak(song.title, rName, false);
+          const { peak, chartScore: rawPeakChartScore } = getSongChartPeak(song.title, rName, false);
           const inferredPeak =
             peak !== null
               ? peak
@@ -580,7 +580,7 @@ function buildCategoryNomineesAndWinner(
               : null;
           const chartScore =
             inferredPeak !== null
-              ? clamp100(102 - inferredPeak * 0.72 + Math.min(18, Math.max(2, weeks) * 1.1))
+              ? clamp100(Math.max(rawPeakChartScore, 102 - inferredPeak * 0.72))
               : streams > 200_000
               ? 44
               : 24;
@@ -635,7 +635,7 @@ function buildCategoryNomineesAndWinner(
           const criticScore = clamp100(albumQuality * 0.65 + rSkillScore * 0.35);
           const streams = Number(album.streams) || 0;
           const sales = Number(album.pureSales) || Math.round(streams / 1500);
-          const peak = getAlbumChartPeak(album.title, rName, false) || (streams >= 15_000_000 ? 12 : streams >= 3_000_000 ? 28 : null);
+          const peak = getSongChartPeak(album.title, rName, false).peak || (streams >= 15_000_000 ? 12 : streams >= 3_000_000 ? 28 : null);
           const chartScore = peak !== null ? clamp100(101 - peak * 0.65) : 38;
           const commScore = clamp100(
             (streams > 0 ? Math.min(68, Math.log10(Math.max(2000, streams)) * 9.0) : 18) +

@@ -14,6 +14,8 @@ export default function AppsTab() {
   const hiredStaffCount = Object.keys((state as any).staffState?.roster || {}).length;
   const activeLabelName = (state as any).recordLabelState?.activeContract?.labelName;
   const hasFoundedImprint = Boolean((state as any).recordLabelState?.imprint?.isFounded);
+  const activeBrandDealsCount = ((state as any).brandDealsState?.activeContracts || []).length;
+  const ownedLuxuryCount = ((state as any).luxuryAssetsState?.ownedAssets || []).length;
 
   const openApp = (app: any) => {
     setState(p => ({ ...p, activeApp: app }));
@@ -24,6 +26,8 @@ export default function AppsTab() {
       name: "Artist Craft & Income",
       apps: [
         { id: 'label', name: 'Record Label', icon: 'ph-fill ph-vinyl-record', color: 'text-amber-400', bg: 'bg-[#16120B] dark:bg-amber-500/20', statusBadge: activeLabelName ? 'SIGNED' : hasFoundedImprint ? 'IMPRINT' : 'INDIE' },
+        { id: 'brands', name: 'Brand Deals', icon: 'ph-fill ph-coat-hanger', color: 'text-[#D4AF37]', bg: 'bg-[#16140D] dark:bg-[#D4AF37]/20', statusBadge: activeBrandDealsCount > 0 ? `${activeBrandDealsCount} ACTIVE` : undefined },
+        { id: 'luxury', name: 'Luxury & Flex', icon: 'ph-fill ph-crown', color: 'text-emerald-400', bg: 'bg-[#091713] dark:bg-emerald-500/20', statusBadge: ownedLuxuryCount > 0 ? `${ownedLuxuryCount} OWNED` : undefined },
         { id: 'staff', name: 'Staff Team', icon: 'ph-fill ph-users-three', color: 'text-amber-300', bg: 'bg-[#17130A] dark:bg-amber-500/20', statusBadge: hiredStaffCount > 0 ? `${hiredStaffCount}/6 HIRED` : undefined },
         { id: 'tour', name: 'World Tour', icon: 'ph-fill ph-globe-hemisphere-west', color: 'text-amber-400', bg: 'bg-[#17120E] dark:bg-amber-500/20', statusBadge: isCurrentlyOnTour ? 'ON TOUR' : undefined },
         { id: 'merch', name: 'Official Store', icon: 'ph-fill ph-shopping-bag-open', color: 'text-rose-500 dark:text-rose-400', bg: 'bg-rose-500/10 dark:bg-rose-500/20' },

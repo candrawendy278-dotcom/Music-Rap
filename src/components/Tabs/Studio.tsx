@@ -18,6 +18,9 @@ import { RosterArtistCeoManagerModal } from '../Apps/RecordLabelCeoStudioModal';
 import { getEnsuredRecordLabelState } from '../../data/recordLabelSystemEngine';
 import { ensureRosterArtistFullFields } from '../../data/recordLabelCeoEngine';
 import { RosterStudioAdapter } from './RosterStudioAdapter';
+import SampleClearanceDeskModal from '../Modals/SampleClearanceDeskModal';
+import AdvancedEditionsCreatorModal from '../Modals/AdvancedEditionsCreatorModal';
+import { getEnsuredSampleLegalState } from '../../data/sampleClearanceAndLegalEngine';
 
 export default function Studio() {
   const { state, setState } = useGameContext();
@@ -50,13 +53,19 @@ export default function Studio() {
     const recordedReady = state.songs.filter(s => s.status === 'recorded').length;
     const packagedSinglesReady = state.songs.filter(s => s.status === 'packaged').length;
     const projectsReadyToRelease = state.projects.filter(p => p.status === 'created').length;
+    const activeLawsuits = getEnsuredSampleLegalState(state).activeDisputes.length;
+    const unclearedSamples = state.songs.filter(
+      s => (s as any).sampleInfo?.clearanceStatus === 'uncleared'
+    ).length;
     return {
       writingCount,
       writtenReadyToRecord,
       recordedReady,
-      readyToReleaseTotal: recordedReady + packagedSinglesReady + projectsReadyToRelease
+      readyToReleaseTotal: recordedReady + packagedSinglesReady + projectsReadyToRelease,
+      activeLawsuits,
+      unclearedSamples
     };
-  }, [state.songs, state.projects]);
+  }, [state]);
 
   const catalogList = useMemo(() => {
     if (!showCatalog) return null;
@@ -228,6 +237,35 @@ export default function Studio() {
             </div>
           </button>
 
+          <button onClick={() => setModalType('editions')} className="bg-apple-card rounded-3xl p-5 shadow-ios border border-apple-border/50 active:scale-95 transition-transform flex flex-col items-center text-center gap-2.5 cursor-pointer relative">
+            <div className="w-14 h-14 bg-sky-100 dark:bg-sky-500/15 rounded-2xl flex items-center justify-center text-sky-500 dark:text-sky-400 text-2xl shadow-sm">
+              <i className="ph-fill ph-cassette-tape"></i>
+            </div>
+            <div>
+              <h4 className="font-bold text-apple-text text-sm">Deluxe &amp; Mixtapes</h4>
+              <p className="text-[11px] text-apple-subtext mt-0.5">Deluxe, Mixtape, Remaster &amp; Hits</p>
+            </div>
+          </button>
+
+          <button onClick={() => setModalType('samples')} className="bg-apple-card rounded-3xl p-5 shadow-ios border border-apple-border/50 active:scale-95 transition-transform flex flex-col items-center text-center gap-2.5 cursor-pointer relative">
+            {studioCounts.activeLawsuits > 0 ? (
+              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-500 dark:text-rose-300">
+                {studioCounts.activeLawsuits} Lawsuit{studioCounts.activeLawsuits > 1 ? 's' : ''}
+              </span>
+            ) : studioCounts.unclearedSamples > 0 ? (
+              <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300">
+                {studioCounts.unclearedSamples} Uncleared
+              </span>
+            ) : null}
+            <div className="w-14 h-14 bg-amber-100 dark:bg-amber-500/15 rounded-2xl flex items-center justify-center text-amber-600 dark:text-amber-400 text-2xl shadow-sm">
+              <i className="ph-fill ph-scales"></i>
+            </div>
+            <div>
+              <h4 className="font-bold text-apple-text text-sm">Sample &amp; Legal</h4>
+              <p className="text-[11px] text-apple-subtext mt-0.5">Crate dig, clear &amp; disputes</p>
+            </div>
+          </button>
+
           <button
             onClick={() => setShowVisualPicker(true)}
             className="col-span-2 bg-apple-card rounded-3xl p-4 shadow-ios border border-apple-border/50 active:scale-[0.99] transition-transform flex items-center justify-between gap-3 cursor-pointer"
@@ -243,7 +281,7 @@ export default function Studio() {
                   </span>
                 </div>
                 <h4 className="font-bold text-apple-text text-sm mt-0.5">
-                  Release MV, Lyric Video & Visualizer
+                  Release MV, Lyric Video &amp; Visualizer
                 </h4>
                 <p className="text-[11px] text-apple-subtext">
                   Produce Official Music Video, Lyric Video, or Audio Visualizer in one place
@@ -329,7 +367,15 @@ export default function Studio() {
         <EnhancedReleaseModal onClose={() => setModalType(null)} />
       )}
 
-      {modalType && !['write', 'record', 'project', 'release'].includes(modalType) && (
+      {modalType === 'samples' && (
+        <SampleClearanceDeskModal onClose={() => setModalType(null)} />
+      )}
+
+      {modalType === 'editions' && (
+        <AdvancedEditionsCreatorModal onClose={() => setModalType(null)} />
+      )}
+
+      {modalType && !['write', 'record', 'project', 'release', 'samples', 'editions'].includes(modalType) && (
         <ActionModal type={modalType} onClose={() => setModalType(null)} />
       )}
 

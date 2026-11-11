@@ -130,16 +130,20 @@ export function evaluateSongHitViability(params: {
   // Creative Studio Alignment from wizard choices
   const { synergyMultiplier, synergyType } = evaluateStudioSynergy(song);
 
-  // Organic Zeitgeist roll (0.78 to 1.38)
-  // Even a Quality 100 track can roll a lukewarm reception (0.80), while an 80 quality can roll a viral zeitgeist wave (1.30)!
-  const zeitgeistRoll = 0.78 + ((seed % 61) / 100);
+  // Wide Organic Zeitgeist roll (0.42 to 1.36)
+  // Calibrated so even Quality 90-100 tracks from Roster Artists or Superstar Players can genuinely flop (~20%),
+  // perform moderately (~34%), land as a solid hit (~30%), or explode as a true viral mega smash (~16%)!
+  const zeitgeistRoll = 0.42 + ((seed % 95) / 100);
 
-  // Mainstream public appetite vs niche appreciation
+  // Normalized around Quality/Potential 80 so maxed player skills do not auto-force every track into mega_smash
+  const normalizedPotential = Math.min(1.30, potential / 80);
+  const normalizedQuality = Math.min(1.25, quality / 80);
+
   const compositeResonance = (
-    (synergyMultiplier * 0.40) +
-    (zeitgeistRoll * 0.32) +
-    ((potential / 50) * 0.15) +
-    ((quality / 50) * 0.13)
+    (zeitgeistRoll * 0.46) +
+    (synergyMultiplier * 0.30) +
+    (normalizedPotential * 0.12) +
+    (normalizedQuality * 0.12)
   );
 
   // Determine Hit Archetype
@@ -151,22 +155,22 @@ export function evaluateSongHitViability(params: {
     archetype = 'moderate_single';
     archetypeLabel = 'Album Cut';
     description = 'Cohesive album track providing steady listener stream engagement.';
-  } else if (compositeResonance >= 1.22) {
+  } else if (compositeResonance >= 1.15) {
     archetype = 'mega_smash';
     archetypeLabel = 'Cultural Mega Smash';
     description = 'Infectious mainstream phenomenon resonating across global DSP algorithms.';
-  } else if (compositeResonance >= 1.02) {
+  } else if (compositeResonance >= 0.99) {
     archetype = 'solid_hit';
     archetypeLabel = 'Solid Mainstream Hit';
     description = 'Popular single enjoying solid playlist additions and repeat listens.';
-  } else if (quality >= 88 && (synergyType.includes('Narrative') || synergyType.includes('Conflicting'))) {
+  } else if (compositeResonance <= 0.85) {
+    archetype = 'polarizing_flop';
+    archetypeLabel = 'Underperforming Flop';
+    description = 'Core fans checked it out on release day, but the general public skipped it and streams dropped fast.';
+  } else if (quality >= 88 && (synergyType.includes('Narrative') || synergyType.includes('Conflicting') || zeitgeistRoll < 0.72)) {
     archetype = 'critical_darling';
     archetypeLabel = 'Critical Masterpiece';
     description = 'High technical quality celebrated by dedicated fans, but niche mainstream replayability.';
-  } else if (compositeResonance <= 0.86) {
-    archetype = 'polarizing_flop';
-    archetypeLabel = 'Underperforming Single';
-    description = 'Stanbase checked it out on debut, but casual listeners quickly moved on.';
   } else {
     archetype = 'moderate_single';
     archetypeLabel = 'Moderate Single';

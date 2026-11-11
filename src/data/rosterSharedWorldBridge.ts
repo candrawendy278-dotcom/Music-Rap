@@ -274,9 +274,9 @@ export function simulateRosterArtistAsPlayerDaily(
   );
 
   // Snapshot previous song & project counters before processDailyMarketStep so uncapped Player-skill surges never corrupt cumulative/weekly totals
-  const prevSongMap = new Map<string, Song>();
+  const prevSongMap = new Map<number | string, Song>();
   (art.songs || []).forEach((s) => prevSongMap.set(s.id, { ...s }));
-  const prevProjectMap = new Map<string, Project>();
+  const prevProjectMap = new Map<number | string, Project>();
   (art.projects || []).forEach((p) => prevProjectMap.set(p.id, { ...p }));
 
   // 1. Advance song writing ('writing' -> 'written') exactly like Player in useGame.ts.

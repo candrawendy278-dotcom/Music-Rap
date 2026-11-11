@@ -93,7 +93,7 @@ export function useRealTimeEngine(
 
         nextState.projects = nextState.projects.map(proj => {
             if (proj.status === 'released') {
-                const projSalesToAdd = ((proj.basePotential || 0) * (proj.momentum || 1) * (100 + (nextState.artist?.popularity || 0) * 800) * 0.08) * deltaDays;
+                const projSalesToAdd = ((proj.basePotential || 0) * (proj.momentum || 1) * (100 + (nextState.popularity || 0) * 800) * 0.08) * deltaDays;
                 realtimeRevenueEarned += projSalesToAdd * 4.5;
                 return {
                     ...proj,

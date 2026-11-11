@@ -6,11 +6,12 @@
 
 import { GameState } from '../types';
 import { NPCS } from '../constants';
-import { REAL_WORLD_NPCS, RealWorldArtist, normalizeRealArtistName } from './realWorldArtistCatalog';
+import { REAL_WORLD_NPCS, normalizeRealArtistName } from './realWorldArtistCatalog';
 import { DETAILED_NPCS, DetailedNPC } from './npcAssets';
 import { ImprintSignedArtist } from './recordLabelSystemEngine';
 import { getRosterTrustAndHiatusInfo } from './rosterTrustHiatusPayrollEngine';
 
+type RealWorldArtist = (typeof REAL_WORLD_NPCS)[number];
 const MASTER_REAL_WORLD_NPCS_SNAPSHOT: RealWorldArtist[] = [...REAL_WORLD_NPCS];
 
 const MASTER_DETAILED_NPCS_SNAPSHOT: DetailedNPC[] = [...DETAILED_NPCS];

@@ -45,6 +45,7 @@ export interface XPost {
   isReposted?: boolean;
   isBookmarked?: boolean;
   isPlayerPost?: boolean;
+  rosterArtistId?: string;
   daysOld?: number;
 }
 
@@ -55,12 +56,13 @@ export interface XProfile {
   banner?: string;
   followers?: number;
   following?: number;
+  savedPlayerPosts?: XPost[];
 }
 
 /**
  * Returns canonical or fallback X profile information for the player
  */
-export function getEnsuredXProfile(state: GameState): Required<XProfile> {
+export function getEnsuredXProfile(state: GameState): Required<Omit<XProfile, 'savedPlayerPosts'>> & { savedPlayerPosts?: XPost[] } {
   const artist = state.artist;
   const defaultName = artist?.name || 'Artist';
   const defaultHandle = `@${defaultName.toLowerCase().replace(/[^a-z0-9_]/g, '') || 'player'}`;
@@ -85,7 +87,8 @@ export function getEnsuredXProfile(state: GameState): Required<XProfile> {
     bio,
     banner,
     followers,
-    following
+    following,
+    savedPlayerPosts: profile.savedPlayerPosts
   };
 }
 
@@ -139,8 +142,19 @@ export function advanceXSocialDaily(existingPosts: XPost[], state: GameState): X
   const followers = profile.followers;
   const hypeFactor = Math.max(0.5, (state.hype || 15) / 20);
 
+  // Merge any backed-up player posts from state.xProfile.savedPlayerPosts so player tweets are never lost
+  const combinedSourceMap = new Map<string, XPost>();
+  (existingPosts || []).forEach(p => {
+    if (p && p.id) combinedSourceMap.set(p.id, p);
+  });
+  (state.xProfile?.savedPlayerPosts || []).forEach(p => {
+    if (p && p.id && !combinedSourceMap.has(p.id)) {
+      combinedSourceMap.set(p.id, p);
+    }
+  });
+
   // 1. Advance engagement & relative age on existing posts
-  const updatedExisting = (existingPosts || []).map(post => {
+  const updatedExisting = Array.from(combinedSourceMap.values()).map(post => {
     const currentDays = (post.daysOld || 0) + 1;
     let viewMultiplier = 0;
     
@@ -183,11 +197,32 @@ export function advanceXSocialDaily(existingPosts: XPost[], state: GameState): X
   // 2. Generate brand new tweets for this new day (each with cover art or artist picture)
   const newDailyTweets = generateDailyTweetsForNewDay(state);
 
-  // 3. Keep ALL player posts, and keep up to 80 most recent industry/fan tweets
-  const playerPosts = updatedExisting.filter(p => p.isPlayerPost);
-  const existingIndustry = updatedExisting.filter(p => !p.isPlayerPost).slice(0, 140);
+  // 3. Keep ALL player/roster/label authored posts at the front so downstream .slice(0, 120) calls NEVER drop player tweets!
+  const isAuthored = (p: XPost) =>
+    Boolean(
+      p.isPlayerPost ||
+        p.rosterArtistId ||
+        String(p.id || '').startsWith('post-') ||
+        String(p.id || '').startsWith('lbl_x_') ||
+        String(p.id || '').startsWith('roster_custom_x_')
+    );
 
-  return [...newDailyTweets, ...playerPosts, ...existingIndustry].sort((a, b) => (a.daysOld || 0) - (b.daysOld || 0));
+  const playerPosts = updatedExisting
+    .filter(isAuthored)
+    .sort((a, b) => (a.daysOld || 0) - (b.daysOld || 0));
+
+  // Sync updated engagement back into state.xProfile.savedPlayerPosts if present
+  if (state.xProfile) {
+    state.xProfile.savedPlayerPosts = playerPosts.filter(
+      p => p.isPlayerPost && !p.rosterArtistId && !String(p.id || '').startsWith('lbl_x_')
+    );
+  }
+
+  const existingIndustry = updatedExisting
+    .filter(p => !isAuthored(p))
+    .slice(0, 75);
+
+  return [...playerPosts, ...newDailyTweets, ...existingIndustry];
 }
 
 /**

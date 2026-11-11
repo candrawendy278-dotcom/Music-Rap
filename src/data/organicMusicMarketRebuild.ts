@@ -289,33 +289,66 @@ export function calculateOrganicDailySales(params: {
     }
   }
 
-  // Music video presence boosts pure digital sales (+8%)
-  const mvFactor = song.hasMV ? 1.08 : 1.0;
+  // Music video presence boosts pure digital & D2C single sales (+12%)
+  const mvFactor = song.hasMV ? 1.12 : 1.0;
 
-  // Sub-linear viral stream compression for digital downloads:
-  // Passive playlist streams above 1.2M/day convert at a diminishing rate because only core fans buy digital copies on iTunes.
+  // Evaluate hit viability archetype so pure sales respond realistically to public reception & collector demand
+  const viability = evaluateSongHitViability({
+    song,
+    daysSinceRelease,
+    artistPopularity: pop,
+    artistHype: hype,
+    isSingle
+  });
+
+  let archetypeSalesMultiplier = 1.0;
+  if (viability.archetype === 'mega_smash') {
+    archetypeSalesMultiplier = 1.38;
+  } else if (viability.archetype === 'solid_hit') {
+    archetypeSalesMultiplier = 1.15;
+  } else if (viability.archetype === 'critical_darling') {
+    // Critical darlings have high audiophile/collector purchase conversion despite niche streaming
+    archetypeSalesMultiplier = 1.24;
+  } else if (viability.archetype === 'polarizing_flop') {
+    archetypeSalesMultiplier = daysSinceRelease === 0 ? 0.65 : 0.42;
+  } else {
+    archetypeSalesMultiplier = 0.94;
+  }
+
+  // Sub-linear viral stream compression for digital downloads + direct core-fanbase collector demand:
   const effectiveStreamPool =
     dailyStreams <= 1_200_000
       ? dailyStreams
-      : 1_200_000 + Math.pow(dailyStreams - 1_200_000, 0.78) * 16.5;
+      : 1_200_000 + Math.pow(dailyStreams - 1_200_000, 0.80) * 18.0;
 
   const fanSynergy = getFanMarketSynergy(fans || 0, safeSkills);
   const basePurchaseRate = isSingle
-    ? (daysSinceRelease === 0 ? 0.00032 : daysSinceRelease <= 3 ? 0.00022 : 0.00015)
-    : 0.00009;
-  const fanLoyaltyFactor = (1.0 + (pop / 100) * 0.28) * Math.min(1.45, Math.pow(fanSynergy.fanSalesBoost, 0.65));
-  const qualityAppeal = Math.pow(quality / 58, 0.55);
+    ? (daysSinceRelease === 0 ? 0.00038 : daysSinceRelease <= 3 ? 0.00026 : daysSinceRelease <= 7 ? 0.00019 : 0.00014)
+    : 0.00010;
+  const fanLoyaltyFactor = (1.0 + (pop / 100) * 0.34) * Math.min(1.65, Math.pow(fanSynergy.fanSalesBoost, 0.72));
+  const qualityAppeal = Math.pow(quality / 62, 0.52);
 
-  const rawSales = effectiveStreamPool
-    * basePurchaseRate
-    * fanLoyaltyFactor
-    * buyerConversionMultiplier
-    * lifecycleSalesFactor
-    * singleSalesFactor
-    * mvFactor
-    * qualityAppeal
-    * Math.min(2.2, salesModifier ?? 1.0)
-    * organicVariance;
+  // Direct fanbase collector/stan buying floor during Launch Week (especially strong for high-fanbase Pop/K-Pop acts & Groups)
+  const directFanLaunchUnits =
+    daysSinceRelease <= 6 && (fans || 0) > 1000
+      ? Math.pow(Math.max(0, fans || 0) / 1000, 0.74) *
+        (daysSinceRelease === 0 ? 4.2 : daysSinceRelease <= 2 ? 1.8 : 0.75) *
+        (isSingle ? 1.0 : 0.35) *
+        archetypeSalesMultiplier
+      : 0;
+
+  const rawSales = (
+    effectiveStreamPool
+      * basePurchaseRate
+      * fanLoyaltyFactor
+      * buyerConversionMultiplier
+      * lifecycleSalesFactor
+      * singleSalesFactor
+      * mvFactor
+      * qualityAppeal
+      * archetypeSalesMultiplier
+      + directFanLaunchUnits
+  ) * Math.min(2.5, salesModifier ?? 1.0) * organicVariance;
 
   return Math.max(0, Math.round(rawSales));
 }

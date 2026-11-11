@@ -149,7 +149,7 @@ export const RecordLabelMerchStoreView: React.FC<RecordLabelMerchStoreViewProps>
       (activeFormat.unitManufacturingCost * activeSpecMeta.costMultiplier +
         signedExtra +
         obiExtra) *
-      batchOpt.costDiscountMultiplier;
+      (batchOpt.discount || 1);
     return Math.round(unitCost * batchUnits);
   }, [activeFormat, activeSpecMeta, batchUnits, isSigned, hasObiStrip]);
 
@@ -548,7 +548,7 @@ export const RecordLabelMerchStoreView: React.FC<RecordLabelMerchStoreViewProps>
                     );
                     if (firstFmt) {
                       setSelectedFormatId(firstFmt.id);
-                      setRetailPrice(firstFmt.suggestedRetailPrice);
+                      setRetailPrice(firstFmt.recommendedRetailPrice);
                     }
                   }}
                   className={`py-2 rounded-lg text-[11px] font-black transition cursor-pointer ${
@@ -569,7 +569,7 @@ export const RecordLabelMerchStoreView: React.FC<RecordLabelMerchStoreViewProps>
                     key={fmt.id}
                     onClick={() => {
                       setSelectedFormatId(fmt.id);
-                      setRetailPrice(fmt.suggestedRetailPrice);
+                      setRetailPrice(fmt.recommendedRetailPrice);
                     }}
                     className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
                       selectedFormatId === fmt.id
@@ -579,7 +579,7 @@ export const RecordLabelMerchStoreView: React.FC<RecordLabelMerchStoreViewProps>
                   >
                     <div className="text-xs font-black">{fmt.name}</div>
                     <div className="text-[10px] text-zinc-400 mt-0.5">
-                      Base Cost ${fmt.unitManufacturingCost} • Sugg. ${fmt.suggestedRetailPrice}
+                      Base Cost ${fmt.unitManufacturingCost} • Sugg. ${fmt.recommendedRetailPrice}
                     </div>
                   </button>
                 )
@@ -674,7 +674,7 @@ export const RecordLabelMerchStoreView: React.FC<RecordLabelMerchStoreViewProps>
                 >
                   {BATCH_PRESSING_OPTIONS.map(b => (
                     <option key={b.units} value={b.units}>
-                      {b.label} ({b.discountLabel})
+                      {b.label} ({b.tag})
                     </option>
                   ))}
                 </select>
@@ -767,7 +767,7 @@ export const RecordLabelMerchStoreView: React.FC<RecordLabelMerchStoreViewProps>
                     }`}
                   >
                     <div className="text-xs font-black">{c.name}</div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">{c.desc}</div>
+                    <div className="text-[10px] text-zinc-400 mt-0.5">{c.description}</div>
                   </button>
                 );
               })}
