@@ -37,24 +37,138 @@ export function isMatchingArtistName(nameA?: string | null, nameB?: string | nul
 }
 
 /**
- * Collects all reserved artist names (Player + all Active & Former Roster Artists that have not been deleted).
+ * Extracts all canonical artist name variants from a raw stage name, including:
+ * - Full stage name (e.g. "JENNIE of BLACKPINK", "JENNIE [BLACKPINK]", "JENNIE BLACKPINK")
+ * - Clean base member name (e.g. "JENNIE")
+ * - Group name if present (e.g. "BLACKPINK")
+ */
+export function extractArtistNameAndGroupVariants(
+  rawName?: string | null,
+  groupName?: string | null,
+  baseStageName?: string | null,
+  knownGroupNames?: string[]
+): string[] {
+  const results = new Set<string>();
+  const addClean = (val?: string | null) => {
+    const trimmed = String(val || '').trim();
+    if (trimmed) results.add(trimmed);
+  };
+
+  addClean(rawName);
+  addClean(baseStageName);
+  addClean(groupName);
+
+  const text = String(rawName || '').trim();
+  if (!text) return Array.from(results);
+
+  // 1. Pattern: "Member of Group"
+  const ofMatch = text.match(/^(.+?)\s+of\s+(.+)$/i);
+  if (ofMatch) {
+    addClean(ofMatch[1]);
+    addClean(ofMatch[2]);
+  }
+
+  // 2. Pattern: "Member [Group]" or "Member (Group)"
+  const bracketMatch = text.match(/^(.+?)\s*[\[\(](.+?)[\]\)]$/);
+  if (bracketMatch) {
+    addClean(bracketMatch[1]);
+    addClean(bracketMatch[2]);
+  }
+
+  // 3. Pattern: "Member Group" (when groupName or knownGroupNames is provided)
+  const groupCandidates = new Set<string>();
+  if (groupName && String(groupName).trim()) {
+    groupCandidates.add(String(groupName).trim());
+  }
+  if (Array.isArray(knownGroupNames)) {
+    knownGroupNames.forEach((g) => {
+      if (g && String(g).trim()) groupCandidates.add(String(g).trim());
+    });
+  }
+
+  for (const grp of groupCandidates) {
+    const suffix = ` ${grp}`;
+    if (
+      text.length > suffix.length &&
+      text.toLowerCase().endsWith(suffix.toLowerCase())
+    ) {
+      addClean(text.slice(0, text.length - suffix.length));
+    }
+  }
+
+  return Array.from(results);
+}
+
+/**
+ * Collects all reserved artist names (Player + all Active & Former Roster Artists that have not been deleted),
+ * including base solo stage names ("JENNIE") when a member is credited as "JENNIE of BLACKPINK", "JENNIE [BLACKPINK]", or "JENNIE BLACKPINK".
  */
 export function getReservedPlayerAndRosterNames(
   playerName?: string | null,
   rosterArtists?: ImprintSignedArtist[] | null
 ): string[] {
   const names: string[] = [];
-  if (playerName && String(playerName).trim()) {
-    names.push(String(playerName).trim());
-  }
+  const knownGroupNames: string[] = [];
+
   if (Array.isArray(rosterArtists)) {
-    rosterArtists.forEach(art => {
+    rosterArtists.forEach((art) => {
       if (!art) return;
-      if (art.stageName && String(art.stageName).trim()) {
-        names.push(String(art.stageName).trim());
+      const raw = art as any;
+      if (raw.isGroupEntity && (art.stageName || art.name)) {
+        knownGroupNames.push(String(art.stageName || art.name).trim());
       }
-      if (art.name && String(art.name).trim()) {
-        names.push(String(art.name).trim());
+      if (raw.groupName && String(raw.groupName).trim()) {
+        knownGroupNames.push(String(raw.groupName).trim());
+      }
+    });
+  }
+
+  if (playerName && String(playerName).trim()) {
+    names.push(
+      ...extractArtistNameAndGroupVariants(playerName, null, null, knownGroupNames)
+    );
+  }
+
+  if (Array.isArray(rosterArtists)) {
+    rosterArtists.forEach((art) => {
+      if (!art) return;
+      const raw = art as any;
+      const grpName = raw.groupName ? String(raw.groupName).trim() : null;
+      const baseName = raw.baseStageName
+        ? String(raw.baseStageName).trim()
+        : raw.originalStageName
+        ? String(raw.originalStageName).trim()
+        : null;
+
+      names.push(
+        ...extractArtistNameAndGroupVariants(
+          art.stageName,
+          grpName,
+          baseName,
+          knownGroupNames
+        )
+      );
+      names.push(
+        ...extractArtistNameAndGroupVariants(
+          art.name,
+          grpName,
+          baseName,
+          knownGroupNames
+        )
+      );
+      if (
+        art.realName &&
+        !String(art.realName).includes('(') &&
+        !String(art.realName).includes('Member Group')
+      ) {
+        names.push(
+          ...extractArtistNameAndGroupVariants(
+            art.realName,
+            grpName,
+            baseName,
+            knownGroupNames
+          )
+        );
       }
     });
   }
@@ -66,15 +180,40 @@ export function isNpcSuppressedByPlayerOrRoster(
   playerName?: string | null,
   rosterArtists?: ImprintSignedArtist[] | null
 ): boolean {
+  if (!npcName) return false;
+  const reservedSet = new Set(
+    getReservedPlayerAndRosterNames(playerName, rosterArtists)
+      .map((r) => normalizeArtistComparisonKey(r))
+      .filter(Boolean)
+  );
+  if (reservedSet.size === 0) return false;
+
   const normNpc = normalizeArtistComparisonKey(npcName);
-  if (!normNpc) return false;
-  const reserved = getReservedPlayerAndRosterNames(playerName, rosterArtists);
-  return reserved.some(r => normalizeArtistComparisonKey(r) === normNpc);
+  if (normNpc && reservedSet.has(normNpc)) return true;
+
+  // Also check variants and collaboration parts (e.g. "JENNIE & Matt Champion")
+  const variants = extractArtistNameAndGroupVariants(npcName);
+  for (const v of variants) {
+    const nv = normalizeArtistComparisonKey(v);
+    if (nv && reservedSet.has(nv)) return true;
+  }
+
+  const collabParts = String(npcName)
+    .split(/\s*(?:&|,|feat\.?|ft\.?|with|x|\+|and|\/)\s*/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  for (const part of collabParts) {
+    const np = normalizeArtistComparisonKey(part);
+    if (np && reservedSet.has(np)) return true;
+  }
+
+  return false;
 }
 
 /**
  * Synchronizes REAL_WORLD_NPCS, DETAILED_NPCS, and NPCS in-place:
- * - Removes any NPC matching the Player's name OR any Active/Former Roster Artist's name.
+ * - Removes any NPC matching the Player's name OR any Active/Former Roster Artist's name (including base solo name when in a Group).
  * - Restores any previously removed NPC as soon as a Former Roster Artist with that name is deleted in Settings!
  */
 export function syncWorldNpcDeduplicationWithRoster(
@@ -174,10 +313,13 @@ export function getFormerAndExpiredRosterArtists(state: GameState): Array<{
   return signedRoster
     .filter(art => isRosterArtistContractExpired(art))
     .map(art => {
-      const stageOrName = art.stageName || art.name;
-      const norm = normalizeArtistComparisonKey(stageOrName);
+      const variants = extractArtistNameAndGroupVariants(
+        art.stageName || art.name,
+        (art as any).groupName,
+        (art as any).baseStageName
+      ).map(v => normalizeArtistComparisonKey(v));
       const matchedNpc = MASTER_REAL_WORLD_NPCS_SNAPSHOT.find(
-        n => normalizeArtistComparisonKey(n.name) === norm
+        n => variants.includes(normalizeArtistComparisonKey(n.name))
       );
       return {
         artist: art,
@@ -312,9 +454,13 @@ export function deleteFormerRosterArtistFromWorld(
   }
 
   const stageOrName = target.stageName || target.name;
-  const norm = normalizeArtistComparisonKey(stageOrName);
+  const variants = extractArtistNameAndGroupVariants(
+    stageOrName,
+    (target as any).groupName,
+    (target as any).baseStageName
+  ).map(v => normalizeArtistComparisonKey(v));
   const matchedMasterNpc = MASTER_REAL_WORLD_NPCS_SNAPSHOT.find(
-    n => normalizeArtistComparisonKey(n.name) === norm
+    n => variants.includes(normalizeArtistComparisonKey(n.name))
   );
 
   const remainingRoster = (rl.imprint.signedRoster || []).filter(a => a.id !== artistId);

@@ -97,14 +97,23 @@ export function useGame() {
 
   useRealTimeEngine(state, setState);
 
-  // Whenever the Player's artist name is set or loaded, automatically remove any duplicate NPC with the same name
+  const rosterDedupSignature = (state.recordLabelState?.imprint?.signedRoster || [])
+    .map((a) => `${a.id}:${a.stageName || a.name}:${(a as any).baseStageName || ''}`)
+    .join('|');
+
+  // Whenever the Player's artist name OR signed Roster Artists / Groups change or load,
+  // automatically remove any duplicate NPC (including base solo names like "JENNIE" when Roster has "JENNIE of BLACKPINK")
   useEffect(() => {
     const pName = state.artist?.name;
-    syncPlayerNameNpcDeduplication(pName);
-    if (pName) {
-      setState(prev => purgeDuplicateNpcFromGameState(prev));
+    syncWorldNpcDeduplicationWithRoster(
+      pName,
+      state.recordLabelState?.imprint?.signedRoster || []
+    );
+    syncActiveRosterArtistsToSharedWorld(state);
+    if (pName || rosterDedupSignature) {
+      setState((prev) => purgeDuplicateNpcFromGameState(prev));
     }
-  }, [state.artist?.name]);
+  }, [state.artist?.name, rosterDedupSignature]);
 
   // Keep signed Record Label Roster Artists synced in the shared world cache for charts, playlists, and directories
   useEffect(() => {
@@ -806,6 +815,9 @@ export function useGame() {
         if (vanguardStep.newXPosts.length > 0) {
           nextState.xPosts = [...vanguardStep.newXPosts, ...(nextState.xPosts || [])].slice(0, 120);
         }
+
+        // Final deduplication pass so no NPC matching Player or any Roster Artist (including "Name of Group") remains
+        nextState = purgeDuplicateNpcFromGameState(nextState);
         } catch (innerErr) {
           console.error('Error inside nextDay state calculation:', innerErr);
         }

@@ -9,6 +9,7 @@ import { REAL_WORLD_NPCS, resolveRealWorldCoverArt } from './realWorldArtistCata
 import { getNpcVideoThumbnail } from './npcYoutubeThumbnails';
 import { syncNpcRealisticReleaseWorkflow } from './npcRealisticReleaseWorkflowEngine';
 import { isNpcMatchingPlayerName, syncPlayerNameNpcDeduplication } from './npcPlayerDeduplicationEngine';
+import { isNpcSuppressedByPlayerOrRoster } from './rosterLifecycleAndNpcDedupEngine';
 import {
   calculateAuthenticBillboardPoints
 } from './billboardFormulaEngine';
@@ -136,8 +137,12 @@ function getPrecomputedNpcPoolForDay(
   dayOfYear: number,
   playerName: string
 ): PrecomputedNpcSongCandidate[] {
+  const sharedRoster = getActiveSharedWorldRosterArtists();
+  const rosterSig = sharedRoster
+    .map((r) => `${r.id}:${r.stageName || r.name}:${(r as any).baseStageName || ''}`)
+    .join('|');
   const topNpcLeadTitle = REAL_WORLD_NPCS[0]?.songs?.[0]?.title || '';
-  const cacheKey = `${effectiveDate.getUTCFullYear()}_${dayOfYear}_${(playerName || '').toLowerCase()}_${topNpcLeadTitle}`;
+  const cacheKey = `${effectiveDate.getUTCFullYear()}_${dayOfYear}_${(playerName || '').toLowerCase()}_${REAL_WORLD_NPCS.length}_${rosterSig}_${topNpcLeadTitle}`;
   if (cachedNpcPoolKey === cacheKey && cachedNpcPool.length > 0) {
     return cachedNpcPool;
   }
@@ -146,7 +151,10 @@ function getPrecomputedNpcPoolForDay(
   const seenKeys = new Set<string>();
 
   REAL_WORLD_NPCS.forEach((npc, npcIdx) => {
-    if (playerName && isNpcMatchingPlayerName(npc.name, playerName)) {
+    if (
+      (playerName && isNpcMatchingPlayerName(npc.name, playerName)) ||
+      isNpcSuppressedByPlayerOrRoster(npc.name, playerName, sharedRoster)
+    ) {
       return;
     }
 
@@ -930,7 +938,10 @@ export function generateRealNpcAlbumsChart(params: RealNpcAlbumsChartParams): Ch
 
   // 2. Add all released NPC albums directly from REAL_WORLD_NPCS (`npc.albums`)
   REAL_WORLD_NPCS.forEach(npc => {
-    if (playerName && isNpcMatchingPlayerName(npc.name, playerName)) {
+    if (
+      (playerName && isNpcMatchingPlayerName(npc.name, playerName)) ||
+      isNpcSuppressedByPlayerOrRoster(npc.name, playerName, sharedRosterForAlbums)
+    ) {
       return;
     }
 

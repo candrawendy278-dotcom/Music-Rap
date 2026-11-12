@@ -10,6 +10,7 @@ import {
 } from './recordLabelCeoEngine';
 import { getRosterTrustAndHiatusInfo } from './rosterTrustHiatusPayrollEngine';
 import { syncActiveRosterArtistsToSharedWorld } from './rosterSharedWorldBridge';
+import { purgeDuplicateNpcFromGameState } from './npcPlayerDeduplicationEngine';
 
 export type RosterGroupNamingStyle = 'of' | 'bracket' | 'space';
 
@@ -401,10 +402,24 @@ export function createRosterGroupFromMembers(
     );
     const currentDays = Math.max(360, Number(ensured.daysRemaining ?? 720));
 
+    const updatedMemberSongs = (ensured.songs || []).map((s) => ({
+      ...s,
+      artist: formattedName,
+    }));
+    const updatedMemberProjects = (ensured.projects || []).map((p) => ({
+      ...p,
+      songs: (p.songs || []).map((ps) => ({
+        ...ps,
+        artist: formattedName,
+      })),
+    }));
+
     const updatedMember: ImprintSignedArtist = {
       ...ensured,
       name: formattedName,
       stageName: formattedName,
+      songs: updatedMemberSongs,
+      projects: updatedMemberProjects,
       daysRemaining: currentDays,
       bio: `${
         art.id === leaderId ? 'Leader & ' : ''
@@ -506,7 +521,7 @@ export function createRosterGroupFromMembers(
     category: 'imprint',
   };
 
-  const nextState: GameState = {
+  const rawNextState: GameState = {
     ...state,
     money: currentMoney - formationCost,
     recordLabelState: {
@@ -522,7 +537,8 @@ export function createRosterGroupFromMembers(
     },
   };
 
-  syncActiveRosterArtistsToSharedWorld(nextState);
+  syncActiveRosterArtistsToSharedWorld(rawNextState);
+  const nextState = purgeDuplicateNpcFromGameState(rawNextState);
 
   return {
     nextState,
@@ -565,16 +581,29 @@ export function updateRosterGroupNamingStyle(
       targetGroup.groupName,
       newStyle
     );
+    const syncedSongs = (art.songs || []).map((s) => ({
+      ...s,
+      artist: formatted,
+    }));
+    const syncedProjects = (art.projects || []).map((p) => ({
+      ...p,
+      songs: (p.songs || []).map((ps) => ({
+        ...ps,
+        artist: formatted,
+      })),
+    }));
     return {
       ...art,
       name: formatted,
       stageName: formatted,
+      songs: syncedSongs,
+      projects: syncedProjects,
       baseStageName: baseName,
       groupNamingStyle: newStyle,
     } as any;
   });
 
-  const nextState: GameState = {
+  const rawNextState: GameState = {
     ...state,
     recordLabelState: {
       ...labelState,
@@ -586,7 +615,8 @@ export function updateRosterGroupNamingStyle(
     },
   };
 
-  syncActiveRosterArtistsToSharedWorld(nextState);
+  syncActiveRosterArtistsToSharedWorld(rawNextState);
+  const nextState = purgeDuplicateNpcFromGameState(rawNextState);
 
   const sampleFormat = formatMemberStageNameWithGroup(
     'Member',

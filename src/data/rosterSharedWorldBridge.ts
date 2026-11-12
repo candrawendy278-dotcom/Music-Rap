@@ -17,6 +17,8 @@ import { calculateEnhancedMonthlyListenersStep } from './enhancedMonthlyListener
 import { getVisualStyleById } from './youtubeVisualFormatsEngine';
 import {
   canRosterArtistRenewContract,
+  extractArtistNameAndGroupVariants,
+  normalizeArtistComparisonKey,
   syncWorldNpcDeduplicationWithRoster,
 } from './rosterLifecycleAndNpcDedupEngine';
 
@@ -208,13 +210,25 @@ export function findRosterArtistByNameOrId(
   ReturnType<typeof convertRosterArtistToDetailedNpc> & { songs: any }) | null {
   if (!nameOrId) return null;
   const target = nameOrId.trim().toLowerCase();
+  const targetNorm = normalizeArtistComparisonKey(nameOrId);
   const list = getActiveSharedWorldRosterArtists(state);
   const dateStr = state?.date ? String(state.date).split('T')[0] : '2026-01-01';
 
   for (const entry of list) {
     const stage = (entry.artist.stageName || entry.artist.name || '').trim().toLowerCase();
     const id = (entry.artist.id || '').trim().toLowerCase();
-    if (stage === target || id === target) {
+    const variants = extractArtistNameAndGroupVariants(
+      entry.artist.stageName || entry.artist.name,
+      (entry.artist as any).groupName,
+      (entry.artist as any).baseStageName
+    );
+    const variantMatches = variants.some(
+      (v) =>
+        v.trim().toLowerCase() === target ||
+        (targetNorm && normalizeArtistComparisonKey(v) === targetNorm)
+    );
+
+    if (stage === target || id === target || variantMatches) {
       const npcObj = convertRosterArtistToDetailedNpc(entry.artist, entry.imprintName, dateStr);
       return {
         ...entry.artist,
