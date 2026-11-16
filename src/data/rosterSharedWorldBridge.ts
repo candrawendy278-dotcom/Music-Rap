@@ -21,6 +21,7 @@ import {
   normalizeArtistComparisonKey,
   syncWorldNpcDeduplicationWithRoster,
 } from './rosterLifecycleAndNpcDedupEngine';
+import { processDailyRosterSampleAndEditionStep } from './rosterDeluxeAndSampleEngine';
 
 export type SharedWorldRosterEntry = ImprintSignedArtist & {
   artist: ImprintSignedArtist;
@@ -553,11 +554,29 @@ export function simulateRosterArtistAsPlayerDaily(
     releasedSongs: updatedSongs.filter((s) => s.status === 'released'),
   });
 
-  // 7. Calculate Label & Artist Royalties + Recoupment from actual market revenue
-  // If contract is expired (Former Roster), the label still collects passive back-catalog master royalties at 50% of the prior split
-  const rawCatalogRevenue = Math.max(
+  // 7. Process Roster Sample Clearance Royalties & Uncleared Copyright Lawsuits + Label Recoupment
+  const rawCatalogRevenueBeforeSamples = Math.max(
     Math.round(marketResult.totalRevenue * distKeepMult),
     Math.round(totalDailyStreams * 0.004 * distKeepMult)
+  );
+
+  const rosterSampleStep = processDailyRosterSampleAndEditionStep({
+    state,
+    artist: art,
+    songs: updatedSongs,
+    projects: updatedProjects,
+    grossRevenueToday: rawCatalogRevenueBeforeSamples,
+    dateStr,
+  });
+  updatedSongs = rosterSampleStep.updatedSongs;
+  updatedProjects = rosterSampleStep.updatedProjects;
+  if (rosterSampleStep.newXPosts.length > 0 && Array.isArray(state.xPosts)) {
+    state.xPosts = [...rosterSampleStep.newXPosts, ...state.xPosts].slice(0, 120);
+  }
+
+  const rawCatalogRevenue = Math.max(
+    0,
+    rawCatalogRevenueBeforeSamples - rosterSampleStep.sampleRoyaltyDeductedToday
   );
   const effectiveCutPct = isContractExpired
     ? Math.round((art.imprintRoyaltyCutPct || 50) * 0.5)
@@ -611,6 +630,7 @@ export function simulateRosterArtistAsPlayerDaily(
   (updatedArtist as any).listenerDelta = listenerStep.listenerDelta;
   (updatedArtist as any).peakListeners = listenerStep.peakListeners;
   (updatedArtist as any).spotifyFollowers = nextFollowers;
+  (updatedArtist as any).sampleLegalState = rosterSampleStep.updatedSampleLegalState;
 
   return {
     updatedArtist,

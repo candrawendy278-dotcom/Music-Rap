@@ -142,10 +142,10 @@ export const SpotifyNpcArtistProfileView: React.FC<SpotifyNpcArtistProfileViewPr
     return buildNpcUnifiedCountdown(raw);
   }, [enrichedNpc, liveRosterMatch, state?.date]);
 
-  // Bilateral Collaborations: find all Player and other NPC songs where this NPC is a featured collaborator!
+  // Bilateral Collaborations: find all Player, Signed Roster Artist, and other NPC songs where this artist is a featured collaborator!
   const bilateralCollabs = useMemo(() => {
     return getCollaborationsForNpcArtist(enrichedNpc.name, state);
-  }, [enrichedNpc.name, state?.songs, state?.date, tracklistVersion]);
+  }, [enrichedNpc.name, state?.songs, state?.recordLabelState, state?.date, tracklistVersion]);
 
   const monthlyListeners = useMemo(() => {
     if (liveRosterMatch) {

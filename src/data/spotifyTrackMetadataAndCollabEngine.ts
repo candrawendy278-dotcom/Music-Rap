@@ -11,6 +11,11 @@ import { GameState, Song } from '../types';
 import { NPCS } from '../constants';
 import { REAL_WORLD_NPCS, normalizeRealArtistName, normalizeRealTitle } from './realWorldArtistCatalog';
 import { isNpcMatchingPlayerName } from './npcPlayerDeduplicationEngine';
+import {
+  findRosterArtistByNameOrId,
+  getActiveSharedWorldRosterArtists
+} from './rosterSharedWorldBridge';
+import { extractArtistNameAndGroupVariants } from './rosterLifecycleAndNpcDedupEngine';
 
 export interface ResolvedTrackMetadata {
   cleanTitle: string;
@@ -127,15 +132,34 @@ export function ensureInGameNpcCollaborator(
 export function resolvePlayerCollabNpcName(
   collabId: string | undefined,
   playerName: string = '',
-  genreHint: string = 'Pop'
+  genreHint: string = 'Pop',
+  state?: GameState
 ): string | null {
   if (!collabId || collabId === 'none' || collabId.trim() === '') return null;
+  const cleanCollab = collabId.trim();
+  const cleanLower = cleanCollab.toLowerCase();
+
+  // 0. Check if collabId matches the Player or a Signed Roster Artist
+  if (
+    state?.artist?.name &&
+    state.artist.name.trim().toLowerCase() === cleanLower &&
+    state.artist.name.trim().toLowerCase() !== playerName.trim().toLowerCase()
+  ) {
+    return state.artist.name.trim();
+  }
+  const rosterMatch = findRosterArtistByNameOrId(cleanCollab, state);
+  if (rosterMatch) {
+    const rStage = (rosterMatch.stageName || rosterMatch.name || '').trim();
+    if (rStage && rStage.toLowerCase() !== playerName.trim().toLowerCase()) {
+      return rStage;
+    }
+  }
 
   // 1. Check direct match in REAL_WORLD_NPCS by id or name
   const directRealNpc = REAL_WORLD_NPCS.find(
     n =>
-      n.id.toLowerCase() === collabId.toLowerCase() ||
-      n.name.toLowerCase() === collabId.toLowerCase()
+      n.id.toLowerCase() === cleanLower ||
+      n.name.toLowerCase() === cleanLower
   );
   if (directRealNpc && !isNpcMatchingPlayerName(directRealNpc.name, playerName)) {
     return directRealNpc.name;
@@ -143,7 +167,7 @@ export function resolvePlayerCollabNpcName(
 
   // 2. Check legacy NPCS array from constants.ts and normalize parody name to real-world NPC
   const legacyNpc = NPCS.find(
-    n => n.id === collabId || n.name.toLowerCase() === collabId.toLowerCase()
+    n => n.id === cleanCollab || n.name.toLowerCase() === cleanLower
   );
   if (legacyNpc) {
     const normalized = normalizeRealArtistName(legacyNpc.name);
@@ -151,7 +175,7 @@ export function resolvePlayerCollabNpcName(
   }
 
   // 3. Fallback through normalizeRealArtistName + ensureInGameNpcCollaborator
-  const normalizedName = normalizeRealArtistName(collabId);
+  const normalizedName = normalizeRealArtistName(cleanCollab);
   return ensureInGameNpcCollaborator(normalizedName, playerName, genreHint, playerName);
 }
 
@@ -708,11 +732,24 @@ export function resolveSongMetadataAndCollabCredits(
       ));
 
   if (isPlayerTrack || isRosterTrack) {
-    const primaryArtist = isRosterTrack
+    // Split any pre-formatted artist credit (e.g., "KATSEYE, JIMIN" or "KATSEYE & JIMIN")
+    // so `primaryArtist` is strictly the lead artist and never duplicates the collaborator on re-evaluation!
+    const rawLeadSource = isRosterTrack
       ? effectiveArtistHint || fallbackArtistName || 'Artist'
       : playerName || fallbackArtistName || 'Player';
+    const splitHintParts = rawLeadSource
+      .split(/\s*(?:,|\s&\s|\bfeat\.?|\bft\.?|\bwith\b)\s*/i)
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const primaryArtist = isRosterTrack
+      ? splitHintParts[0] || 'Artist'
+      : playerName || splitHintParts[0] || 'Player';
+
     let livePlayerSong: Song | undefined =
-      songOrItem?.collabId !== undefined ? songOrItem : undefined;
+      songOrItem?.collabId !== undefined || (songOrItem as any)?.collaborator !== undefined
+        ? songOrItem
+        : undefined;
     if (!isRosterTrack && !livePlayerSong && state?.songs) {
       livePlayerSong = state.songs.find(
         s => s.title.toLowerCase().trim() === cleanTitle.toLowerCase()
@@ -720,39 +757,81 @@ export function resolveSongMetadataAndCollabCredits(
     }
 
     const featuredArtists: string[] = [];
+    const addUniqueFeatured = (candName: string | null | undefined) => {
+      if (!candName) return;
+      const trimmed = candName.trim();
+      if (!trimmed) return;
+      if (trimmed.toLowerCase() === primaryArtist.toLowerCase()) return;
+      if (!featuredArtists.some(f => f.toLowerCase() === trimmed.toLowerCase())) {
+        featuredArtists.push(trimmed);
+      }
+    };
+
+    const rawCollabId =
+      livePlayerSong?.collabId ||
+      songOrItem?.collabId ||
+      (livePlayerSong as any)?.collaborator ||
+      (songOrItem as any)?.collaborator;
+
     const collabNpc = resolvePlayerCollabNpcName(
-      livePlayerSong?.collabId || songOrItem?.collabId,
+      rawCollabId,
       primaryArtist,
-      livePlayerSong?.genre || songOrItem?.genre || 'Pop'
+      livePlayerSong?.genre || songOrItem?.genre || 'Pop',
+      state
     );
-    if (collabNpc && collabNpc.toLowerCase() !== primaryArtist.toLowerCase()) {
-      featuredArtists.push(collabNpc);
+    addUniqueFeatured(collabNpc);
+
+    // Preserve any secondary artists that were already present in a pre-formatted credit string
+    if (splitHintParts.length > 1) {
+      splitHintParts.slice(1).forEach(part => {
+        const resolvedPart =
+          resolvePlayerCollabNpcName(
+            part,
+            primaryArtist,
+            livePlayerSong?.genre || songOrItem?.genre || 'Pop',
+            state
+          ) || part;
+        addUniqueFeatured(resolvedPart);
+      });
     }
 
     // Also check if "(feat. X)" was written in the title
     extractedFeat.forEach(rawFeat => {
-      const validNpc = ensureInGameNpcCollaborator(
-        rawFeat,
-        primaryArtist,
-        livePlayerSong?.genre || songOrItem?.genre || 'Pop',
-        primaryArtist
-      );
-      if (
-        validNpc &&
-        validNpc.toLowerCase() !== primaryArtist.toLowerCase() &&
-        !featuredArtists.some(f => f.toLowerCase() === validNpc.toLowerCase())
-      ) {
-        featuredArtists.push(validNpc);
-      }
+      const validNpc =
+        resolvePlayerCollabNpcName(
+          rawFeat,
+          primaryArtist,
+          livePlayerSong?.genre || songOrItem?.genre || 'Pop',
+          state
+        ) ||
+        ensureInGameNpcCollaborator(
+          rawFeat,
+          primaryArtist,
+          livePlayerSong?.genre || songOrItem?.genre || 'Pop',
+          primaryArtist
+        );
+      addUniqueFeatured(validNpc);
     });
 
-    const allArtists = [primaryArtist, ...featuredArtists];
+    // Final case-insensitive deduplication across [primaryArtist, ...featuredArtists]
+    const allArtists: string[] = [];
+    const seenArtistLower = new Set<string>();
+    [primaryArtist, ...featuredArtists].forEach(art => {
+      const clean = (art || '').trim();
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (!seenArtistLower.has(key)) {
+        seenArtistLower.add(key);
+        allArtists.push(clean);
+      }
+    });
+    const dedupedFeatured = allArtists.slice(1);
     const formattedArtistCredits = allArtists.join(', ');
 
     return {
       cleanTitle,
-      primaryArtist,
-      featuredArtists,
+      primaryArtist: allArtists[0] || primaryArtist,
+      featuredArtists: dedupedFeatured,
       allArtists,
       formattedArtistCredits,
       isExplicit: isTrackExplicit(livePlayerSong || songOrItem, primaryArtist),
@@ -760,7 +839,7 @@ export function resolveSongMetadataAndCollabCredits(
         ? Boolean((livePlayerSong || songOrItem)?.hasMV) ||
           hasTrackMusicVideo(livePlayerSong || songOrItem, primaryArtist, state)
         : hasTrackMusicVideo(livePlayerSong || songOrItem, primaryArtist, state),
-      isCollab: featuredArtists.length > 0
+      isCollab: dedupedFeatured.length > 0
     };
   }
 
@@ -862,6 +941,25 @@ export function getCollaborationsForNpcArtist(
 ): BilateralCollabTrackEntry[] {
   if (!targetNpcName) return [];
   const cleanTarget = normalizeRealArtistName(targetNpcName).trim().toLowerCase();
+  const targetVariants = new Set<string>(
+    [
+      cleanTarget,
+      targetNpcName.trim().toLowerCase(),
+      ...extractArtistNameAndGroupVariants(targetNpcName).map(v => v.trim().toLowerCase())
+    ].filter(Boolean)
+  );
+  const matchesTargetArtist = (candidateName: string): boolean => {
+    if (!candidateName) return false;
+    const lower = candidateName.trim().toLowerCase();
+    if (targetVariants.has(lower)) return true;
+    const norm = normalizeRealArtistName(candidateName).trim().toLowerCase();
+    if (targetVariants.has(norm)) return true;
+    const candVariants = extractArtistNameAndGroupVariants(candidateName).map(v =>
+      v.trim().toLowerCase()
+    );
+    return candVariants.some(v => targetVariants.has(v));
+  };
+
   const playerName = state?.artist?.name || 'Player';
   const currentYear = state?.date ? new Date(state.date).getFullYear() : 2026;
 
@@ -870,12 +968,10 @@ export function getCollaborationsForNpcArtist(
 
   // 1. Check all Player's released songs where `targetNpcName` is the collaborator
   (state?.songs || [])
-    .filter(s => s.status === 'released')
+    .filter(s => s && s.status === 'released')
     .forEach(s => {
       const meta = resolveSongMetadataAndCollabCredits(s, playerName, state);
-      const isFeaturedHere = meta.featuredArtists.some(
-        f => f.toLowerCase() === cleanTarget
-      );
+      const isFeaturedHere = meta.featuredArtists.some(f => matchesTargetArtist(f));
       if (isFeaturedHere) {
         const dedupeKey = `${meta.primaryArtist.toLowerCase()}::${meta.cleanTitle.toLowerCase()}`;
         if (!seenKeys.has(dedupeKey)) {
@@ -895,23 +991,105 @@ export function getCollaborationsForNpcArtist(
             isPlayerPrimary: true,
             hasMusicVideo: meta.hasMusicVideo,
             isExplicit: meta.isExplicit,
-            trackType: (s.trackType === 'b_side' ? 'b_side' : s.trackType === 'lead_single' ? 'lead_single' : 'single'),
+            trackType:
+              s.trackType === 'b_side'
+                ? 'b_side'
+                : s.trackType === 'lead_single'
+                ? 'lead_single'
+                : 'single',
             rawPlayerSong: s
           });
         }
       }
     });
 
+  // 1B. Check all Signed Record Label Roster Artists' released songs and project tracks where `targetNpcName` is the collaborator
+  const activeRosterEntries = getActiveSharedWorldRosterArtists(state);
+  activeRosterEntries.forEach(entry => {
+    const rArt = entry.artist;
+    if (!rArt) return;
+    const rName = (rArt.stageName || rArt.name || '').trim();
+    if (!rName || matchesTargetArtist(rName)) return;
+
+    const rosterTrackPool: any[] = [];
+    (rArt.songs || []).forEach(s => {
+      if (s && (s.status === 'released' || !(s as any).status)) {
+        rosterTrackPool.push(s);
+      }
+    });
+    (rArt.projects || []).forEach(p => {
+      if (p && (p.status === 'released' || !(p as any).status)) {
+        (p.songs || []).forEach(ps => {
+          if (ps && !rosterTrackPool.some(existing => existing.id === ps.id)) {
+            rosterTrackPool.push({
+              ...ps,
+              cover: ps.cover || p.cover,
+              releaseDate: ps.releaseDate || p.releaseDate
+            });
+          }
+        });
+      }
+    });
+
+    rosterTrackPool.forEach((s, idx) => {
+      const rosterSongObj = {
+        ...s,
+        artist: rName,
+        isRosterArtist: true,
+        isPlayer: false
+      };
+      const meta = resolveSongMetadataAndCollabCredits(rosterSongObj, rName, state);
+      const isFeaturedHere = meta.featuredArtists.some(f => matchesTargetArtist(f));
+      if (isFeaturedHere) {
+        const dedupeKey = `${meta.primaryArtist.toLowerCase()}::${meta.cleanTitle.toLowerCase()}`;
+        if (!seenKeys.has(dedupeKey)) {
+          seenKeys.add(dedupeKey);
+          const streams = Math.floor(s.streams || 0);
+          const dailyStreams = Math.floor(s.dailyStreams || Math.max(1000, streams / 28));
+          const sales = Math.floor(s.pureSales || (s as any).sales || Math.round(streams * 0.002));
+          const relYear = s.releaseDate
+            ? new Date(s.releaseDate).getFullYear()
+            : currentYear;
+          results.push({
+            id: `roster_collab_${rArt.id}_${s.id || idx}`,
+            title: meta.cleanTitle,
+            primaryArtist: meta.primaryArtist,
+            featuredArtists: meta.featuredArtists,
+            formattedArtistCredits: meta.formattedArtistCredits,
+            streams,
+            dailyStreams,
+            sales,
+            cover: s.cover || rArt.avatarUrl,
+            year: Number.isNaN(relYear) ? currentYear : relYear,
+            releaseDate: s.releaseDate || state?.date?.split('T')[0] || `${currentYear}-01-15`,
+            isPlayerPrimary: false,
+            hasMusicVideo: meta.hasMusicVideo,
+            isExplicit: meta.isExplicit,
+            trackType:
+              s.trackType === 'b_side'
+                ? 'b_side'
+                : s.trackType === 'lead_single'
+                ? 'lead_single'
+                : 'single',
+            rawPlayerSong: {
+              ...rosterSongObj,
+              title: meta.cleanTitle,
+              artist: meta.formattedArtistCredits
+            } as any
+          });
+        }
+      }
+    });
+  });
+
   // 2. Check all other NPCs' active songs and album tracks where `targetNpcName` is a featured artist
   REAL_WORLD_NPCS.forEach(otherNpc => {
-    if (otherNpc.name.toLowerCase() === cleanTarget) return;
+    if (matchesTargetArtist(otherNpc.name)) return;
     if (playerName && isNpcMatchingPlayerName(otherNpc.name, playerName)) return;
 
     (otherNpc.songs || []).forEach((s, idx) => {
       const meta = resolveSongMetadataAndCollabCredits(s, otherNpc.name, state);
-      const isFeaturedHere = meta.featuredArtists.some(
-        f => f.toLowerCase() === cleanTarget
-      );
+      const isFeaturedHere = meta.featuredArtists.some(f => matchesTargetArtist(f));
       if (isFeaturedHere) {
         const dedupeKey = `${meta.primaryArtist.toLowerCase()}::${meta.cleanTitle.toLowerCase()}`;
         if (!seenKeys.has(dedupeKey)) {

@@ -329,18 +329,33 @@ export function extractIndividualArtistsFromNominee(
   secondaryLabel?: string
 ): string[] {
   const keys = new Set<string>();
+  const addWithBaseSoloVariants = (raw: string) => {
+    const clean = raw.trim().toLowerCase();
+    if (!clean) return;
+    keys.add(clean);
+    // Normalize solo/group stage name formats ("JENNIE of BLACKPINK", "JENNIE [BLACKPINK]") so solo BNA history persists across group changes
+    const ofMatch = clean.match(/^(.+?)\s+of\s+(.+)$/i);
+    if (ofMatch && ofMatch[1]) {
+      keys.add(ofMatch[1].trim().toLowerCase());
+    }
+    const bracketMatch = clean.match(/^(.+?)\s*\[(.+?)\]$/);
+    if (bracketMatch && bracketMatch[1]) {
+      keys.add(bracketMatch[1].trim().toLowerCase());
+    }
+  };
+
   const rawParts = (artistName || '')
     .split(/\s*(?:&|\bfeat\.?|\bft\.?|\bwith\b|,)\s*/i)
-    .map(p => p.trim().toLowerCase())
+    .map(p => p.trim())
     .filter(Boolean);
 
-  rawParts.forEach(p => keys.add(p));
+  rawParts.forEach(p => addWithBaseSoloVariants(p));
 
   if (secondaryLabel) {
     const featMatch = secondaryLabel.match(/feat\.\s*([^·•,]+)/i);
     if (featMatch && featMatch[1]) {
-      const partner = featMatch[1].trim().toLowerCase();
-      if (partner) keys.add(partner);
+      const partner = featMatch[1].trim();
+      if (partner) addWithBaseSoloVariants(partner);
     }
   }
 
@@ -481,7 +496,27 @@ function sanitizeAwardSeasonRecord(
   const worksNominatedInThisSeason = new Set<string>();
   const bnaNominatedInThisSeason = new Set<string>();
 
-  const sanitizedCategories: AwardCategoryResult[] = season.categories.map(cat => {
+  // Ensure every official category for the show (especially Best New Artist) exists in season.categories
+  const existingCatMap = new Map<string, AwardCategoryResult>();
+  season.categories.forEach(c => {
+    if (c && c.categoryId) existingCatMap.set(c.categoryId, c);
+  });
+  const completeCategoriesToSanitize: AwardCategoryResult[] = catDefs.map(def => {
+    const found = existingCatMap.get(def.id);
+    if (found) return found;
+    return {
+      categoryId: def.id,
+      categoryName: def.name,
+      shortName: def.shortName,
+      field: def.field,
+      isMajor: def.isMajor,
+      subjectType: def.subjectType,
+      nominees: [],
+      winner: null as any
+    };
+  });
+
+  const sanitizedCategories: AwardCategoryResult[] = completeCategoriesToSanitize.map(cat => {
     const isSoloCat = cat.categoryId.includes('solo');
     const isCollabCat = cat.subjectType === 'collab';
     const isBnaCat = cat.categoryId.endsWith('_bna');
@@ -536,9 +571,23 @@ function sanitizeAwardSeasonRecord(
       if (!isArtistCat && priorNominatedWorks && priorNominatedWorks.has(workKey)) {
         return false;
       }
-      // Best New Artist can only ever be nominated ONCE in an artist's career!
-      if (isBnaCat && priorBnaArtists && artistKeys.some(k => priorBnaArtists.has(k))) {
-        return false;
+      // Best New Artist can only ever be nominated ONCE in an artist's career (and only in their debut season)!
+      if (isBnaCat) {
+        if (priorBnaArtists && artistKeys.some(k => priorBnaArtists.has(k))) {
+          return false;
+        }
+        // Check if this candidate is already marked alreadyNominatedBna in the unified candidate pool
+        if (involvesPlayer || cleanNom.isRosterArtist) {
+          const cands = getCandidates();
+          const matchingCand = cands.find(
+            c =>
+              c.subjectType === 'artist' &&
+              extractIndividualArtistsFromNominee(c.artistName).some(k => artistKeys.includes(k))
+          );
+          if (!matchingCand || matchingCand.alreadyNominatedBna) {
+            return false;
+          }
+        }
       }
 
       // 2. Strict Player Release-Year Eligibility Check:
@@ -576,10 +625,31 @@ function sanitizeAwardSeasonRecord(
         if (isSoloCat && c.isCollab) return false;
         if (isBnaCat) {
           if (c.alreadyNominatedBna) return false;
-          return c.isPlayer || c.isRosterArtist || c.popularity <= 76 || c.tier >= 3;
+          return (
+            c.isBreakoutNewcomer ||
+            c.isPlayer ||
+            c.isRosterArtist ||
+            c.popularity <= 80 ||
+            c.tier >= 2
+          );
         }
         return c.subjectType === cat.subjectType;
       });
+
+      // Ultimate safeguard for Best New Artist: if still short of 6 nominees, allow any non-nominated NPC artist
+      if (isBnaCat && replacementPool.length < maxNominees) {
+        allCands.forEach(c => {
+          if (
+            c.subjectType === 'artist' &&
+            !c.alreadyNominatedBna &&
+            !c.isPlayer &&
+            !c.isRosterArtist &&
+            !replacementPool.some(r => r.id === c.id)
+          ) {
+            replacementPool.push(c);
+          }
+        });
+      }
 
       const scoredReplacements = replacementPool
         .map(c => {
@@ -613,7 +683,7 @@ function sanitizeAwardSeasonRecord(
       }
     }
 
-    if (uniqueNominees.length === 0 && normalizedExisting.length > 0) {
+    if (uniqueNominees.length === 0 && normalizedExisting.length > 0 && !isBnaCat) {
       const nonPlayerFallback = normalizedExisting.find(n => !n.isPlayer) || normalizedExisting[0];
       uniqueNominees.push({ ...nonPlayerFallback, isWinner: true });
     }
@@ -706,10 +776,7 @@ export function getEnsuredAwardsState(state: GameState): AwardsSystemState {
       grammys: new Set<string>(),
       vmas: new Set<string>()
     };
-    const priorBnaByShow: Record<AwardShowType, Set<string>> = {
-      grammys: new Set<string>(),
-      vmas: new Set<string>()
-    };
+    const sharedPriorBna = new Set<string>();
 
     // Sort history chronologically (oldest editionYear first) to enforce the one-time nomination lock
     const chronologicalHistory = [...(existing.history || [])].sort(
@@ -720,7 +787,7 @@ export function getEnsuredAwardsState(state: GameState): AwardsSystemState {
         season,
         state,
         priorWorksByShow[season.show],
-        priorBnaByShow[season.show]
+        sharedPriorBna
       )
     );
     // Restore newest-first display order for history
@@ -741,13 +808,13 @@ export function getEnsuredAwardsState(state: GameState): AwardsSystemState {
       const worksBefore = new Set<string>();
       const bnaBefore = new Set<string>();
       sanitizedChronological.forEach(h => {
-        if (h.show === season.show && h.editionYear < season.editionYear) {
+        if (h.editionYear < season.editionYear) {
           h.categories.forEach(cat => {
             const isBna = cat.categoryId.endsWith('_bna');
             const isArtist = cat.subjectType === 'artist';
             cat.nominees.forEach(nom => {
               const wk = (nom.workTitle || '').trim().toLowerCase();
-              if (!isArtist && wk) worksBefore.add(wk);
+              if (h.show === season.show && !isArtist && wk) worksBefore.add(wk);
               if (isBna) {
                 extractIndividualArtistsFromNominee(nom.artistName, nom.secondaryLabel).forEach(k =>
                   bnaBefore.add(k)
@@ -765,7 +832,9 @@ export function getEnsuredAwardsState(state: GameState): AwardsSystemState {
           state,
           season.show,
           season.editionYear,
-          'nominations_announced'
+          'nominations_announced',
+          worksBefore,
+          bnaBefore
         );
         return sanitizeAwardSeasonRecord(freshSeason, state, worksBefore, bnaBefore);
       }
@@ -868,7 +937,55 @@ interface UnifiedAwardCandidate {
   isPreferredByPlayer?: boolean;
   rosterCampaignBonus?: number;
   alreadyNominatedBna?: boolean;
+  isBreakoutNewcomer?: boolean;
 }
+
+const SEASONAL_BREAKOUT_NEW_ARTISTS: Array<{
+  name: string;
+  genre: string;
+  country: string;
+}> = [
+  { name: 'Chappell Roan', genre: 'Pop', country: 'US' },
+  { name: 'Benson Boone', genre: 'Pop', country: 'US' },
+  { name: 'Doechii', genre: 'Hip-Hop', country: 'US' },
+  { name: 'Shaboozey', genre: 'Country', country: 'US' },
+  { name: 'Teddy Swims', genre: 'R&B', country: 'US' },
+  { name: 'RAYE', genre: 'R&B', country: 'UK' },
+  { name: 'Tyla', genre: 'R&B', country: 'ZA' },
+  { name: 'Addison Rae', genre: 'Pop', country: 'US' },
+  { name: 'Myles Smith', genre: 'Alternative', country: 'UK' },
+  { name: 'Djo', genre: 'Alternative', country: 'US' },
+  { name: 'Lola Young', genre: 'Alternative', country: 'UK' },
+  { name: 'Reneé Rapp', genre: 'Pop', country: 'US' },
+  { name: 'Gracie Abrams', genre: 'Pop', country: 'US' },
+  { name: 'Ayra Starr', genre: 'R&B', country: 'NG' },
+  { name: 'KISS OF LIFE', genre: 'K-Pop', country: 'KR' },
+  { name: 'BABYMONSTER', genre: 'K-Pop', country: 'KR' },
+  { name: 'ILLIT', genre: 'K-Pop', country: 'KR' },
+  { name: 'BOYNEXTDOOR', genre: 'K-Pop', country: 'KR' },
+  { name: 'RIIZE', genre: 'K-Pop', country: 'KR' },
+  { name: 'MEOVV', genre: 'K-Pop', country: 'KR' },
+  { name: 'TWS', genre: 'K-Pop', country: 'KR' },
+  { name: 'The Last Dinner Party', genre: 'Rock', country: 'UK' },
+  { name: 'Fontaines D.C.', genre: 'Rock', country: 'IE' },
+  { name: 'Mk.gee', genre: 'Alternative', country: 'US' },
+  { name: 'Ravyn Lenae', genre: 'R&B', country: 'US' },
+  { name: 'Leon Thomas', genre: 'R&B', country: 'US' },
+  { name: 'PinkPantheress', genre: 'Electronic', country: 'UK' },
+  { name: 'Central Cee', genre: 'Hip-Hop', country: 'UK' },
+  { name: 'Flo Milli', genre: 'Hip-Hop', country: 'US' },
+  { name: 'BigXthaPlug', genre: 'Hip-Hop', country: 'US' },
+  { name: 'Young Miko', genre: 'Latin', country: 'PR' },
+  { name: 'Cris MJ', genre: 'Latin', country: 'CL' },
+  { name: 'FloyyMenor', genre: 'Latin', country: 'CL' },
+  { name: 'Ivan Cornejo', genre: 'Latin', country: 'US' },
+  { name: 'Tucker Wetmore', genre: 'Country', country: 'US' },
+  { name: 'Ella Langley', genre: 'Country', country: 'US' },
+  { name: 'd4vd', genre: 'Alternative', country: 'US' },
+  { name: 'Malcolm Todd', genre: 'Alternative', country: 'US' },
+  { name: 'Nessa Barrett', genre: 'Pop', country: 'US' },
+  { name: 'Isabel LaRosa', genre: 'Pop', country: 'US' }
+];
 
 const NPC_SEASONAL_SINGLE_TITLES = [
   'Midnight Frequencies', 'Velvet Horizon', 'Afterglow In Paris', 'Neon Cathedral',
@@ -919,16 +1036,17 @@ function collectUnifiedCandidates(
     show === 'grammys' ? awardsState?.grammysCampaign : awardsState?.vmasCampaign;
 
   // Build sets of works and BNA artists already nominated in prior seasons (< year)
+  // Note: BNA eligibility is locked across ALL award shows once an artist has competed in prior years
   const priorNominatedWorks = new Set<string>(externalPriorWorks || []);
   const priorBnaArtists = new Set<string>(externalPriorBna || []);
   (awardsState?.history || []).forEach(h => {
-    if (h && h.show === show && h.editionYear < year && Array.isArray(h.categories)) {
+    if (h && h.editionYear < year && Array.isArray(h.categories)) {
       h.categories.forEach(cat => {
         const isBna = cat.categoryId.endsWith('_bna');
         const isArtist = cat.subjectType === 'artist';
         (cat.nominees || []).forEach(nom => {
           const wk = (nom.workTitle || '').trim().toLowerCase();
-          if (!isArtist && wk) {
+          if (h.show === show && !isArtist && wk) {
             priorNominatedWorks.add(wk);
           }
           if (isBna) {
@@ -1165,6 +1283,33 @@ function collectUnifiedCandidates(
       return best === null ? pk : Math.min(best, pk);
     }, null);
 
+    // Best New Artist is strictly a 1-time debut season honor:
+    // If the Player already released music in an earlier award season (prior to this season's eligibility window)
+    // OR has ever been nominated for BNA before, they are no longer eligible for Best New Artist.
+    const hasPriorSeasonPlayerReleases =
+      (state.songs || []).some(
+        s =>
+          s &&
+          s.status === 'released' &&
+          s.releaseDate &&
+          !isReleaseEligibleForAwardSeason(s.releaseDate, show, year) &&
+          new Date(s.releaseDate).getTime() <
+            new Date(show === 'grammys' ? `${year - 2}-10-01` : `${year - 1}-07-16`).getTime()
+      ) ||
+      (state.projects || []).some(
+        p =>
+          p &&
+          p.status === 'released' &&
+          p.releaseDate &&
+          !isReleaseEligibleForAwardSeason(p.releaseDate, show, year) &&
+          new Date(p.releaseDate).getTime() <
+            new Date(show === 'grammys' ? `${year - 2}-10-01` : `${year - 1}-07-16`).getTime()
+      );
+    const playerNameKeys = extractIndividualArtistsFromNominee(playerName);
+    const isPlayerLockedFromBna =
+      hasPriorSeasonPlayerReleases ||
+      playerNameKeys.some(k => priorBnaArtists.has(k));
+
     candidates.push({
       id: `player_artist_${playerName}`,
       artistName: playerName,
@@ -1189,7 +1334,7 @@ function collectUnifiedCandidates(
       fans: state.fans || 250,
       tier: state.artist?.tier || 3,
       isPreferredByPlayer: true,
-      alreadyNominatedBna: priorBnaArtists.has(playerName.trim().toLowerCase())
+      alreadyNominatedBna: isPlayerLockedFromBna
     });
   }
 
@@ -1441,17 +1586,12 @@ function collectUnifiedCandidates(
         });
       });
 
-      // Add Roster Artist candidate for Best New Artist & Artist categories whenever they have released music!
-      const artistSongsForEval =
-        eligibleRosterSongs.length > 0 ? eligibleRosterSongs : allReleasedRosterSongs;
-      const artistProjectsForEval =
-        eligibleRosterProjects.length > 0 ? eligibleRosterProjects : allReleasedRosterProjects;
+      // Add Roster Artist candidate ONLY when they have eligible releases in the current award season!
+      const artistSongsForEval = eligibleRosterSongs;
+      const artistProjectsForEval = eligibleRosterProjects;
 
       if (artistSongsForEval.length > 0 || artistProjectsForEval.length > 0) {
-        const totalStreams = Math.max(
-          rArt.totalStreamsGenerated || 0,
-          artistSongsForEval.reduce((acc, s) => acc + (s.streams || 0), 0)
-        );
+        const totalStreams = artistSongsForEval.reduce((acc, s) => acc + (s.streams || 0), 0);
         const totalViews = artistSongsForEval.reduce((acc, s) => acc + (s.views || 0), 0);
         const totalSales =
           artistSongsForEval.reduce((acc, s) => acc + (s.pureSales || 0), 0) +
@@ -1465,6 +1605,39 @@ function collectUnifiedCandidates(
           if (pk === null) return best;
           return best === null ? pk : Math.min(best, pk);
         }, null);
+
+        // Best New Artist is strictly a 1-time debut season honor for Roster Artists:
+        // If they already released any song/project before this season's eligibility window OR were nominated for BNA in any prior year (under solo or group name), lock BNA!
+        const windowStartTimestamp = new Date(
+          show === 'grammys' ? `${year - 2}-10-01` : `${year - 1}-07-16`
+        ).getTime();
+        const hasPriorSeasonRosterReleases =
+          allReleasedRosterSongs.some(s => {
+            if (s.releaseDate) {
+              return (
+                !isReleaseEligibleForAwardSeason(s.releaseDate, show, year) &&
+                new Date(s.releaseDate).getTime() < windowStartTimestamp
+              );
+            }
+            return (s.daysSinceRelease || 0) > 375;
+          }) ||
+          allReleasedRosterProjects.some(p => {
+            if (p.releaseDate) {
+              return (
+                !isReleaseEligibleForAwardSeason(p.releaseDate, show, year) &&
+                new Date(p.releaseDate).getTime() < windowStartTimestamp
+              );
+            }
+            return false;
+          });
+
+        const rosterNameKeys = extractIndividualArtistsFromNominee(rName);
+        if ((rArt as any).baseStageName) {
+          rosterNameKeys.push(String((rArt as any).baseStageName).trim().toLowerCase());
+        }
+        const isRosterLockedFromBna =
+          hasPriorSeasonRosterReleases ||
+          rosterNameKeys.some(k => priorBnaArtists.has(k));
 
         candidates.push({
           id: `roster_artist_${rArt.id}`,
@@ -1490,7 +1663,7 @@ function collectUnifiedCandidates(
           hype: rHype,
           fans: rFans,
           tier: rTier,
-          alreadyNominatedBna: priorBnaArtists.has(rName.trim().toLowerCase())
+          alreadyNominatedBna: isRosterLockedFromBna
         });
       }
     });
@@ -1737,6 +1910,7 @@ function collectUnifiedCandidates(
       });
     }
 
+    const npcArtistKeys = extractIndividualArtistsFromNominee(npc.name);
     candidates.push({
       id: `npc_artist_${npc.id}`,
       artistName: npc.name,
@@ -1760,7 +1934,78 @@ function collectUnifiedCandidates(
       hype: living.hype,
       fans: living.fans,
       tier: living.tier,
-      alreadyNominatedBna: priorBnaArtists.has(npc.name.trim().toLowerCase())
+      alreadyNominatedBna: npcArtistKeys.some(k => priorBnaArtists.has(k))
+    });
+  });
+
+  // 5. GENERATE DEDICATED SEASONAL BREAKOUT NEWCOMER ARTIST POOL FOR BEST NEW ARTIST
+  // Guarantees Best New Artist ALWAYS has a full, non-empty ballot of authentic rising acts every single year
+  const existingCandidateNames = new Set(
+    candidates
+      .filter(c => c.subjectType === 'artist')
+      .flatMap(c => extractIndividualArtistsFromNominee(c.artistName))
+  );
+  const availableNewcomers = SEASONAL_BREAKOUT_NEW_ARTISTS.filter(n => {
+    const keys = extractIndividualArtistsFromNominee(n.name);
+    if (keys.some(k => priorBnaArtists.has(k))) return false;
+    if (keys.some(k => existingCandidateNames.has(k))) return false;
+    return true;
+  });
+
+  // Rotate starting offset deterministically by year & show so each award year features a fresh breakout class
+  const yearOffset = Math.max(0, (year - 2025) * 6 + (show === 'vmas' ? 3 : 0));
+  const selectedNewcomers: Array<{ name: string; genre: string; country: string }> = [];
+  for (let i = 0; i < availableNewcomers.length && selectedNewcomers.length < 10; i++) {
+    const pick = availableNewcomers[(yearOffset + i) % availableNewcomers.length];
+    if (!selectedNewcomers.some(s => s.name === pick.name)) {
+      selectedNewcomers.push(pick);
+    }
+  }
+
+  selectedNewcomers.forEach((newcomer, idx) => {
+    const bnaSeed = hashSeed(`bna_newcomer_${newcomer.name}_${year}_${show}`);
+    const matchingRealNpc = REAL_WORLD_NPCS.find(
+      n => n.name.toLowerCase() === newcomer.name.toLowerCase()
+    );
+    const avatar =
+      matchingRealNpc?.avatar ||
+      matchingRealNpc?.image ||
+      `https://placehold.co/400x400/18181b/D4AF37?text=${encodeURIComponent(
+        newcomer.name.slice(0, 2).toUpperCase()
+      )}`;
+    const qualityScore = 76 + (bnaSeed % 14); // 76 - 89
+    const popularity = 66 + (bnaSeed % 10);   // 66 - 75
+    const hype = 72 + ((bnaSeed >> 3) % 18);  // 72 - 89
+    const streams = 8_500_000 + ((bnaSeed % 38) * 950_000); // 8.5M - 44.6M
+    const views = Math.round(streams * (0.38 + ((bnaSeed % 25) / 100)));
+    const sales = Math.round(streams / 210);
+    const chartPeak = 8 + (bnaSeed % 28);     // #8 - #35
+
+    candidates.push({
+      id: `bna_breakout_${year}_${idx}_${newcomer.name.replace(/\s+/g, '_').toLowerCase()}`,
+      artistName: newcomer.name,
+      isPlayer: false,
+      isBreakoutNewcomer: true,
+      avatar,
+      workTitle: newcomer.name,
+      secondaryLabel: `${newcomer.genre} · Global Breakout Artist`,
+      coverArt: avatar,
+      genre: newcomer.genre,
+      subjectType: 'artist',
+      isCollab: false,
+      hasMV: true,
+      qualityScore,
+      craftMasteryScore: qualityScore,
+      streams,
+      views,
+      sales,
+      chartPeak,
+      weeksOnChart: 10 + (bnaSeed % 10),
+      popularity,
+      hype,
+      fans: 180_000 + (bnaSeed % 420_000),
+      tier: 3,
+      alreadyNominatedBna: false
     });
   });
 
@@ -1822,8 +2067,8 @@ export function evaluateCandidateForCategory(
     chartImpact = clamp100(streamImplied);
   }
   if (isBna && (candidate.isRosterArtist || candidate.isPlayer)) {
-    // Breakout rookies in Best New Artist are judged relative to debut/rookie chart expectations
-    chartImpact = clamp100(Math.max(chartImpact, 72 + Math.min(22, Math.log10(Math.max(5_000, candidate.streams)) * 3.2)));
+    // Modest rookie curve for debut seasons, still requiring genuine streams & chart performance
+    chartImpact = clamp100(Math.max(chartImpact, 42 + Math.min(34, Math.log10(Math.max(1_000, candidate.streams)) * 4.5)));
   }
 
   // 3. Commercial Volume (calibrated to rookie benchmarks for Best New Artist, and A-list milestones for other categories)
@@ -1854,8 +2099,7 @@ export function evaluateCandidateForCategory(
     candidate.popularity * 0.42 + candidate.hype * 0.30 + fanNorm * 0.28
   );
   if (isBna && (candidate.isRosterArtist || candidate.isPlayer)) {
-    // Breakout buzz for signed label rookies & player debut seasons
-    fanAndCulturalHype = clamp100(Math.max(fanAndCulturalHype, 76 + candidate.hype * 0.18));
+    fanAndCulturalHype = clamp100(Math.max(fanAndCulturalHype, 48 + candidate.hype * 0.32));
   }
 
   // 6. Balanced FYC / Voting Campaign Bonus:
@@ -1865,7 +2109,7 @@ export function evaluateCandidateForCategory(
     const rawCampaign = isGrammys ? playerCampaignBonus * 0.52 : playerCampaignBonus * 0.72;
     const preferredBoost = candidate.isPreferredByPlayer ? (isGrammys ? 1.1 : 1.5) : 0;
     const labelRosterBreakoutBoost = candidate.isRosterArtist
-      ? (isBna ? 4.8 : 2.2) + (candidate.rosterCampaignBonus || 0)
+      ? (isBna ? 1.4 : 1.8) + (candidate.rosterCampaignBonus || 0)
       : 0;
     campaignBonus = Math.min(isGrammys ? 6.5 : 7.5, rawCampaign + preferredBoost + labelRosterBreakoutBoost);
   } else {
@@ -1962,10 +2206,18 @@ export function simulateAwardSeason(
   state: GameState,
   show: AwardShowType,
   editionYear: number,
-  phase: 'nominations_announced' | 'ceremony_completed'
+  phase: 'nominations_announced' | 'ceremony_completed',
+  externalPriorWorks?: Set<string>,
+  externalPriorBna?: Set<string>
 ): AwardSeasonRecord {
   const categories = getCategoriesForShow(show);
-  const allCandidates = collectUnifiedCandidates(state, show, editionYear);
+  const allCandidates = collectUnifiedCandidates(
+    state,
+    show,
+    editionYear,
+    externalPriorWorks,
+    externalPriorBna
+  );
   const awardsState = (state as any).awardsState as AwardsSystemState | undefined;
   const playerCampaign =
     show === 'grammys'
@@ -2013,8 +2265,14 @@ export function simulateAwardSeason(
       if (isSoloCategory && c.isCollab) return false;
       if (cat.id.endsWith('_bna')) {
         if (c.alreadyNominatedBna) return false;
-        // Best New Artist is strictly for the Player, Signed Roster Artists, and rising newcomer NPCs (not established Tier 1 megastars)
-        return c.isPlayer || c.isRosterArtist || c.popularity <= 76 || c.tier >= 3;
+        // Best New Artist is strictly for debut-season Player/Roster Artists and breakout newcomer NPCs
+        return (
+          c.isBreakoutNewcomer ||
+          c.isPlayer ||
+          c.isRosterArtist ||
+          c.popularity <= 76 ||
+          c.tier >= 3
+        );
       }
       return doesGenreMatchCategory(c.genre, cat);
     });
@@ -2025,7 +2283,13 @@ export function simulateAwardSeason(
       if (isSoloCategory && c.isCollab) return false;
       if (cat.id.endsWith('_bna')) {
         if (c.alreadyNominatedBna) return false;
-        return c.isPlayer || c.isRosterArtist || c.popularity <= 80;
+        return (
+          c.isBreakoutNewcomer ||
+          c.isPlayer ||
+          c.isRosterArtist ||
+          c.popularity <= 82 ||
+          c.tier >= 2
+        );
       }
       return c.subjectType === cat.subjectType;
     });
@@ -2038,6 +2302,22 @@ export function simulateAwardSeason(
         combinedCandidates.push(c);
       }
     });
+
+    // Ultimate safeguard for Best New Artist so it is never empty or under-filled
+    if (cat.id.endsWith('_bna') && combinedCandidates.length < maxNomineesPerCat + 2) {
+      allCandidates.forEach(c => {
+        if (
+          c.subjectType === 'artist' &&
+          !c.alreadyNominatedBna &&
+          !c.isPlayer &&
+          !c.isRosterArtist &&
+          !seenCandidateIds.has(c.id)
+        ) {
+          seenCandidateIds.add(c.id);
+          combinedCandidates.push(c);
+        }
+      });
+    }
 
     const scored = combinedCandidates.map((c, idx) => {
       const breakdown = evaluateCandidateForCategory(c, cat, playerCampaign, editionYear);

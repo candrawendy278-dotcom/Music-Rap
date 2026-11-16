@@ -19,6 +19,8 @@ import EnhancedRecordingStudio from '../Modals/EnhancedRecordingStudio';
 import EnhancedProjectCreatorModal from '../Modals/EnhancedProjectCreatorModal';
 import EnhancedReleaseModal from '../Modals/EnhancedReleaseModal';
 import YouTubeVisualFormatModal from '../Modals/YouTubeVisualFormatModal';
+import AdvancedEditionsCreatorModal from '../Modals/AdvancedEditionsCreatorModal';
+import SampleClearanceDeskModal from '../Modals/SampleClearanceDeskModal';
 import CatalogItem from './CatalogItem';
 import { ProjectStreamSnapshotModal } from '../Modals/ProjectStreamSnapshotModal';
 import { formatNum } from '../../constants';
@@ -28,6 +30,10 @@ import {
   getRosterTrustAndHiatusInfo
 } from '../../data/rosterTrustHiatusPayrollEngine';
 import { RosterTrustAndHiatusPanel } from '../Apps/RosterTrustAndHiatusCard';
+import {
+  getEnsuredRosterSampleLegalState,
+  getRosterStudioSpecialCounts
+} from '../../data/rosterDeluxeAndSampleEngine';
 
 interface RosterStudioAdapterProps {
   rosterArtist: ImprintSignedArtist;
@@ -47,6 +53,8 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
   const [recordModal, setRecordModal] = useState(false);
   const [projectModal, setProjectModal] = useState(false);
   const [releaseModal, setReleaseModal] = useState(false);
+  const [editionsModal, setEditionsModal] = useState(false);
+  const [samplesModal, setSamplesModal] = useState(false);
   const [visualStudioModal, setVisualStudioModal] = useState(false);
   const [selectedSnapshotItem, setSelectedSnapshotItem] = useState<any>(null);
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'albums' | 'singles' | 'in_progress'>('all');
@@ -64,6 +72,10 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
   );
   const dualContractStatus = useMemo(
     () => getArtistDualContractStatus(ensuredArtist),
+    [ensuredArtist]
+  );
+  const specialCounts = useMemo(
+    () => getRosterStudioSpecialCounts(ensuredArtist),
     [ensuredArtist]
   );
 
@@ -93,11 +105,13 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
       fans: ensuredArtist.fans ?? 15000,
       songs: artistSongs,
       projects: artistProjects,
+      sampleLegalState: getEnsuredRosterSampleLegalState(ensuredArtist),
+      rosterArtistStaffRoster: ensuredArtist.staffRoster || {},
       spotify: {
         ...realState.spotify,
         listeners: ensuredArtist.monthlyListeners || Math.round((ensuredArtist.dailyStreams || 5000) * 28)
       }
-    };
+    } as GameState;
   }, [realState, ensuredArtist, stageName]);
 
   // Intercept setState calls from EnhancedWritingWizard, EnhancedRecordingStudio, EnhancedProjectCreatorModal,
@@ -129,13 +143,15 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
           fans: liveTarget.fans ?? 15000,
           songs: Array.isArray(liveTarget.songs) ? liveTarget.songs : [],
           projects: Array.isArray(liveTarget.projects) ? liveTarget.projects : [],
+          sampleLegalState: getEnsuredRosterSampleLegalState(liveTarget),
+          rosterArtistStaffRoster: liveTarget.staffRoster || {},
           spotify: {
             ...prevRealState.spotify,
             listeners:
               liveTarget.monthlyListeners ||
               Math.round((liveTarget.dailyStreams || 5000) * 28)
           }
-        };
+        } as GameState;
 
         const nextProxy =
           typeof updater === 'function' ? updater(currentProxy) : updater;
@@ -179,6 +195,9 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
           fans: Math.max(0, Math.round(nextProxy.fans ?? liveTarget.fans)),
           songs: updatedSongs,
           projects: updatedProjects,
+          sampleLegalState:
+            (nextProxy as any).sampleLegalState ||
+            getEnsuredRosterSampleLegalState(liveTarget),
           releasesCount:
             ((liveTarget as any).releasesCount || 0) +
             newlyReleasedProjectsCount +
@@ -238,7 +257,12 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
 
     const filtered = rawItems.filter(item => {
       if (catalogFilter === 'albums') {
-        return item.itemType === 'project' && ((item as any).type === 'album' || (item as any).type === 'ep');
+        return (
+          item.itemType === 'project' &&
+          ['album', 'ep', 'deluxe', 'mixtape', 'remaster', 'compilation'].includes(
+            String((item as any).type)
+          )
+        );
       }
       if (catalogFilter === 'singles') {
         return (
@@ -588,6 +612,62 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
                   Rollout &amp; Hype Push
                 </span>
               </button>
+
+              {/* Step 5: Deluxe & Mixtapes (Deluxe LP, Mixtape, Remaster + Vault, Greatest Hits) */}
+              <button
+                onClick={() => {
+                  if (!trustAndHiatusInfo.canStartNewComebackInStudio) {
+                    return setInfoModal({
+                      title: 'Artist Hiatus / Rest Request',
+                      desc:
+                        trustAndHiatusInfo.studioBlockReason ||
+                        `${stageName} needs rest before packaging a special edition.`
+                    });
+                  }
+                  setEditionsModal(true);
+                }}
+                className="bg-apple-card p-4 rounded-3xl shadow-ios border border-apple-border/50 flex flex-col items-center justify-center space-y-2 active:scale-95 transition hover:border-sky-300 group cursor-pointer relative overflow-hidden"
+              >
+                {specialCounts.eligibleParentAlbumsCount > 0 && (
+                  <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[9px] font-black bg-sky-500 text-white shadow-xs">
+                    {specialCounts.eligibleParentAlbumsCount} LP{specialCounts.eligibleParentAlbumsCount > 1 ? 's' : ''} Eligible
+                  </span>
+                )}
+                <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-500 flex items-center justify-center text-2xl mb-1 shadow-sm group-hover:scale-105 transition">
+                  <i className="ph-fill ph-cassette-tape"></i>
+                </div>
+                <span className="font-bold text-sm text-apple-text">Deluxe &amp; Mixtapes</span>
+                <span className="text-[10px] text-apple-subtext font-medium">
+                  Deluxe, Mixtape, Remaster &amp; Hits
+                </span>
+              </button>
+
+              {/* Step 6: Sample & Legal (Crate Dig, MPC Flip, Clear & Lawsuits) */}
+              <button
+                onClick={() => setSamplesModal(true)}
+                className="bg-apple-card p-4 rounded-3xl shadow-ios border border-apple-border/50 flex flex-col items-center justify-center space-y-2 active:scale-95 transition hover:border-amber-300 group cursor-pointer relative overflow-hidden"
+              >
+                {specialCounts.activeLawsuitsCount > 0 ? (
+                  <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-500 text-white shadow-xs">
+                    {specialCounts.activeLawsuitsCount} Lawsuit{specialCounts.activeLawsuitsCount > 1 ? 's' : ''}
+                  </span>
+                ) : specialCounts.unclearedSamplesCount > 0 ? (
+                  <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-black shadow-xs">
+                    {specialCounts.unclearedSamplesCount} Uncleared
+                  </span>
+                ) : specialCounts.sampledTracksCount > 0 ? (
+                  <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-600 text-white shadow-xs">
+                    {specialCounts.sampledTracksCount} Sampled
+                  </span>
+                ) : null}
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center text-2xl mb-1 shadow-sm group-hover:scale-105 transition">
+                  <i className="ph-fill ph-scales"></i>
+                </div>
+                <span className="font-bold text-sm text-apple-text">Sample &amp; Legal</span>
+                <span className="text-[10px] text-apple-subtext font-medium">
+                  Crate dig, clear &amp; disputes
+                </span>
+              </button>
             </div>
 
             {/* Dedicated YouTube Video Production Banner (MV, Lyric Video, Visualizer) */}
@@ -680,6 +760,12 @@ export const RosterStudioAdapter: React.FC<RosterStudioAdapterProps> = ({
           <EnhancedProjectCreatorModal onClose={() => setProjectModal(false)} />
         )}
         {releaseModal && <EnhancedReleaseModal onClose={() => setReleaseModal(false)} />}
+        {editionsModal && (
+          <AdvancedEditionsCreatorModal onClose={() => setEditionsModal(false)} />
+        )}
+        {samplesModal && (
+          <SampleClearanceDeskModal onClose={() => setSamplesModal(false)} />
+        )}
         {visualStudioModal && (
           <YouTubeVisualFormatModal onClose={() => setVisualStudioModal(false)} />
         )}

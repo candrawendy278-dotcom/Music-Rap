@@ -119,7 +119,36 @@ export const ItunesArtistProfileView: React.FC<ItunesArtistProfileViewProps> = (
         rawItem: p
       }));
 
-      return [...songs, ...projs].sort((a, b) => b.sales - a.sales);
+      const ownTitleSet = new Set(songs.map(s => s.title.toLowerCase()));
+      const bilateralForPlayer = getCollaborationsForNpcArtist(effectiveArtistName, state)
+        .filter(c => !ownTitleSet.has(c.title.toLowerCase()))
+        .map((c, idx) => ({
+          id: `player_bi_collab_${idx}_${c.id}`,
+          title: c.title,
+          artist: c.formattedArtistCredits,
+          cover: c.cover || getTrackCoverArt(c.primaryArtist, c.title),
+          type: 'Single',
+          sales: c.sales,
+          streams: c.streams,
+          releaseDate: c.releaseDate || state.date.split('T')[0],
+          genre: (state.artist as any)?.genre || 'Pop',
+          year: String(c.year || gameYear),
+          isAlbum: false,
+          isPlayer: true,
+          rawItem: c.rawPlayerSong || {
+            title: c.title,
+            artist: c.formattedArtistCredits,
+            cover: c.cover,
+            genre: (state.artist as any)?.genre || 'Pop',
+            pureSales: c.sales,
+            streams: c.streams,
+            releaseDate: c.releaseDate || state.date.split('T')[0],
+            isAlbum: false,
+            isPlayer: true
+          }
+        }));
+
+      return [...songs, ...bilateralForPlayer, ...projs].sort((a, b) => b.sales - a.sales);
     } else if (rosterArtist) {
       const rSongs = (rosterArtist.songs || [])
         .filter(s => s && s.status === 'released')
@@ -160,7 +189,36 @@ export const ItunesArtistProfileView: React.FC<ItunesArtistProfileViewProps> = (
           rawItem: p
         }));
 
-      return [...rSongs, ...rProjs].sort((a, b) => b.sales - a.sales);
+      const ownRosterTitleSet = new Set(rSongs.map(s => s.title.toLowerCase()));
+      const bilateralForRoster = getCollaborationsForNpcArtist(effectiveArtistName, state)
+        .filter(c => !ownRosterTitleSet.has(c.title.toLowerCase()))
+        .map((c, idx) => ({
+          id: `roster_bi_collab_${idx}_${c.id}`,
+          title: c.title,
+          artist: c.formattedArtistCredits,
+          cover: c.cover || getTrackCoverArt(c.primaryArtist, c.title),
+          type: 'Single',
+          sales: c.sales,
+          streams: c.streams,
+          releaseDate: c.releaseDate || state.date.split('T')[0],
+          genre: rosterArtist.genre || 'Pop',
+          year: String(c.year || gameYear),
+          isAlbum: false,
+          isPlayer: true,
+          rawItem: c.rawPlayerSong || {
+            title: c.title,
+            artist: c.formattedArtistCredits,
+            cover: c.cover,
+            genre: rosterArtist.genre || 'Pop',
+            pureSales: c.sales,
+            streams: c.streams,
+            releaseDate: c.releaseDate || state.date.split('T')[0],
+            isAlbum: false,
+            isPlayer: true
+          }
+        }));
+
+      return [...rSongs, ...bilateralForRoster, ...rProjs].sort((a, b) => b.sales - a.sales);
     } else {
       const npcSongs = (npcData?.songs || []).map((t: any, idx: number) => {
         const meta = resolveSongMetadataAndCollabCredits(t, effectiveArtistName, state);

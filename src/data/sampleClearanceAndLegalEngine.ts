@@ -483,8 +483,21 @@ export function getLegalCounselClearanceDiscount(state: GameState): {
   royaltyPointReduction: number;
   courtWinBonusChance: number;
 } {
-  const staffRoster = (state as any)?.staffState?.roster || {};
-  const legalStaff = staffRoster['legal_counsel'] || staffRoster['attorney'] || null;
+  const playerStaffRoster = (state as any)?.staffState?.roster || {};
+  const rosterArtistStaff = (state as any)?.rosterArtistStaffRoster || {};
+  const labelStaffRoster =
+    (state as any)?.recordLabelState?.imprint?.labelStaffRoster || {};
+
+  const legalStaff =
+    playerStaffRoster['legal_counsel'] ||
+    playerStaffRoster['attorney'] ||
+    rosterArtistStaff['legal_counsel'] ||
+    rosterArtistStaff['manager'] ||
+    labelStaffRoster['legal_counsel'] ||
+    labelStaffRoster['manager'] ||
+    playerStaffRoster['manager'] ||
+    null;
+
   if (!legalStaff) {
     return {
       hasLegalCounsel: false,
@@ -494,7 +507,10 @@ export function getLegalCounselClearanceDiscount(state: GameState): {
       courtWinBonusChance: 0
     };
   }
-  const lv = Math.max(1, Number(legalStaff.level) || 1);
+  const lv = Math.max(
+    1,
+    Number(legalStaff.level) || Number(legalStaff.tier) * 2 || 1
+  );
   return {
     hasLegalCounsel: true,
     counselLevel: lv,

@@ -224,11 +224,11 @@ export const SpotifyAppearsOnSection: React.FC<SpotifyAppearsOnSectionProps> = (
 
     if (isPlayer) {
       const playerName = state?.artist?.name || 'Artist';
-      const releasedSongs = (state?.songs || []).filter(s => s.status === 'released');
+      const releasedSongs = (state?.songs || []).filter(s => s && s.status === 'released');
 
       releasedSongs.forEach((s: Song) => {
         if (!s.collabId || s.collabId === 'none') return;
-        const collabNpcName = resolvePlayerCollabNpcName(s.collabId, playerName, s.genre);
+        const collabNpcName = resolvePlayerCollabNpcName(s.collabId, playerName, s.genre, state);
         if (!collabNpcName) return;
 
         const key = s.title.toLowerCase().trim();
@@ -250,6 +250,45 @@ export const SpotifyAppearsOnSection: React.FC<SpotifyAppearsOnSectionProps> = (
           streams: s.streams || 0,
           isPlayerPrimary: true,
           rawReleasePayload: { ...s, type: 'single' }
+        });
+      });
+
+      // Also include Roster Artist or NPC songs where the Player is the featured collaborator!
+      const playerBilateral = getCollaborationsForNpcArtist(playerName, state);
+      playerBilateral.forEach((c, idx) => {
+        const key = c.title.toLowerCase().trim();
+        if (seenTitles.has(key)) return;
+        seenTitles.add(key);
+
+        entries.push({
+          id: `pl_bi_collab_${idx}_${c.title}`,
+          title: c.title,
+          primaryArtist: c.primaryArtist,
+          collaboratorName: c.primaryArtist,
+          formattedCredits: c.formattedArtistCredits,
+          cover: c.cover,
+          year: c.year || currentYear,
+          streams: c.streams || 0,
+          isPlayerPrimary: false,
+          rawReleasePayload: {
+            id: `appears_pl_bi_${idx}_${c.title}`,
+            title: c.title,
+            type: 'single',
+            cover: c.cover,
+            year: c.year || currentYear,
+            streams: Math.floor(c.streams || 0),
+            primaryArtist: c.formattedArtistCredits,
+            tracks: [
+              {
+                title: c.title,
+                streams: Math.floor(c.streams || 0),
+                trackType: c.trackType || 'single',
+                artist: c.formattedArtistCredits,
+                hasMV: c.hasMusicVideo,
+                isExplicit: c.isExplicit
+              }
+            ]
+          }
         });
       });
     } else if (npc) {
@@ -301,8 +340,17 @@ export const SpotifyAppearsOnSection: React.FC<SpotifyAppearsOnSectionProps> = (
         });
       });
 
-      // Also inspect the NPC's own songs & album tracks for featured collaborators
-      (npc.songs || []).forEach((s, idx) => {
+      // Also inspect the NPC's / Roster Artist's own songs & album tracks for featured collaborators
+      const ownTrackPool: any[] = [...(npc.songs || [])];
+      (npc.albums || []).forEach(alb => {
+        (alb.tracks || []).forEach(t => {
+          if (t && !ownTrackPool.some(existing => existing.title === t.title)) {
+            ownTrackPool.push({ ...t, cover: (t as any).cover || alb.cover });
+          }
+        });
+      });
+
+      ownTrackPool.forEach((s, idx) => {
         const meta = resolveSongMetadataAndCollabCredits(s, cleanNpcName, state);
         if (!meta.isCollab || meta.featuredArtists.length === 0) return;
         const key = meta.cleanTitle.toLowerCase().trim();
