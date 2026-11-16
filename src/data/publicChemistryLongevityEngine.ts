@@ -244,29 +244,42 @@ export function evaluateSongPublicChemistry(params: {
     surpriseScore * 0.30 +
     collabChemistryAdjustment;
 
-  // Determine the invisible Public Chemistry Tier
+  // Determine the invisible Public Chemistry Tier (Hits are genuinely earned and rare!)
+  const quality = Math.max(1, Math.min(100, song.quality || 55));
   let tier: PublicChemistryTier = 'normal';
 
   if (
     isSingle &&
-    (compositeChemistryScore >= 1.17 || (compositeChemistryScore >= 1.11 && rawPercentile >= 0.84))
+    quality >= 82 &&
+    ((compositeChemistryScore >= 1.22 && rawPercentile >= 0.86) ||
+      (compositeChemistryScore >= 1.26 && rawPercentile >= 0.78))
   ) {
+    // Rare Cultural Mega Hit (~5% of high-quality singles)
     tier = 'mega_hit';
   } else if (
     isSingle &&
-    compositeChemistryScore >= 0.96 &&
-    compositeChemistryScore < 1.17 &&
-    sleeperTriggerRoll >= 0.76
+    quality >= 75 &&
+    compositeChemistryScore >= 1.04 &&
+    compositeChemistryScore < 1.22 &&
+    sleeperTriggerRoll >= 0.85
   ) {
-    // Sleeper Hit: solid quality/trend foundation that catches a delayed viral wave in Week 2-3
+    // Sleeper Hit (~7% of singles): modest start that catches an algorithmic wave in Week 2-3
     tier = 'sleeper_hit';
-  } else if (compositeChemistryScore >= 1.04) {
+  } else if (compositeChemistryScore >= 1.08 && quality >= 72) {
+    // Solid Hit (~18% of releases)
     tier = 'solid_hit';
-  } else if (compositeChemistryScore <= 0.79 || (rawPercentile <= 0.11 && compositeChemistryScore < 0.95)) {
+  } else if (
+    compositeChemistryScore <= 0.83 ||
+    quality < 56 ||
+    (rawPercentile <= 0.16 && compositeChemistryScore < 0.98)
+  ) {
+    // Front-Loaded Flop (~20% of releases)
     tier = 'front_loaded_flop';
-  } else if (compositeChemistryScore <= 0.90) {
+  } else if (compositeChemistryScore <= 0.95) {
+    // Underperform / Lukewarm (~25% of releases)
     tier = 'underperform';
   } else {
+    // Normal Healthy Release (~25% of releases)
     tier = 'normal';
   }
 
@@ -287,130 +300,135 @@ export function evaluateSongPublicChemistry(params: {
 
   // Calculate post-debut trajectory multiplier for daysSinceRelease >= 1
   let postDebutStreamMultiplier = 1.0;
-  let postDebutFloorMultiplier = 0.85;
-  let maxDailyDropAllowance = 0.16;
+  let postDebutFloorMultiplier = 0.72;
+  let maxDailyDropAllowance = 0.18;
 
   switch (tier) {
     case 'front_loaded_flop': {
       // Fanbase checked it out on Day 1, but GP quickly drops it.
       // Steep drop across Days 2-14 and fast chart exit.
       if (daysSinceRelease === 1) {
-        postDebutStreamMultiplier = 0.76;
+        postDebutStreamMultiplier = 0.68;
       } else if (daysSinceRelease <= 3) {
-        postDebutStreamMultiplier = 0.58 - (daysSinceRelease - 2) * 0.08; // 0.58 -> 0.50
+        postDebutStreamMultiplier = 0.52 - (daysSinceRelease - 2) * 0.08; // 0.52 -> 0.44
       } else if (daysSinceRelease <= 7) {
-        postDebutStreamMultiplier = 0.44 - ((daysSinceRelease - 4) / 3) * 0.12; // 0.44 -> 0.32
+        postDebutStreamMultiplier = 0.38 - ((daysSinceRelease - 4) / 3) * 0.10; // 0.38 -> 0.28
       } else if (daysSinceRelease <= 14) {
         const w2Progress = (daysSinceRelease - 7) / 7;
-        postDebutStreamMultiplier = 0.32 - w2Progress * 0.14; // 0.32 -> 0.18
+        postDebutStreamMultiplier = 0.28 - w2Progress * 0.12; // 0.28 -> 0.16
       } else if (daysSinceRelease <= 28) {
         const w3Progress = (daysSinceRelease - 14) / 14;
-        postDebutStreamMultiplier = 0.18 - w3Progress * 0.06; // 0.18 -> 0.12
+        postDebutStreamMultiplier = 0.16 - w3Progress * 0.06; // 0.16 -> 0.10
       } else {
-        postDebutStreamMultiplier = 0.10;
+        postDebutStreamMultiplier = 0.08;
       }
-      postDebutFloorMultiplier = 0.18;
-      maxDailyDropAllowance = 0.34; // Allows authentic steep daily chart drops
+      postDebutFloorMultiplier = 0.15;
+      maxDailyDropAllowance = 0.36; // Allows authentic steep daily chart drops
       break;
     }
 
     case 'underperform': {
-      // Lukewarm reception ("Biasa"): holds okay for a few days, then fades faster in Weeks 2-4
+      // Lukewarm reception ("Biasa"): gentle Day 2 settle, then steady fade across Weeks 1-4
       if (daysSinceRelease <= 3) {
-        postDebutStreamMultiplier = 0.88 - (daysSinceRelease - 1) * 0.05; // 0.88 -> 0.78
+        postDebutStreamMultiplier = 0.82 - (daysSinceRelease - 1) * 0.05; // 0.82 -> 0.72
       } else if (daysSinceRelease <= 7) {
-        postDebutStreamMultiplier = 0.74 - ((daysSinceRelease - 4) / 3) * 0.10; // 0.74 -> 0.64
+        postDebutStreamMultiplier = 0.68 - ((daysSinceRelease - 4) / 3) * 0.10; // 0.68 -> 0.58
       } else if (daysSinceRelease <= 21) {
         const progress = (daysSinceRelease - 7) / 14;
-        postDebutStreamMultiplier = 0.62 - progress * 0.20; // 0.62 -> 0.42
+        postDebutStreamMultiplier = 0.56 - progress * 0.18; // 0.56 -> 0.38
       } else if (daysSinceRelease <= 45) {
         const progress = (daysSinceRelease - 21) / 24;
-        postDebutStreamMultiplier = 0.42 - progress * 0.10; // 0.42 -> 0.32
+        postDebutStreamMultiplier = 0.38 - progress * 0.12; // 0.38 -> 0.26
       } else {
-        postDebutStreamMultiplier = 0.28;
+        postDebutStreamMultiplier = 0.22;
       }
-      postDebutFloorMultiplier = 0.42;
-      maxDailyDropAllowance = 0.24;
+      postDebutFloorMultiplier = 0.35;
+      maxDailyDropAllowance = 0.25;
       break;
     }
 
     case 'normal': {
-      // Standard healthy release lifecycle
-      if (daysSinceRelease <= 7) {
-        postDebutStreamMultiplier = 0.96;
-      } else if (daysSinceRelease <= 28) {
-        postDebutStreamMultiplier = 0.92;
+      // Standard healthy release lifecycle: peaks on Day 1, settles in Week 1, and gradually tapers
+      if (daysSinceRelease <= 3) {
+        postDebutStreamMultiplier = 0.90 - (daysSinceRelease - 1) * 0.03; // 0.90 -> 0.84
+      } else if (daysSinceRelease <= 7) {
+        postDebutStreamMultiplier = 0.82 - ((daysSinceRelease - 4) / 3) * 0.06; // 0.82 -> 0.76
+      } else if (daysSinceRelease <= 21) {
+        const progress = (daysSinceRelease - 7) / 14;
+        postDebutStreamMultiplier = 0.75 - progress * 0.15; // 0.75 -> 0.60
+      } else if (daysSinceRelease <= 45) {
+        const progress = (daysSinceRelease - 21) / 24;
+        postDebutStreamMultiplier = 0.60 - progress * 0.14; // 0.60 -> 0.46
       } else {
-        postDebutStreamMultiplier = 0.88;
+        postDebutStreamMultiplier = 0.42;
       }
-      postDebutFloorMultiplier = 0.82;
-      maxDailyDropAllowance = 0.16;
+      postDebutFloorMultiplier = 0.62;
+      maxDailyDropAllowance = 0.18;
       break;
     }
 
     case 'solid_hit': {
-      // Strong public replay value: resists post-debut decay and holds well for 6-10 weeks
+      // Strong public replay value: holds well near its Week 1 baseline for 3-4 weeks, then tapers naturally
       if (daysSinceRelease <= 6) {
-        postDebutStreamMultiplier = 1.04 + (daysSinceRelease / 6) * 0.08; // 1.04 -> 1.12
-      } else if (daysSinceRelease <= 35) {
-        const holdWave = Math.sin(((daysSinceRelease - 6) / 29) * Math.PI) * 0.10;
-        postDebutStreamMultiplier = 1.16 + holdWave; // 1.16 -> 1.26 -> 1.16
-      } else if (daysSinceRelease <= 75) {
-        const progress = (daysSinceRelease - 35) / 40;
-        postDebutStreamMultiplier = 1.16 - progress * 0.12; // 1.16 -> 1.04
+        postDebutStreamMultiplier = 0.94 + Math.sin((daysSinceRelease / 6) * Math.PI) * 0.08; // 0.94 -> 1.02 -> 0.94
+      } else if (daysSinceRelease <= 24) {
+        const holdWave = Math.sin(((daysSinceRelease - 6) / 18) * Math.PI) * 0.08;
+        postDebutStreamMultiplier = 0.92 + holdWave; // 0.92 -> 1.00 -> 0.92
+      } else if (daysSinceRelease <= 60) {
+        const progress = (daysSinceRelease - 24) / 36;
+        postDebutStreamMultiplier = 0.92 - progress * 0.24; // 0.92 -> 0.68
       } else {
-        postDebutStreamMultiplier = 1.04;
+        postDebutStreamMultiplier = 0.65;
       }
-      postDebutFloorMultiplier = 1.15;
-      maxDailyDropAllowance = 0.10;
+      postDebutFloorMultiplier = 0.88;
+      maxDailyDropAllowance = 0.12;
       break;
     }
 
     case 'sleeper_hit': {
-      // Normal start on Days 1-5, then catches a viral algorithmic/word-of-mouth wave in Days 7-25!
+      // Modest start on Days 1-4, then catches an organic word-of-mouth wave in Days 5-18 before tapering
       if (daysSinceRelease <= 4) {
-        postDebutStreamMultiplier = 0.92 - (daysSinceRelease - 1) * 0.02; // 0.92 -> 0.86
-      } else if (daysSinceRelease <= 22) {
-        // Viral climb phase: surges upward through Week 2 and Week 3
-        const climbProgress = (daysSinceRelease - 4) / 18;
-        const surgeCurve = Math.sin(climbProgress * (Math.PI * 0.75));
-        postDebutStreamMultiplier = 0.90 + surgeCurve * 0.68; // climbs up to ~1.58x!
-      } else if (daysSinceRelease <= 60) {
-        // Extended post-viral residency
-        const progress = (daysSinceRelease - 22) / 38;
-        postDebutStreamMultiplier = 1.48 - progress * 0.30; // 1.48 -> 1.18
+        postDebutStreamMultiplier = 0.88 - (daysSinceRelease - 1) * 0.02; // 0.88 -> 0.82
+      } else if (daysSinceRelease <= 18) {
+        const climbProgress = (daysSinceRelease - 4) / 14;
+        const surgeCurve = Math.sin(climbProgress * (Math.PI * 0.80));
+        postDebutStreamMultiplier = 0.84 + surgeCurve * 0.44; // climbs organically up to ~1.28x peak
+      } else if (daysSinceRelease <= 45) {
+        const progress = (daysSinceRelease - 18) / 27;
+        postDebutStreamMultiplier = 1.16 - progress * 0.34; // 1.16 -> 0.82
       } else {
-        postDebutStreamMultiplier = 1.14;
+        postDebutStreamMultiplier = 0.76;
       }
-      postDebutFloorMultiplier = 1.25;
-      maxDailyDropAllowance = 0.09;
+      postDebutFloorMultiplier = 0.95;
+      maxDailyDropAllowance = 0.11;
       break;
     }
 
     case 'mega_hit': {
-      // Cultural phenomenon: rock-solid Week 1 hold, multi-week peak residency, massive catalog longevity
+      // Rare cultural phenomenon: strong Week 1-3 peak residency (up to ~1.18x), then graceful taper
       if (daysSinceRelease <= 6) {
-        // Holds near or slightly above debut baseline as GP joins the fanbase
-        postDebutStreamMultiplier = 1.08 + Math.sin((daysSinceRelease / 6) * Math.PI) * 0.14;
-      } else if (daysSinceRelease <= 45) {
-        // Dominant multi-week chart reign
-        const reignWave = Math.sin(((daysSinceRelease - 6) / 39) * Math.PI) * 0.22;
-        postDebutStreamMultiplier = 1.28 + reignWave; // 1.28 -> 1.50 -> 1.28
-      } else if (daysSinceRelease <= 100) {
-        const progress = (daysSinceRelease - 45) / 55;
-        postDebutStreamMultiplier = 1.28 - progress * 0.16; // 1.28 -> 1.12
+        postDebutStreamMultiplier = 0.98 + Math.sin((daysSinceRelease / 6) * Math.PI) * 0.12; // 0.98 -> 1.10
+      } else if (daysSinceRelease <= 28) {
+        const reignWave = Math.sin(((daysSinceRelease - 6) / 22) * Math.PI) * 0.16;
+        postDebutStreamMultiplier = 1.02 + reignWave; // 1.02 -> 1.18 -> 1.02
+      } else if (daysSinceRelease <= 75) {
+        const progress = (daysSinceRelease - 28) / 47;
+        postDebutStreamMultiplier = 1.02 - progress * 0.26; // 1.02 -> 0.76
       } else {
-        postDebutStreamMultiplier = 1.12;
+        postDebutStreamMultiplier = 0.72;
       }
-      postDebutFloorMultiplier = 1.42;
-      maxDailyDropAllowance = 0.07;
+      postDebutFloorMultiplier = 1.08;
+      maxDailyDropAllowance = 0.09;
       break;
     }
   }
 
-  // Album B-sides have a slightly gentler version of the multiplier so album tracks remain cohesive
+  // Album B-sides never surge like standalone singles; they follow a cohesive album-cut taper
   if (!isSingle && daysSinceRelease >= 1) {
-    postDebutStreamMultiplier = 1.0 + (postDebutStreamMultiplier - 1.0) * 0.72;
+    postDebutStreamMultiplier = Math.min(
+      0.92,
+      1.0 + (postDebutStreamMultiplier - 1.0) * 0.65
+    );
   }
 
   return {

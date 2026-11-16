@@ -7,6 +7,7 @@ import { Song } from '../types';
 import { getCountryMarketProfile } from './countryMarketSystem';
 import { calculateAuthenticBillboardPoints } from './billboardFormulaEngine';
 import { evaluateSongRegionalBreakoutProfile } from './selectiveRegionalBreakoutEngine';
+import { evaluateSongPublicChemistry, PublicChemistryTier } from './publicChemistryLongevityEngine';
 
 export interface StabilizedStreamsAndViewsInput {
   song: Song;
@@ -58,6 +59,63 @@ export interface CalibratedPlayerTerritoryResult {
 }
 
 /**
+ * Computes a realistic, role-aware and chemistry-aware daily stream ceiling for a track
+ * so album B-sides and standard singles never artificially inflate to 16M+ daily streams,
+ * while genuine rare mega-hits from top stars can still reach blockbuster peaks.
+ */
+export function getTrackRealisticStreamCeiling(params: {
+  artistPopularity: number;
+  artistHype: number;
+  quality: number;
+  isSingle: boolean;
+  chemistryTier: PublicChemistryTier;
+}): number {
+  const { artistPopularity, artistHype, quality, isSingle, chemistryTier } = params;
+  const pop = Math.max(4, Math.min(100, artistPopularity || 15));
+  const hype = Math.max(5, Math.min(100, artistHype || 20));
+  const qualNorm = Math.max(0, Math.min(1, (quality - 45) / 55));
+
+  // Base artist scale at 100 pop is ~4.2M for a standard release
+  const baseArtistScale = 25000 + Math.pow(pop, 2.18) * 180 + Math.pow(hype, 1.75) * 95;
+
+  if (!isSingle) {
+    // Album B-sides / non-singles: naturally much lower ceiling than lead singles (max ~1.6M - 2.3M at 100 pop)
+    const bSideTierMult =
+      chemistryTier === 'solid_hit'
+        ? 0.52
+        : chemistryTier === 'normal'
+        ? 0.38
+        : chemistryTier === 'underperform'
+        ? 0.26
+        : 0.18;
+    return Math.round(baseArtistScale * bSideTierMult * (0.82 + qualNorm * 0.25));
+  }
+
+  // Standalone Singles / Lead Singles: ceiling depends on Public Chemistry Tier
+  let tierCeilingMult = 0.72;
+  if (chemistryTier === 'mega_hit') {
+    // Rare cultural mega-hit: up to ~10.5M - 13.5M for a 95-100 pop superstar with high quality
+    tierCeilingMult = 2.45 + qualNorm * 0.45;
+  } else if (chemistryTier === 'sleeper_hit') {
+    // Viral sleeper hit: up to ~5.5M - 7.2M at top popularity
+    tierCeilingMult = 1.48 + qualNorm * 0.28;
+  } else if (chemistryTier === 'solid_hit') {
+    // Solid hit: up to ~4.8M - 6.2M at top popularity
+    tierCeilingMult = 1.25 + qualNorm * 0.22;
+  } else if (chemistryTier === 'normal') {
+    // Normal single: up to ~3.0M - 3.8M at top popularity
+    tierCeilingMult = 0.82 + qualNorm * 0.14;
+  } else if (chemistryTier === 'underperform') {
+    tierCeilingMult = 0.58 + qualNorm * 0.10;
+  } else {
+    // front_loaded_flop
+    tierCeilingMult = 0.42 + qualNorm * 0.08;
+  }
+
+  return Math.round(baseArtistScale * tierCeilingMult);
+}
+
+/**
  * Returns a balanced home-country affinity multiplier for the player's home market:
  * Contributes meaningfully as a supportive domestic fanbase pillar without monopolizing
  * the player's global market share.
@@ -88,9 +146,10 @@ export function getPlayerHomeMarketAffinityMultiplier(
 
 /**
  * 1. Stabilizes Daily Spotify Streams & YouTube Views from Day 2 onward:
- *    - Soft Day 2 dip (-9% to -16% instead of -40% stacked decay; viral/acclaimed songs can even hold 92%-103%)
- *    - Smooth Week 1 hold (Days 3-7)
- *    - Stable Weeks 2-4 run (compensates for stacked decay across multiple engines)
+ *    - Anchors directly to the un-compounded organic `computedDailyStreams` curve
+ *    - Eliminates the old stackCompensation upward ratchet that pushed every song to 16M
+ *    - Respects Public Chemistry Tier so flops/underperformers/normal tracks naturally settle and taper,
+ *      while only rare Sleeper Hits and Mega Hits can surge during their peak window.
  */
 export function calculateStabilizedStreamsAndViewsHold(
   input: StabilizedStreamsAndViewsInput
@@ -109,98 +168,153 @@ export function calculateStabilizedStreamsAndViewsHold(
 
   const quality = Math.max(40, Math.min(100, song.quality || 70));
   const qualityNorm = (quality - 40) / 60; // 0.0 to 1.0
-  const popNorm = Math.max(0, Math.min(1, artistPopularity / 100));
-  const hypeNorm = Math.max(0, Math.min(1, artistHype / 100));
   const playlistCount = Array.isArray(song.playlistPlacements)
     ? song.playlistPlacements.length
     : 0;
-  const playlistStabilityBonus = Math.min(0.06, playlistCount * 0.012);
+  const playlistStabilityBonus = Math.min(0.04, playlistCount * 0.008);
+
+  const publicChemistry = evaluateSongPublicChemistry({
+    song,
+    daysSinceRelease,
+    isSingle
+  });
+
+  const realisticMaxTrackStreams = getTrackRealisticStreamCeiling({
+    artistPopularity,
+    artistHype,
+    quality,
+    isSingle,
+    chemistryTier: publicChemistry.tier
+  });
 
   const prevStreams = song.dailyStreams || 0;
   const prevViews = song.dailyViews || 0;
 
-  let stabilizedStreams = computedDailyStreams;
+  let stabilizedStreams = Math.min(realisticMaxTrackStreams, computedDailyStreams);
   let stabilizedViews = computedDailyViews;
 
-  // Apply multi-engine stack compensation for Days 2-28 (daysSinceRelease 1..28)
-  if (daysSinceRelease >= 1 && daysSinceRelease <= 28) {
-    // Compensate for simultaneous decay from debutCurve * lifecycleCurve * chemistryCurve * momentum
-    const stackCompensation =
-      daysSinceRelease === 1
-        ? 1.24 + qualityNorm * 0.14
-        : daysSinceRelease <= 6
-        ? 1.28 + qualityNorm * 0.18 + playlistStabilityBonus
-        : daysSinceRelease <= 14
-        ? 1.26 + qualityNorm * 0.20 + playlistStabilityBonus
-        : 1.20 + qualityNorm * 0.18 + playlistStabilityBonus;
-
-    stabilizedStreams = Math.round(computedDailyStreams * stackCompensation);
-    if (song.hasMV && computedDailyViews > 0) {
-      stabilizedViews = Math.round(computedDailyViews * (stackCompensation * 0.96));
-    }
-  }
-
-  // Day-over-day envelope protection so streams & views hold realistically from Day 2 through Week 4
   if (prevStreams > 0 && daysSinceRelease >= 1) {
+    const safePrevStreams = Math.min(prevStreams, realisticMaxTrackStreams);
+    const isWeekend = weekendLift >= 1.02;
+
+    // Smoothly blend 75% today's organic target with 25% yesterday's actual streams to avoid jagged noise
+    // without allowing yesterday's number to compound upward!
+    const organicTarget = Math.min(realisticMaxTrackStreams, computedDailyStreams);
+    const blendedTarget = Math.round(organicTarget * 0.76 + safePrevStreams * 0.24);
+
     let minStreamRetention: number;
     let maxStreamGrowth: number;
 
-    if (daysSinceRelease === 1) {
-      // Day 2 Settle: soft, realistic hold (84% to 92% of Day 1 Debut, or up to 104% if viral/high playlist pickup)
-      minStreamRetention = (isSingle ? 0.84 : 0.80) + qualityNorm * 0.06 + playlistStabilityBonus * 0.5;
-      maxStreamGrowth = 1.06;
-    } else if (daysSinceRelease <= 6) {
-      // Days 3-7 (Rest of Week 1): very stable daily hold (93.5% to 98.5% per day, boosted on weekends)
-      const weekendFactor = weekendLift >= 1.02 ? 1.03 : 1.0;
-      minStreamRetention =
-        (0.935 + qualityNorm * 0.035 + popNorm * 0.015 + playlistStabilityBonus * 0.4) *
-        weekendFactor *
-        organicVariance;
-      maxStreamGrowth = 1.12;
-    } else if (daysSinceRelease <= 28) {
-      // Weeks 2-4: smooth multi-week chart run (95.5% to 99.0% daily retention)
-      const weekendFactor = weekendLift >= 1.02 ? 1.025 : 1.0;
-      minStreamRetention =
-        (0.952 + qualityNorm * 0.028 + popNorm * 0.01 + playlistStabilityBonus * 0.35) *
-        weekendFactor *
-        organicVariance;
-      maxStreamGrowth = 1.09;
-    } else {
-      // Catalog hold (Day 29+)
-      minStreamRetention = 0.945 * organicVariance;
-      maxStreamGrowth = 1.08;
+    switch (publicChemistry.tier) {
+      case 'front_loaded_flop': {
+        // Steep natural post-debut decay; never climbs back up
+        minStreamRetention = (daysSinceRelease <= 3 ? 0.68 : 0.74) * organicVariance;
+        maxStreamGrowth = isWeekend ? 0.96 : 0.92;
+        break;
+      }
+      case 'underperform': {
+        // Lukewarm track: steady downward taper after Day 1
+        minStreamRetention = (daysSinceRelease === 1 ? 0.78 : 0.82) * organicVariance;
+        maxStreamGrowth = isWeekend ? 0.99 : 0.95;
+        break;
+      }
+      case 'normal': {
+        // Healthy standard release or album cut: gentle settle after Day 1, small weekend breathing room, no runaway climb
+        if (daysSinceRelease === 1) {
+          minStreamRetention = (isSingle ? 0.82 : 0.76) + qualityNorm * 0.04;
+          maxStreamGrowth = 0.96;
+        } else if (daysSinceRelease <= 10) {
+          minStreamRetention = (0.88 + qualityNorm * 0.03 + playlistStabilityBonus) * organicVariance;
+          maxStreamGrowth = isWeekend ? 1.025 : 0.985;
+        } else {
+          minStreamRetention = (0.89 + qualityNorm * 0.02) * organicVariance;
+          maxStreamGrowth = isWeekend ? 1.01 : 0.975;
+        }
+        break;
+      }
+      case 'solid_hit': {
+        // Solid hit: holds steadily in Weeks 1-3, then gradually tapers
+        if (daysSinceRelease === 1) {
+          minStreamRetention = 0.86 + qualityNorm * 0.05;
+          maxStreamGrowth = 1.02;
+        } else if (daysSinceRelease <= 18) {
+          minStreamRetention = (0.91 + qualityNorm * 0.03 + playlistStabilityBonus) * organicVariance;
+          maxStreamGrowth = isWeekend ? 1.045 : 1.015;
+        } else {
+          minStreamRetention = (0.90 + qualityNorm * 0.02) * organicVariance;
+          maxStreamGrowth = isWeekend ? 1.015 : 0.985;
+        }
+        break;
+      }
+      case 'sleeper_hit': {
+        // Sleeper hit: modest Days 1-4, organic climb during Days 5-18 (strictly bounded by organicTarget), then tapers
+        if (daysSinceRelease <= 4) {
+          minStreamRetention = 0.84 * organicVariance;
+          maxStreamGrowth = 0.98;
+        } else if (daysSinceRelease <= 18) {
+          minStreamRetention = (0.92 + playlistStabilityBonus) * organicVariance;
+          maxStreamGrowth = isWeekend ? 1.065 : 1.04;
+        } else {
+          minStreamRetention = 0.90 * organicVariance;
+          maxStreamGrowth = isWeekend ? 1.015 : 0.98;
+        }
+        break;
+      }
+      case 'mega_hit': {
+        // Rare cultural phenomenon: strong Week 1-3 hold, bounded by organicTarget so it never ratchets infinitely
+        if (daysSinceRelease === 1) {
+          minStreamRetention = 0.90 + qualityNorm * 0.04;
+          maxStreamGrowth = 1.04;
+        } else if (daysSinceRelease <= 24) {
+          minStreamRetention = (0.93 + qualityNorm * 0.025 + playlistStabilityBonus) * organicVariance;
+          maxStreamGrowth = isWeekend ? 1.055 : 1.025;
+        } else {
+          minStreamRetention = 0.91 * organicVariance;
+          maxStreamGrowth = isWeekend ? 1.015 : 0.985;
+        }
+        break;
+      }
     }
 
-    const realisticMaxTrackStreams = Math.round(
-      95000 + Math.pow(Math.max(4, artistPopularity), 2.32) * 380
-    );
-    const safePrevStreams = Math.min(prevStreams, realisticMaxTrackStreams);
-    const floorStreams = Math.round(safePrevStreams * Math.min(0.99, minStreamRetention));
+    // Album B-sides are never allowed to ratchet upward day after day
+    if (!isSingle && daysSinceRelease >= 1) {
+      maxStreamGrowth = Math.min(maxStreamGrowth, isWeekend ? 1.01 : 0.97);
+      minStreamRetention = Math.min(minStreamRetention, 0.88);
+    }
+
+    const floorStreams = Math.round(safePrevStreams * Math.min(0.96, minStreamRetention));
     const ceilStreams = Math.round(safePrevStreams * maxStreamGrowth);
+
+    // Hard anchor: never allow day-over-day envelope to exceed 1.15x of today's pure organic target!
+    const hardOrganicCap = Math.min(realisticMaxTrackStreams, Math.round(organicTarget * 1.15));
+
     stabilizedStreams = Math.min(
-      realisticMaxTrackStreams,
-      Math.max(floorStreams, Math.min(ceilStreams, stabilizedStreams))
+      hardOrganicCap,
+      Math.max(floorStreams, Math.min(ceilStreams, blendedTarget))
     );
   }
 
-  // Stabilize YouTube daily MV views with the same realistic Day 2 & Week 1-4 hold
+  // Stabilize YouTube daily MV views in sync with the song's organic stream trajectory
   if (song.hasMV && prevViews > 0 && daysSinceRelease >= 1) {
-    let minViewRetention: number;
-    if (daysSinceRelease === 1) {
-      // Soft Day 2 MV settle (82% to 90% of Day 1 premiere views)
-      minViewRetention = 0.82 + qualityNorm * 0.06 + hypeNorm * 0.03;
-    } else if (daysSinceRelease <= 6) {
-      // Week 1 MV hold
-      minViewRetention = (0.93 + qualityNorm * 0.035) * organicVariance;
-    } else if (daysSinceRelease <= 28) {
-      // Weeks 2-4 MV hold
-      minViewRetention = (0.948 + qualityNorm * 0.028) * organicVariance;
-    } else {
-      minViewRetention = 0.94 * organicVariance;
-    }
+    const maxRealisticViews = Math.max(100, Math.round(stabilizedStreams * 1.30));
+    const safePrevViews = Math.min(prevViews, maxRealisticViews);
+    const viewRetention =
+      publicChemistry.tier === 'front_loaded_flop'
+        ? 0.72
+        : publicChemistry.tier === 'underperform'
+        ? 0.80
+        : daysSinceRelease === 1
+        ? 0.84 + qualityNorm * 0.04
+        : (0.89 + qualityNorm * 0.03) * organicVariance;
 
-    const floorViews = Math.round(prevViews * Math.min(0.985, minViewRetention));
-    stabilizedViews = Math.max(floorViews, stabilizedViews);
+    const floorViews = Math.round(safePrevViews * Math.min(0.95, viewRetention));
+    const ceilViews = Math.round(safePrevViews * (weekendLift >= 1.02 ? 1.03 : 0.99));
+    const blendedViews = Math.round(computedDailyViews * 0.75 + safePrevViews * 0.25);
+
+    stabilizedViews = Math.min(
+      maxRealisticViews,
+      Math.max(floorViews, Math.min(ceilViews, blendedViews))
+    );
   }
 
   return {

@@ -1627,7 +1627,12 @@ export function processDailyGlobalRadioEcosystemStep(
       return song;
     }
 
-    dailyStreamDiscoveryAdded += songDailyStreamDiscovery;
+    const cappedDiscovery = Math.min(
+      songDailyStreamDiscovery,
+      Math.max(250, Math.round((song.dailyStreams || 0) * 0.04))
+    );
+
+    dailyStreamDiscoveryAdded += cappedDiscovery;
     const nextDailyRadio = (song.dailyRadioPlays || 0) + songTerritoryDailySpinBoost;
     const nextWeeklyRadio = Math.max(
       nextDailyRadio * 7,
@@ -1639,9 +1644,9 @@ export function processDailyGlobalRadioEcosystemStep(
       radioPlays: (song.radioPlays || 0) + songTerritoryDailySpinBoost,
       dailyRadioPlays: nextDailyRadio,
       weeklyRadioPlays: nextWeeklyRadio,
-      dailyStreams: (song.dailyStreams || 0) + songDailyStreamDiscovery,
-      weeklyStreams: (song.weeklyStreams || 0) + songDailyStreamDiscovery,
-      streams: (song.streams || 0) + songDailyStreamDiscovery
+      dailyStreams: song.dailyStreams || 0,
+      weeklyStreams: (song.weeklyStreams || 0) + cappedDiscovery,
+      streams: (song.streams || 0) + cappedDiscovery
     };
   });
 

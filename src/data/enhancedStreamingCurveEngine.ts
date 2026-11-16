@@ -170,30 +170,11 @@ export function evaluateEnhancedStreamingCurve(params: {
       publicChemistry.postDebutFloorMultiplier
   );
 
-  // 5. Natural Daily Stream Stabilizer
-  // Does NOT block Week 1 post-debut cooldown! Uses Public Chemistry drop allowance so Flops can drop steeply
-  // while Sleeper Hits and Mega Hits can surge and hold naturally.
+  // 5. Pure Organic Daily Stream Target
+  // Day-over-day envelope smoothing is handled once at the final stage in homeCountryAndMarketStabilityImprover.ts
+  // so that external format/market multipliers never compound against yesterday's song.dailyStreams.
   const stabilizedDailyStreams = (rawCalculatedStreams: number): number => {
     const withFloor = Math.max(rawCalculatedStreams, recurrentCatalogFloorStreams);
-    const prevDaily = song.dailyStreams;
-
-    // During Week 1 (daysSinceRelease 0..7), let the natural post-debut cooldown & daily variance happen freely!
-    if (prevDaily && prevDaily > 0 && daysSinceRelease >= 8) {
-      const maxAllowedDropRatio = publicChemistry.maxDailyDropAllowance;
-      const minSmoothThreshold = prevDaily * (1.0 - maxAllowedDropRatio);
-
-      // If a Sleeper Hit or Mega Hit is climbing above previous day, let it rise cleanly
-      if (withFloor >= prevDaily) {
-        return Math.max(25, Math.round(prevDaily * 0.08 + withFloor * 0.92));
-      }
-
-      const blended = withFloor < minSmoothThreshold
-        ? (minSmoothThreshold * 0.48 + withFloor * 0.52)
-        : (prevDaily * 0.14 + withFloor * 0.86);
-
-      return Math.max(25, Math.round(blended));
-    }
-
     return Math.max(25, Math.round(withFloor));
   };
 

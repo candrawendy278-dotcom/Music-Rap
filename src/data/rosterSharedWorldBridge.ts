@@ -370,7 +370,7 @@ export function simulateRosterArtistAsPlayerDaily(
     const nonCompoundingStaffAdd = isContractExpired
       ? 0
       : Math.round(
-          Math.min(18000, organicTrackStreams * (staffBuffs.streamVelocityMult - 1) * 0.25)
+          Math.min(12000, organicTrackStreams * (staffBuffs.streamVelocityMult - 1) * 0.18)
         );
     const finalDailyStreams = organicTrackStreams + nonCompoundingStaffAdd;
 
@@ -440,11 +440,12 @@ export function simulateRosterArtistAsPlayerDaily(
     totalDailyViews += nextDailyViews + nextDailyLyricViews + nextDailyVisualizerViews;
     totalDailySales += nextDailySales;
 
+    // Store organicTrackStreams as `dailyStreams` so staff velocity bonus never compounds into tomorrow's prevStreams baseline!
     const nextSong: Song = {
       ...s,
       artist: stageName,
       streams: prevTotalStreamsSafe + finalDailyStreams,
-      dailyStreams: finalDailyStreams,
+      dailyStreams: organicTrackStreams,
       weeklyStreams: prevWeeklyStreamsSafe + finalDailyStreams,
       pureSales: prevTotalSalesSafe + nextDailySales,
       dailyPureSales: nextDailySales,
