@@ -11,7 +11,14 @@ import { COUNTRY_TIERS } from '../constants';
 import { getCountryMarketProfile, RegionGroup } from './countryMarketSystem';
 import { REAL_WORLD_NPCS } from './realWorldArtistCatalog';
 
+import {
+  evaluateReleaseTerritorialReachProfile,
+  MarketReachScopeTier
+} from './rosterTerritorialReachAndVolumeEngine';
+
 export type RegionalBreakoutArchetype =
+  | 'domestic_powerhouse'        // Strong in Home Country (#1-Top 10 local potential), modest global volume, cold abroad
+  | 'regional_neighbor_wave'     // Strong in Home Country + Home Continent, cold in distant continents
   | 'western_transatlantic'      // Strong in US/CA + select Europe/Oceania, quiet in Asia
   | 'euro_oceania_wave'          // Strong across European markets + Australia/UK, moderate US, low Asia
   | 'asian_pacific_phenomenon'   // Strong in East/Southeast Asia + Oceania, quiet in Europe/LatAm
@@ -24,10 +31,14 @@ export interface SongRegionalBreakoutProfile {
   archetype: RegionalBreakoutArchetype;
   archetypeLabel: string;
   archetypeSummary: string;
+  reachTier: MarketReachScopeTier;
+  footprintVolumeScale: number;
+  homeCountryConcentrationShare: number;
+  homeChartCompetitivenessBoost: number;
   primaryRegions: RegionGroup[];
   secondaryRegions: RegionGroup[];
   breakoutCountries: string[];   // Specific countries where this song caught fire (1.35x - 2.10x)
-  coldCountries: string[];       // Countries where the song failed to connect (0.14x - 0.32x)
+  coldCountries: string[];       // Countries where the song failed to connect (0.06x - 0.28x)
   countryMultipliers: Record<string, number>;
   homeMarketWeightMultiplier: number;
 }
@@ -173,58 +184,74 @@ export function evaluateSongRegionalBreakoutProfile(
     }
   }
 
-  // Choose archetype based on artist origin, genre, quality, popularity, and song seed
+  const reachProfile = evaluateReleaseTerritorialReachProfile({
+    song,
+    artistCountry: homeCode,
+    artistPopularity,
+    artistHype
+  });
+
+  // Choose archetype based on territorial reach tier, artist origin, genre, quality, popularity, and song seed
   const roll = seed % 100;
   let archetype: RegionalBreakoutArchetype;
 
-  const isMassiveGlobalCandidate =
-    (artistPopularity >= 78 && quality >= 85 && hasGlobalPlaylist) ||
-    (artistPopularity >= 85 && quality >= 82) ||
-    (song?.streams || 0) >= 65_000_000;
-
-  if (isMassiveGlobalCandidate && roll < 45) {
-    archetype = 'pan_global_hit';
-  } else if (homeRegion === 'North America' || homeRegion === 'Europe' || homeRegion === 'Oceania') {
-    if (roll < 30) {
-      archetype = 'western_transatlantic'; // Hits US/CA + select EU/AU, quiet in Asia/ID
-    } else if (roll < 52) {
-      archetype = 'euro_oceania_wave';     // Huge in Europe + AU + UK, moderate US, quiet in Asia
-    } else if (roll < 70) {
-      archetype = 'americas_crossover';    // Strong US/CA + LatAm/Spain, quiet in Asia
-    } else if (roll < 88) {
-      archetype = 'selective_multi_country';
-    } else {
-      archetype = 'dual_market_viral';
-    }
-  } else if (homeRegion === 'Southeast Asia' || homeRegion === 'East Asia' || homeRegion === 'South Asia') {
-    if (roll < 34) {
-      archetype = 'asian_pacific_phenomenon'; // Huge across Asia + AU, quiet in EU
-    } else if (roll < 58) {
-      archetype = 'selective_multi_country';  // Hits Home + select Western & Asian countries
-    } else if (roll < 78) {
-      archetype = 'western_transatlantic';    // Crossover into US/UK/EU + Home Country!
-    } else {
-      archetype = 'dual_market_viral';
-    }
+  if (reachProfile.reachTier === 'domestic_only') {
+    archetype = 'domestic_powerhouse';
+  } else if (reachProfile.reachTier === 'regional_cluster') {
+    archetype = 'regional_neighbor_wave';
+  } else if (reachProfile.reachTier === 'pocket_markets') {
+    archetype = roll < 52 ? 'dual_market_viral' : 'selective_multi_country';
   } else {
-    // Latin America, Africa, Middle East
-    if (roll < 35) {
-      archetype = 'americas_crossover';
-    } else if (roll < 62) {
-      archetype = 'selective_multi_country';
-    } else if (roll < 82) {
-      archetype = 'euro_oceania_wave';
+    // global_crossover tier: broad multi-region or pan-global breakout
+    const isMassiveGlobalCandidate =
+      (artistPopularity >= 82 && quality >= 85 && hasGlobalPlaylist) ||
+      (artistPopularity >= 88 && quality >= 82) ||
+      (song?.streams || 0) >= 65_000_000;
+
+    if (isMassiveGlobalCandidate && roll < 55) {
+      archetype = 'pan_global_hit';
+    } else if (homeRegion === 'North America' || homeRegion === 'Europe' || homeRegion === 'Oceania') {
+      if (roll < 38) {
+        archetype = 'western_transatlantic'; // Hits US/CA + select EU/AU, quiet in Asia/ID
+      } else if (roll < 68) {
+        archetype = 'euro_oceania_wave';     // Huge in Europe + AU + UK, moderate US, quiet in Asia
+      } else {
+        archetype = 'americas_crossover';    // Strong US/CA + LatAm/Spain, quiet in Asia
+      }
+    } else if (homeRegion === 'Southeast Asia' || homeRegion === 'East Asia' || homeRegion === 'South Asia') {
+      if (roll < 48) {
+        archetype = 'asian_pacific_phenomenon'; // Huge across Asia + AU, quiet in EU
+      } else {
+        archetype = 'western_transatlantic';    // Crossover into US/UK/EU + Home Country!
+      }
     } else {
-      archetype = 'dual_market_viral';
+      // Latin America, Africa, Middle East
+      if (roll < 52) {
+        archetype = 'americas_crossover';
+      } else {
+        archetype = 'euro_oceania_wave';
+      }
     }
   }
 
   let primaryRegions: RegionGroup[] = [homeRegion];
   let secondaryRegions: RegionGroup[] = [];
-  let archetypeLabel = 'Selective Regional Hit';
-  let archetypeSummary = 'Strong performance in core and select international markets.';
+  let archetypeLabel = reachProfile.reachTierLabel;
+  let archetypeSummary = reachProfile.reachSummary;
 
   switch (archetype) {
+    case 'domestic_powerhouse':
+      primaryRegions = [homeRegion];
+      secondaryRegions = [];
+      archetypeLabel = 'Domestic Powerhouse';
+      archetypeSummary = `Charting strongly in ${homeProfile.name}, with modest organic global reach outside the home market.`;
+      break;
+    case 'regional_neighbor_wave':
+      primaryRegions = [homeRegion];
+      secondaryRegions = [];
+      archetypeLabel = `${homeRegion} Regional Wave`;
+      archetypeSummary = `Strong traction in ${homeProfile.name} and neighboring ${homeRegion} territories, while remaining niche on other continents.`;
+      break;
     case 'western_transatlantic':
       primaryRegions = ['North America', 'Europe', 'Oceania'];
       secondaryRegions = ['Latin America'];
@@ -286,13 +313,17 @@ export function evaluateSongRegionalBreakoutProfile(
   const coldCountries: string[] = [];
   const countryMultipliers: Record<string, number> = {};
 
-  // Pick 3 to 6 specific foreign "Hot Breakout Countries" for this song where it specifically clicks
+  // Pick foreign "Hot Breakout Countries" based on archetype (0 for domestic_powerhouse unless unlocked by catalyst)
   const foreignPool = allCountries.filter(c => c !== homeCode);
   const numHotCountries =
-    archetype === 'dual_market_viral'
+    archetype === 'domestic_powerhouse'
+      ? 0
+      : archetype === 'regional_neighbor_wave'
+      ? 2
+      : archetype === 'dual_market_viral'
       ? 2
       : archetype === 'selective_multi_country'
-      ? 4
+      ? 3
       : archetype === 'pan_global_hit'
       ? 6
       : 4;
@@ -301,7 +332,7 @@ export function evaluateSongRegionalBreakoutProfile(
   const alignedForeign = foreignPool.filter(cc =>
     primaryRegions.includes(getCountryMarketProfile(cc).regionGroup)
   );
-  const candidateHotPool = alignedForeign.length >= numHotCountries ? alignedForeign : foreignPool;
+  const candidateHotPool = alignedForeign.length >= Math.max(1, numHotCountries) ? alignedForeign : foreignPool;
 
   for (let i = 0; i < numHotCountries; i++) {
     const pickIdx = (seed + i * 37) % candidateHotPool.length;
@@ -331,7 +362,6 @@ export function evaluateSongRegionalBreakoutProfile(
     const isCollabHome = collabCountry === cc;
     const isHotCountry = breakoutCountries.includes(cc);
     const inPrimaryRegion = primaryRegions.includes(prof.regionGroup);
-    const inSecondaryRegion = secondaryRegions.includes(prof.regionGroup);
 
     const cHash = deterministicSongHash(song?.id || 1, song?.title || 'Track', cc) % 100;
     const genreResonance = getGenreTerritoryResonance(
@@ -342,8 +372,13 @@ export function evaluateSongRegionalBreakoutProfile(
     );
 
     if (isHome) {
-      // Home country contributes meaningfully (solid pillar), but does NOT swallow the entire global market!
-      countryMultipliers[cc] = 1.65;
+      // Home country is the primary pillar — especially strong for domestic_powerhouse and regional_neighbor_wave
+      countryMultipliers[cc] =
+        archetype === 'domestic_powerhouse'
+          ? 2.25
+          : archetype === 'regional_neighbor_wave'
+          ? 1.90
+          : 1.65;
       return;
     }
 
@@ -354,8 +389,25 @@ export function evaluateSongRegionalBreakoutProfile(
 
     let baseMult = 0.45;
 
-    if (archetype === 'pan_global_hit') {
-      // Even a global smash has countries where it's huge (1.35x-1.65x) and countries where it's moderate (0.45x-0.85x)
+    if (archetype === 'domestic_powerhouse') {
+      // Strictly domestic release: only traces in same-region neighbors, virtually cold everywhere else
+      if (isHotCountry) {
+        baseMult = 1.15 + (cHash / 100) * 0.25;
+      } else if (prof.regionGroup === homeRegion && cHash < 35) {
+        baseMult = 0.22 + (cHash / 100) * 0.14;
+      } else {
+        baseMult = 0.06 + (cHash / 100) * 0.09;
+      }
+    } else if (archetype === 'regional_neighbor_wave') {
+      // Strong in Home Region, cold in distant continents
+      if (isHotCountry) {
+        baseMult = 1.32 + (cHash / 100) * 0.32;
+      } else if (prof.regionGroup === homeRegion) {
+        baseMult = cHash < 65 ? 0.88 + (cHash / 100) * 0.36 : 0.42 + (cHash / 100) * 0.20;
+      } else {
+        baseMult = 0.10 + (cHash / 100) * 0.12;
+      }
+    } else if (archetype === 'pan_global_hit') {
       if (isHotCountry) {
         baseMult = 1.35 + (cHash / 100) * 0.35;
       } else if (inPrimaryRegion) {
@@ -364,19 +416,16 @@ export function evaluateSongRegionalBreakoutProfile(
         baseMult = 0.35 + (cHash / 100) * 0.40;
       }
     } else if (archetype === 'western_transatlantic') {
-      // Example: Hits in US/CA and ~60% of Europe/Oceania, but NOT a hit in Indonesia/Asia!
       if (isHotCountry) {
         baseMult = 1.40 + (cHash / 100) * 0.40;
       } else if (prof.regionGroup === 'North America' || prof.regionGroup === 'Oceania') {
         baseMult = 1.05 + (cHash / 100) * 0.35;
       } else if (prof.regionGroup === 'Europe') {
-        // Hits in some European countries, moderate/cold in others
         baseMult = cHash < 58 ? 1.08 + (cHash / 100) * 0.42 : 0.32 + (cHash / 100) * 0.25;
       } else if (prof.regionGroup === 'East Asia' || prof.regionGroup === 'Southeast Asia' || prof.regionGroup === 'South Asia') {
-        // Explicitly cold in Asia (e.g. Indonesia, Japan, Korea) unless it was the artist's home country
-        baseMult = 0.14 + (cHash / 100) * 0.18;
+        baseMult = 0.12 + (cHash / 100) * 0.14;
       } else {
-        baseMult = 0.30 + (cHash / 100) * 0.25;
+        baseMult = 0.25 + (cHash / 100) * 0.20;
       }
     } else if (archetype === 'euro_oceania_wave') {
       if (isHotCountry) {
@@ -386,7 +435,7 @@ export function evaluateSongRegionalBreakoutProfile(
       } else if (prof.regionGroup === 'North America') {
         baseMult = 0.55 + (cHash / 100) * 0.35;
       } else {
-        baseMult = 0.16 + (cHash / 100) * 0.20;
+        baseMult = 0.14 + (cHash / 100) * 0.16;
       }
     } else if (archetype === 'asian_pacific_phenomenon') {
       if (isHotCountry) {
@@ -396,8 +445,7 @@ export function evaluateSongRegionalBreakoutProfile(
       } else if (prof.regionGroup === 'Oceania' || prof.regionGroup === 'North America') {
         baseMult = 0.48 + (cHash / 100) * 0.35;
       } else {
-        // Low in Europe / LatAm
-        baseMult = 0.15 + (cHash / 100) * 0.18;
+        baseMult = 0.12 + (cHash / 100) * 0.15;
       }
     } else if (archetype === 'americas_crossover') {
       if (isHotCountry) {
@@ -405,28 +453,27 @@ export function evaluateSongRegionalBreakoutProfile(
       } else if (prof.regionGroup === 'North America' || prof.regionGroup === 'Latin America' || cc === 'ES' || cc === 'PT') {
         baseMult = cHash < 68 ? 1.10 + (cHash / 100) * 0.38 : 0.45 + (cHash / 100) * 0.25;
       } else {
-        baseMult = 0.16 + (cHash / 100) * 0.20;
+        baseMult = 0.14 + (cHash / 100) * 0.16;
       }
     } else if (archetype === 'selective_multi_country') {
       if (isHotCountry) {
         baseMult = 1.55 + (cHash / 100) * 0.45;
-      } else if (cHash < 25) {
-        // Secondary pocket countries where it also charts
+      } else if (cHash < 20) {
         baseMult = 0.95 + (cHash / 100) * 0.35;
         if (!breakoutCountries.includes(cc)) breakoutCountries.push(cc);
       } else if (inPrimaryRegion) {
-        baseMult = 0.55 + (cHash / 100) * 0.25;
+        baseMult = 0.42 + (cHash / 100) * 0.22;
       } else {
-        baseMult = 0.16 + (cHash / 100) * 0.20;
+        baseMult = 0.12 + (cHash / 100) * 0.15;
       }
     } else {
       // dual_market_viral
       if (isHotCountry) {
         baseMult = 1.65 + (cHash / 100) * 0.45;
-      } else if (inPrimaryRegion && cHash < 40) {
-        baseMult = 0.65 + (cHash / 100) * 0.25;
+      } else if (inPrimaryRegion && cHash < 32) {
+        baseMult = 0.48 + (cHash / 100) * 0.22;
       } else {
-        baseMult = 0.14 + (cHash / 100) * 0.18;
+        baseMult = 0.10 + (cHash / 100) * 0.14;
       }
     }
 
@@ -434,7 +481,7 @@ export function evaluateSongRegionalBreakoutProfile(
       priorityReg && prof.regionGroup === priorityReg ? 1.35 : 1.0;
 
     const combinedMult = Math.max(
-      0.12,
+      0.05,
       Math.min(2.35, baseMult * (0.65 + genreResonance * 0.35) * priorityTerritoryBoost)
     );
     countryMultipliers[cc] = Number(combinedMult.toFixed(3));
@@ -444,12 +491,13 @@ export function evaluateSongRegionalBreakoutProfile(
     }
   });
 
-  // Home Market Weight Multiplier for territorial share pie:
-  // Balanced so Home Country contributes meaningfully (e.g. 12% - 26% depending on country size and scope)
-  // without ever monopolizing 60%-80% of the player's global streams on regional/global releases!
   const isHighLoyaltyHome = ['ID', 'KR', 'JP', 'NG', 'BR', 'PH', 'MX', 'IN', 'TH', 'VN', 'TR', 'AR', 'CO', 'PL'].includes(homeCode);
   const homeMarketWeightMultiplier =
-    homeCode === 'US'
+    archetype === 'domestic_powerhouse'
+      ? 4.25
+      : archetype === 'regional_neighbor_wave'
+      ? 3.10
+      : homeCode === 'US'
       ? 1.35
       : homeCode === 'GB'
       ? 1.75
@@ -461,6 +509,10 @@ export function evaluateSongRegionalBreakoutProfile(
     archetype,
     archetypeLabel,
     archetypeSummary,
+    reachTier: reachProfile.reachTier,
+    footprintVolumeScale: reachProfile.footprintVolumeScale,
+    homeCountryConcentrationShare: reachProfile.homeCountryConcentrationShare,
+    homeChartCompetitivenessBoost: reachProfile.homeChartCompetitivenessBoost,
     primaryRegions,
     secondaryRegions,
     breakoutCountries,

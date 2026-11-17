@@ -8,6 +8,10 @@ import { getCountryMarketProfile } from './countryMarketSystem';
 import { calculateAuthenticBillboardPoints } from './billboardFormulaEngine';
 import { evaluateSongRegionalBreakoutProfile } from './selectiveRegionalBreakoutEngine';
 import { evaluateSongPublicChemistry, PublicChemistryTier } from './publicChemistryLongevityEngine';
+import {
+  evaluateReleaseTerritorialReachProfile,
+  getOriginMarketSalesAndViewsMultipliers,
+} from './rosterTerritorialReachAndVolumeEngine';
 
 export interface StabilizedStreamsAndViewsInput {
   song: Song;
@@ -19,6 +23,7 @@ export interface StabilizedStreamsAndViewsInput {
   isSingle: boolean;
   weekendLift: number;
   organicVariance: number;
+  artistCountry?: string;
 }
 
 export interface StabilizedStreamsAndViewsResult {
@@ -36,6 +41,7 @@ export interface StabilizedPureSalesInput {
   playerFans: number;
   isSingle: boolean;
   organicVariance: number;
+  artistCountry?: string;
 }
 
 export interface CalibratedPlayerTerritoryInput {
@@ -179,19 +185,57 @@ export function calculateStabilizedStreamsAndViewsHold(
     isSingle
   });
 
-  const realisticMaxTrackStreams = getTrackRealisticStreamCeiling({
+  const originCountry = (
+    input.artistCountry ||
+    (song as any)?.artistCountry ||
+    (song as any)?.country ||
+    'US'
+  ).toUpperCase();
+
+  const reachProfile = evaluateReleaseTerritorialReachProfile({
+    song,
+    artistCountry: originCountry,
+    artistPopularity,
+    artistHype,
+  });
+
+  const originMultipliers = getOriginMarketSalesAndViewsMultipliers(
+    originCountry,
+    reachProfile.reachTier
+  );
+
+  // Scale realistic stream ceiling by territorial footprint so domestic-only or regional releases
+  // have realistic modest global ceilings instead of automatic global blockbuster ceilings
+  const rawMaxTrackStreams = getTrackRealisticStreamCeiling({
     artistPopularity,
     artistHype,
     quality,
     isSingle,
     chemistryTier: publicChemistry.tier
   });
+  const realisticMaxTrackStreams = Math.max(
+    800,
+    Math.round(rawMaxTrackStreams * reachProfile.footprintVolumeScale)
+  );
+
+  const scaledComputedStreams = Math.max(
+    120,
+    Math.round(computedDailyStreams * reachProfile.footprintVolumeScale)
+  );
+  const scaledComputedViews = Math.max(
+    0,
+    Math.round(
+      computedDailyViews *
+        reachProfile.footprintVolumeScale *
+        originMultipliers.youtubeViewsMultiplier
+    )
+  );
 
   const prevStreams = song.dailyStreams || 0;
   const prevViews = song.dailyViews || 0;
 
-  let stabilizedStreams = Math.min(realisticMaxTrackStreams, computedDailyStreams);
-  let stabilizedViews = computedDailyViews;
+  let stabilizedStreams = Math.min(realisticMaxTrackStreams, scaledComputedStreams);
+  let stabilizedViews = scaledComputedViews;
 
   if (prevStreams > 0 && daysSinceRelease >= 1) {
     const safePrevStreams = Math.min(prevStreams, realisticMaxTrackStreams);
@@ -199,7 +243,7 @@ export function calculateStabilizedStreamsAndViewsHold(
 
     // Smoothly blend 75% today's organic target with 25% yesterday's actual streams to avoid jagged noise
     // without allowing yesterday's number to compound upward!
-    const organicTarget = Math.min(realisticMaxTrackStreams, computedDailyStreams);
+    const organicTarget = Math.min(realisticMaxTrackStreams, scaledComputedStreams);
     const blendedTarget = Math.round(organicTarget * 0.76 + safePrevStreams * 0.24);
 
     let minStreamRetention: number;
@@ -309,7 +353,7 @@ export function calculateStabilizedStreamsAndViewsHold(
 
     const floorViews = Math.round(safePrevViews * Math.min(0.95, viewRetention));
     const ceilViews = Math.round(safePrevViews * (weekendLift >= 1.02 ? 1.03 : 0.99));
-    const blendedViews = Math.round(computedDailyViews * 0.75 + safePrevViews * 0.25);
+    const blendedViews = Math.round(scaledComputedViews * 0.75 + safePrevViews * 0.25);
 
     stabilizedViews = Math.min(
       maxRealisticViews,
@@ -383,20 +427,49 @@ export function calculateStabilizedDailyPureSales(
     targetConversionRate *= 0.42;
   }
 
-  // Dedicated core fanbase purchase support during Week 1
+  const originCountry = (
+    input.artistCountry ||
+    (song as any)?.artistCountry ||
+    (song as any)?.country ||
+    'US'
+  ).toUpperCase();
+  const reachProfile = evaluateReleaseTerritorialReachProfile({
+    song,
+    artistCountry: originCountry,
+    artistPopularity,
+    artistHype,
+  });
+  const originMultipliers = getOriginMarketSalesAndViewsMultipliers(
+    originCountry,
+    reachProfile.reachTier
+  );
+
+  // Dedicated core fanbase purchase support during Week 1 (scaled by territorial reach & origin purchasing propensity)
   const fanSupportBonus =
     isSingle && daysSinceRelease <= 6
       ? Math.round(
           Math.min(1800, Math.pow(Math.max(0, playerFans), 0.54) * 0.14) *
-            (daysSinceRelease === 0 ? 1.0 : daysSinceRelease === 1 ? 0.85 : 0.72)
+            (daysSinceRelease === 0 ? 1.0 : daysSinceRelease === 1 ? 0.85 : 0.72) *
+            reachProfile.footprintVolumeScale *
+            originMultipliers.pureSalesMultiplier
         )
       : 0;
 
   const calibratedStreamSales = Math.round(
-    stabilizedDailyStreams * targetConversionRate * organicVariance + fanSupportBonus
+    stabilizedDailyStreams *
+      targetConversionRate *
+      originMultipliers.pureSalesMultiplier *
+      organicVariance +
+      fanSupportBonus
   );
 
-  let finalSales = Math.max(computedDailySales, calibratedStreamSales);
+  const scaledComputedSales = Math.round(
+    computedDailySales *
+      reachProfile.footprintVolumeScale *
+      originMultipliers.pureSalesMultiplier
+  );
+
+  let finalSales = Math.max(scaledComputedSales, calibratedStreamSales);
 
   // Enforce smooth day-over-day pure sales retention during Week 1 & Weeks 2-4
   const prevSales = song.dailyPureSales || 0;
@@ -474,18 +547,39 @@ export function calculateCalibratedPlayerTerritoryMetrics(
   const songCountryMult = breakoutProfile.countryMultipliers[targetRegion] ?? 0.65;
 
   if (isHomeMarket) {
-    affinityMultiplier = getPlayerHomeMarketAffinityMultiplier(homeCountry);
+    const scopeHint =
+      breakoutProfile.reachTier === 'domestic_only'
+        ? 'domestic_sensation'
+        : breakoutProfile.reachTier === 'regional_cluster'
+        ? 'regional_hit'
+        : 'global_crossover';
+    affinityMultiplier =
+      getPlayerHomeMarketAffinityMultiplier(homeCountry, scopeHint) *
+      breakoutProfile.homeChartCompetitivenessBoost;
   } else if (isBreakoutCountry) {
     // Foreign country where this specific song caught fire!
     affinityMultiplier = songCountryMult * 1.42;
   } else if (isColdCountry) {
-    // Country/region where this song did NOT connect (e.g., US/EU hit that didn't cross over to Indonesia/Asia)
-    affinityMultiplier = songCountryMult * 0.72;
+    // Country/region where this song did NOT connect (e.g., domestic-only or regional track in an unexpanded foreign market)
+    affinityMultiplier =
+      breakoutProfile.reachTier === 'domestic_only'
+        ? songCountryMult * 0.35
+        : breakoutProfile.reachTier === 'regional_cluster'
+        ? songCountryMult * 0.45
+        : songCountryMult * 0.72;
   } else {
     affinityMultiplier = songCountryMult;
   }
 
-  const effectiveTerritoryScale = npcCompatibleMarketFraction * affinityMultiplier;
+  // For domestic-only and regional releases, a much larger share of their modest global streams/sales/views
+  // originates from their Home Country so they can hit #1-Top 10 locally without needing massive global totals!
+  const rawTerritoryScale = npcCompatibleMarketFraction * affinityMultiplier;
+  const effectiveTerritoryScale = isHomeMarket
+    ? Math.max(
+        rawTerritoryScale,
+        breakoutProfile.homeCountryConcentrationShare * 0.82
+      )
+    : rawTerritoryScale;
 
   // Global metrics for the song (strictly bounded so low-stream tracks never get phantom sales/radio/views spikes)
   const globalDailyStreams = Math.max(0, song.dailyStreams || 0);
@@ -608,10 +702,22 @@ export function calculateCalibratedPlayerTerritoryMetrics(
     const globalRelativeRatio = playerGlobalScore / topGlobalNpcScore;
 
     if (isHomeMarket) {
-      const homeSupportRatio = globalRelativeRatio * 0.92;
+      // Compensate globalRelativeRatio for domestic/regional footprint compression so an artist with modest
+      // global streams can still compete for #1-Top 10 on their Home Country chart!
+      const footprintCompensation =
+        1 / Math.max(0.26, breakoutProfile.footprintVolumeScale || 1.0);
+      const compensatedHomeRatio =
+        globalRelativeRatio *
+        Math.min(2.65, footprintCompensation * 0.88) *
+        breakoutProfile.homeChartCompetitivenessBoost;
+      const homeSupportRatio = Math.min(1.18, compensatedHomeRatio * 0.92);
       const homeSupportFloorPoints = Math.round(topRegionNpcScore * homeSupportRatio);
-      // Cap Home Country so it contributes realistically (max 28% for medium markets, 38% for US) instead of dominating
-      const maxHomeShareCap = homeCountry === 'US' ? 0.38 : 0.28;
+      // Allow domestic-only releases to concentrate up to 62%-78% of their modest global volume in their Home Country,
+      // while global crossover hits remain capped at 28%-38%
+      const maxHomeShareCap = Math.max(
+        homeCountry === 'US' ? 0.38 : 0.28,
+        breakoutProfile.homeCountryConcentrationShare
+      );
       const maxAllowedByGlobal = Math.max(points, Math.round(playerGlobalScore * maxHomeShareCap));
       const targetHomePoints = Math.min(maxAllowedByGlobal, homeSupportFloorPoints);
 

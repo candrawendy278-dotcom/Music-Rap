@@ -22,6 +22,12 @@ import {
   syncWorldNpcDeduplicationWithRoster,
 } from './rosterLifecycleAndNpcDedupEngine';
 import { processDailyRosterSampleAndEditionStep } from './rosterDeluxeAndSampleEngine';
+import {
+  buildRosterArtistIndependentSkillState,
+  evaluateReleaseTerritorialReachProfile,
+  getOriginMarketSalesAndViewsMultipliers,
+} from './rosterTerritorialReachAndVolumeEngine';
+import { getEnsuredRosterCountryExpansionMap } from './rosterInternationalShowsEngine';
 
 export type SharedWorldRosterEntry = ImprintSignedArtist & {
   artist: ImprintSignedArtist;
@@ -330,23 +336,34 @@ export function simulateRosterArtistAsPlayerDaily(
   const nextDaysUntilRelease = art.daysUntilNextRelease || 24;
   let droppedNewReleaseTitle: string | null = null;
 
-  // 2. Run the EXACT SAME `processDailyMarketStep` used for the Player (passing state.skills)!
+  // 2. Run `processDailyMarketStep` using the Roster Artist's OWN independent skill profile (NOT the Player's maxed skills!)
   const artistTier = currentPop >= 75 ? 2 : currentPop >= 45 ? 1 : 3;
   const currentFans = Math.max(250, Number(art.fans) || Math.round(currentPop * 4200));
+  const rosterArtistSkills = buildRosterArtistIndependentSkillState(art);
+  const rosterCountryExpansionMap = getEnsuredRosterCountryExpansionMap(art);
+  const completedShowsCount = Array.isArray((art as any).internationalShowsHistory)
+    ? (art as any).internationalShowsHistory.length
+    : 0;
+
+  // Tag songs with the Roster Artist's origin country & expansion metadata so downstream territorial evaluators have full context
+  const taggedSongsForStep = updatedSongs.map((s) => ({
+    ...s,
+    artistCountry: art.country || 'US',
+  }));
 
   const marketResult = processDailyMarketStep(
-    updatedSongs,
+    taggedSongsForStep,
     updatedProjects,
     art.country || 'US',
     currentPop,
     currentHype,
     artistTier,
     currentDate,
-    state.skills,
+    rosterArtistSkills,
     currentFans
   );
 
-  // Accumulate daily streams, views, sales & radio spins strictly bounded by the Roster Artist's actual dailyStreams & popularity
+  // Accumulate daily streams, views, sales & radio spins strictly bounded by the Roster Artist's actual territorial reach & popularity
   let totalDailyStreams = 0;
   let totalDailyViews = 0;
   let totalDailySales = 0;
@@ -364,43 +381,106 @@ export function simulateRosterArtistAsPlayerDaily(
     const daysOut = Math.max(1, s.daysSinceRelease || 1);
     const daysInCurrentWeek = Math.min(7, daysOut);
 
+    // Evaluate this Roster Artist track's territorial reach profile (including foreign shows, collabs, priority region & label push)
+    const reachProfile = evaluateReleaseTerritorialReachProfile({
+      song: s,
+      artistCountry: art.country || 'US',
+      artistPopularity: currentPop,
+      artistHype: currentHype,
+      countryExpansionMap: rosterCountryExpansionMap,
+      completedShowsCount,
+      potential: art.potential,
+    });
+    const originMultipliers = getOriginMarketSalesAndViewsMultipliers(
+      art.country || 'US',
+      reachProfile.reachTier
+    );
+
+    // Scale realistic track ceiling by the track's territorial footprint (so a Domestic-Only or Regional artist has modest global totals
+    // while still charting #1-Top 10 in their Home Country!)
+    const territoryAdjustedMaxTrackDaily = Math.max(
+      900,
+      Math.round(realisticMaxTrackDaily * reachProfile.footprintVolumeScale)
+    );
+
+    // Note: `calculateStabilizedStreamsAndViewsHold` inside `processDailyMarketStep` already applied base `footprintVolumeScale`,
+    // so we apply a subtle adjustment if the Roster Artist has unlocked extra foreign markets via International Shows
+    const baseReachWithoutShows = evaluateReleaseTerritorialReachProfile({
+      song: s,
+      artistCountry: art.country || 'US',
+      artistPopularity: currentPop,
+      artistHype: currentHype,
+    });
+    const showExpansionLift = Math.max(
+      0.85,
+      Math.min(1.65, reachProfile.footprintVolumeScale / Math.max(0.22, baseReachWithoutShows.footprintVolumeScale))
+    );
+
     const organicTrackStreams = Math.min(
-      realisticMaxTrackDaily,
-      Math.max(120, Math.round(s.dailyStreams || 0))
+      territoryAdjustedMaxTrackDaily,
+      Math.max(120, Math.round((s.dailyStreams || 0) * showExpansionLift))
     );
     const nonCompoundingStaffAdd = isContractExpired
       ? 0
       : Math.round(
-          Math.min(12000, organicTrackStreams * (staffBuffs.streamVelocityMult - 1) * 0.18)
+          Math.min(
+            Math.round(9500 * reachProfile.footprintVolumeScale),
+            organicTrackStreams * (staffBuffs.streamVelocityMult - 1) * 0.16
+          )
         );
     const finalDailyStreams = organicTrackStreams + nonCompoundingStaffAdd;
 
-    // Proportional caps so low dailyStreams NEVER have inflated sales, MV views, or radio spins from maxed Player skills
+    // Proportional caps calibrated to origin market purchasing power & YouTube culture
     const maxRealisticDailySales = Math.max(
-      15,
-      Math.round(finalDailyStreams * (daysOut <= 3 ? 0.0045 : 0.0022))
+      10,
+      Math.round(
+        finalDailyStreams *
+          (daysOut <= 3 ? 0.0042 : 0.0020) *
+          originMultipliers.pureSalesMultiplier
+      )
     );
-    const nextDailySales = Math.min(maxRealisticDailySales, Math.max(0, Math.round(s.dailyPureSales || 0)));
+    const nextDailySales = Math.min(
+      maxRealisticDailySales,
+      Math.max(0, Math.round((s.dailyPureSales || 0) * showExpansionLift))
+    );
 
     const maxRealisticDailyViews = s.hasMV
-      ? Math.max(80, Math.round(finalDailyStreams * 1.25))
+      ? Math.max(
+          60,
+          Math.round(finalDailyStreams * 1.22 * originMultipliers.youtubeViewsMultiplier)
+        )
       : 0;
     const nextDailyViews = s.hasMV
-      ? Math.min(maxRealisticDailyViews, Math.max(0, Math.round(s.dailyViews || 0)))
+      ? Math.min(
+          maxRealisticDailyViews,
+          Math.max(0, Math.round((s.dailyViews || 0) * showExpansionLift))
+        )
       : 0;
 
     const nextDailyLyricViews = s.hasLyricVideo
-      ? Math.min(Math.round(finalDailyStreams * 0.35), Math.max(0, Math.round(s.dailyLyricVideoViews || 0)))
+      ? Math.min(
+          Math.round(finalDailyStreams * 0.32 * originMultipliers.youtubeViewsMultiplier),
+          Math.max(0, Math.round((s.dailyLyricVideoViews || 0) * showExpansionLift))
+        )
       : 0;
     const nextDailyVisualizerViews = s.hasVisualizer
-      ? Math.min(Math.round(finalDailyStreams * 0.28), Math.max(0, Math.round(s.dailyVisualizerViews || 0)))
+      ? Math.min(
+          Math.round(finalDailyStreams * 0.25 * originMultipliers.youtubeViewsMultiplier),
+          Math.max(0, Math.round((s.dailyVisualizerViews || 0) * showExpansionLift))
+        )
       : 0;
 
-    const radioAdd = isContractExpired ? 0 : Math.round(staffBuffs.radioSpinsBonus * 0.25);
+    const radioAdd = isContractExpired ? 0 : Math.round(staffBuffs.radioSpinsBonus * 0.22);
     const maxRealisticDailyRadio =
       s.trackType === 'b_side'
         ? 0
-        : Math.max(10, Math.round(currentPop * 16 + finalDailyStreams * 0.0045));
+        : Math.max(
+            8,
+            Math.round(
+              (currentPop * 14 + finalDailyStreams * 0.0042) *
+                Math.max(0.45, reachProfile.footprintVolumeScale)
+            )
+          );
     const nextDailyRadio = Math.min(
       maxRealisticDailyRadio,
       Math.max(0, Math.round((s.dailyRadioPlays || 0) * (currentPop / 100)) + radioAdd)

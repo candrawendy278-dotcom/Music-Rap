@@ -436,7 +436,9 @@ export function getEnsuredRosterCountryExpansionMap(
   artist: ImprintSignedArtist
 ): Record<string, number> {
   const rawMap = (artist as any).countryExpansionMap;
-  const homeCountry = artist.country || 'US';
+  const homeCountry = (artist.country || 'US').toUpperCase();
+  const homeMeta = ROSTER_INTERNATIONAL_COUNTRIES.find(c => c.countryCode === homeCountry);
+  const homeRegion = homeMeta?.regionGroup || 'North America';
   const basePop = Math.max(10, Number(artist.popularity) || 32);
 
   const result: Record<string, number> = {};
@@ -448,9 +450,14 @@ export function getEnsuredRosterCountryExpansionMap(
     if (existingVal !== undefined) {
       result[c.countryCode] = Math.max(0, Math.min(100, Math.round(existingVal)));
     } else if (c.countryCode === homeCountry) {
-      result[c.countryCode] = Math.min(95, Math.max(35, Math.round(basePop * 0.95)));
+      // Strong home-country fanbase foundation (48% - 95%)
+      result[c.countryCode] = Math.min(95, Math.max(48, Math.round(basePop * 1.12)));
+    } else if (c.regionGroup === homeRegion) {
+      // Neighboring same-region markets start with modest awareness (12% - 36%)
+      result[c.countryCode] = Math.min(38, Math.max(10, Math.round(basePop * 0.34)));
     } else {
-      result[c.countryCode] = Math.min(45, Math.max(8, Math.round(basePop * 0.28)));
+      // Distant foreign continents start cold (4% - 22%) until expanded via shows, collabs, or global hits
+      result[c.countryCode] = Math.min(24, Math.max(4, Math.round((basePop - 12) * 0.22)));
     }
   }
   return result;
@@ -466,16 +473,34 @@ export function getRosterArtistCountryExpansionMultiplier(
   region: string
 ): number {
   if (!region || region === 'global') return 1.0;
+  const homeCountry = (artist.country || 'US').toUpperCase();
+  const targetRegion = region.toUpperCase();
   const map = getEnsuredRosterCountryExpansionMap(artist);
-  const penetration = map[region] ?? Math.min(40, Math.max(10, Math.round((artist.popularity || 32) * 0.3)));
+  const penetration =
+    map[targetRegion] ??
+    (targetRegion === homeCountry
+      ? Math.min(95, Math.max(50, Math.round((artist.popularity || 32) * 1.1)))
+      : Math.min(22, Math.max(5, Math.round((artist.popularity || 32) * 0.22))));
 
-  // Baseline 30% penetration = 1.0x; 100% penetration = 1.85x regional chart & stream power!
-  const baseMult = 0.82 + (penetration / 100) * 1.03;
+  // Steep realistic penetration curve:
+  // - Home country or high penetration (70% - 100%): 1.15x - 1.75x
+  // - Moderate regional penetration (35% - 69%): 0.65x - 1.14x
+  // - Low unexpanded foreign penetration (< 25%): 0.14x - 0.42x so domestic-only acts don't chart in every foreign country
+  let baseMult: number;
+  if (targetRegion === homeCountry) {
+    baseMult = 1.18 + (penetration / 100) * 0.55;
+  } else if (penetration < 25) {
+    baseMult = 0.12 + (penetration / 25) * 0.30; // 0.12x - 0.42x
+  } else if (penetration < 50) {
+    baseMult = 0.42 + ((penetration - 25) / 25) * 0.46; // 0.42x - 0.88x
+  } else {
+    baseMult = 0.88 + ((penetration - 50) / 50) * 0.78; // 0.88x - 1.66x
+  }
 
   const activeShow: ActiveRosterInternationalShow | null =
     (artist as any).activeInternationalShow || null;
   const activeShowBoost =
-    activeShow && activeShow.countryCode === region ? 1.28 : 1.0;
+    activeShow && activeShow.countryCode === targetRegion ? 1.35 : 1.0;
 
   return Number((baseMult * activeShowBoost).toFixed(3));
 }
